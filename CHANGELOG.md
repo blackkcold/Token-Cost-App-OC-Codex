@@ -5,9 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.6.0] - 2026-05-26
+
+### Added
+
+- **设置持久化加固**：全局 Theme 从 `TokenCostSettings` 迁移至 `AppPreferences`（统一全局偏好，修复多存储文件 theme 不一致问题）；新增 `scenePhase` 终止保存钩子确保设置落盘；内存缓存 + 写穿透模式优化（`AppPreferences.swift`、`AppPreferencesModel.swift`、`Models.swift`、`TokenCostApp.swift`、`ContentView.swift`）
+- **设置保存稳定性**：`AppPreferencesStore` 和 `SettingsStore` 保留 `.atomic` 原子写入与写前备份，移除会误判失败并阻塞主线程的写后同步回读校验（`AppPreferences.swift`、`SettingsStore.swift`）
+- **备份轮转上限**：设置备份保留最近 10 份，防止无限累积（`AppPreferences.swift`、`SettingsStore.swift`）
+- **DeepSeek API 按量费用计入总览**：`DashboardAnalytics` 中 `apiCost` 计算扩展至全 Provider；`providerEffectiveCosts` 在 rawCost 为 0 时兜底 `syntheticApiCost`；新增 `deepseek-chat`/`deepseek-reasoner` model alias 映射到 `deepseek-v4-flash`/`deepseek-v4-pro`；`TotalView.openCodeOverviewCost` API 模式使用 analytics + summary 双重 fallback（`DashboardAnalytics.swift`、`TotalView.swift`）
+- **人民币/美元计价切换**：新增 `DisplayCurrency` 枚举和 `AppPreferences.displayCurrency` 字段；设置页新增币种切换 Picker；总计页、OpenCode 详情页所有价格展示均随币种动态切换；自定义月费输入根据币种自动换算（`AppPreferences.swift`、`BillingPlanCatalog.swift`、`Components.swift`、`AppPreferencesModel.swift`、`SettingsView.swift`、`TotalView.swift`、`DetailView.swift`）
+- **内置定价文档**：`Pricing.md` 新增 DeepSeek API 价目表（中英双语）
+- **菜单栏总计页信息**：菜单栏新增总计概述卡片（综合月费 / 综合 Input Tokens / OpenCode 消息数 / Codex 会话数）和最近 7 天 OpenCode 日用量迷你趋势图；OpenCode 的 API 模式费用通过 `TokenCostDashboardAnalytics` 计算、订阅模式下直接读取 `monthlyUSD`；综合费用计入全部五个 Provider 的已订阅方案；趋势图数据直接在 `rawData` 上按日期分组求和，不走完整 Analytics 管线（`MenuBarView.swift`、`Localizable.strings`）
+- **Keychain 静默读取**：`SecureCredentialStore.read()` 使用 `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，无授权时静默返回 nil 不弹窗；`discoverCredentials()` 添加内存缓存避免重复读取；首次凭证写入时"Always Allow"一次性授权长期生效（`SecureCredentialStore.swift`）
+- **Keychain 设备锁定**：`kSecAttrAccessible` 改为 `WhenUnlockedThisDeviceOnly`，凭证不跨设备 iCloud 同步（`SecureCredentialStore.swift`）
+- **OpenCode Zen CLI 路径修复**：`locateBinary()` 覆盖 5 个标准安装路径（Homebrew + 官方 install script），每个路径带 `codesign` 签名校验（`OpenCodeZenBalanceProvider.swift`）
+- **设置 JSON 兼容解码**：修正 `ID` / `USD` 缩写字段与 `convertFromSnakeCase` 的映射，确保 `preset_id`、`custom_monthly_usd`、`selected_source_id`、`opencode_go_workspace_id` 能稳定往返解码（`AppPreferences.swift`、`BillingPlanCatalog.swift`、`Models.swift`）
+- **启动 Keychain 写入移除**：`AppPreferencesModel.init()` 不再每次启动写入 `workspaceID` 到 Keychain（`AppPreferencesModel.swift`）
+- **DeepSeek 月费参考预设**：新增 `deepseek-api-cn-monthly` 预设方案（¥50/月估），方便用户将 DeepSeek 费用纳入总计页（`BillingPlanCatalog.swift`）
+- **统一计费计算模型**：重构 `billingOverridesByProviderKey()` 覆盖全部 5 个 Provider（不再仅限 OpenCode），每个 Provider 独立判断：已启用固定订阅用月费，否则走 API 估算；新增 `openCodeOverviewCost()` 和 `combinedMonthlyCost()` 统一入口，`TotalView` 和 `MenuBarView` 改为共用同一公式，消除双重计数和 fallback 不一致；降级 `DashboardAnalytics` 中硬编码订阅表为 `legacyFallbackMonthlyCosts`，用户方案优先；总成本 UI 文案明确为「已启用订阅费用 + 未订阅部分 API 估算成本」；全部订阅关闭时总成本全部按 API 估算（`BillingPlanCatalog.swift`、`DashboardAnalytics.swift`、`TotalView.swift`、`MenuBarView.swift`、`Localizable.strings` 中英双语、`Pricing.md`）
+- **写后验证诊断日志**：`SafeFileStore`、`AppPreferencesStore`、`SettingsStore` 在 DEBUG 模式下输出 encode/decode 往返的 JSON 内容及验证失败信息（`SafeFileStore.swift`、`AppPreferences.swift`、`SettingsStore.swift`）
+
+### Fixed
+
+- **App 设置重启后回到默认值**：移除保存后立即回读 + `Thread.sleep` retry 的误判路径，并修复 snake_case JSON 解码中 `ID` / `USD` 缩写字段不匹配导致的 fallback-to-defaults（`AppPreferences.swift`、`SettingsStore.swift`、`BillingPlanCatalog.swift`、`Models.swift`）
+- **Keychain 自动发现边界过宽**：余额自动刷新只静默读取已保存 Keychain、环境变量和 opencode-bar 配置，不再自动触发浏览器 Cookie 提取或把 env/config 写回 Keychain；浏览器导入仅保留在用户确认的 Settings 操作中（`SecureCredentialStore.swift`、`SettingsView.swift`）
+- **总计页总成本被 OpenCode 阻塞**：`TotalView.combinedCost` 和 `MenuBarView.combinedCost` 此前以 `guard let openCodeOverviewCost else { return nil }` 阻塞，导致 OpenCode 未配置/无数据时总成本直接显示「不提供」，忽略已订阅的其他 Provider。现已改为各 Provider 独立累加，任一有费用即显示（`TotalView.swift`、`MenuBarView.swift`）
+- **CodexSessionModel 启动时非必要自动 persist**：移除 `bootstrap()` 中 load 成功后无条件 `persistSettings()` 调用，避免写后验证失败干扰正常的设置加载错误提示（`CodexSessionModel.swift`）
+- **persist 错误不再覆盖设置加载警告**：`TokenCostModel.persistSettings()` 和 `CodexSessionModel.persistSettings()` 在 save 失败时不再将 `settingsLoadWarningMessage` 覆盖为 save 错误信息，改为仅在 DEBUG 模式输出日志（`TokenCostModel.swift`、`CodexSessionModel.swift`）
+- **DeepSeek V4-Pro 定价更新**：促销价（2.5折）已于 2026/05/31 到期，正价已生效：input $1.74、output $3.48、cacheRead $0.0145（`DashboardAnalytics.swift`、`docs/Provider 计费定价速查.md`）
+- **总计页总成本双重计数已彻底解决**：通过统一 `combinedMonthlyCost()` 消除 TotalView 和 MenuBarView 的重复手动累加公式，全部 5 个 Provider 的费用由同一入口计算（`BillingPlanCatalog.swift`、`TotalView.swift`、`MenuBarView.swift`）
+- **取消订阅后费用反涨已彻底解决**：`providerEffectiveCosts()` 现在对全部 Provider 生效，billingOverride 覆盖后不再错误回退到 rawCost，用户方案贯穿 analytics 全链路（`DashboardAnalytics.swift`、`BillingPlanCatalog.swift`）
+- **OpenCode 硬编码 fallback 移除**：`providerEffectiveCosts()` 中针对 `"opencode-go"` 的特殊 case 和 `subscriptionMonthlyCosts["opencode-go"]` 硬编码 $10 已删除，改为与其他 Provider 一致的逻辑（`DashboardAnalytics.swift`）
+- **OpenCode 卡片计价模式区分**：`TotalView` OpenCode 卡片在订阅模式下显示方案价格而非 analytics API 费用（`TotalView.swift`）
+- **billingOverride 范围修正**：`billingOverridesByProviderKey()` 从遍历全部 5 个 Provider 改为仅输出 OpenCode override，避免 `analytics` 计算 OpenCode 数据源费用时被其他 Provider 的月费覆盖（`BillingPlanCatalog.swift`）
+
+### Changed
+- **总计页移除冗余设置卡片**：`TotalView` 删除 `overviewSettingsCard` 和 `openCodePlanSubtitle`，OpenCode 计价模式切换统一在设置页管理（`TotalView.swift`）
+
+### Security
+
+- **Release 构建日志清理**：`UpdateChecker.swift` 和 `UpdateCheckerModel.swift` 中 8 处 `print()` 增加 `#if DEBUG` 包裹，防止路径/文件大小泄露
+- **浏览器临时文件隔离**：Cookie/History SQLite 副本从 `/tmp` 迁移至沙箱专用子目录（`BrowserCookieExtractor.swift`）
+- **Keychain 删除校验**：`SecItemDelete` 返回值检查，失败时 DEBUG 日志告警（`SecureCredentialStore.swift`）
+- **路径穿越加固**：`SafeFileStore.relativeURL` 增加 `..` 路径组件早期拒绝（`SafeFileStore.swift`）
+- **opencode CLI 路径锁定**：禁用 `which` 从 PATH 查找，仅用已知固定路径（`OpenCodeZenBalanceProvider.swift`）
+- **更新包签名校验**：ditto 解压后 `codesign --verify` 验证 .app 签名完整性（`UpdateChecker.swift`）
+- **扫描根白名单**：禁止添加 `/`、`/System`、`/Users` 等系统根路径为扫描根（`SourceDiscoveryService.swift`）
+- **运行时根标识符统一**：`TokenCostPaths.bundleIdentifier` 与 `CodexAppPaths` 统一为 `com.yanghaoran.CodexTokenCost`（`AppPaths.swift`）
+- **Keychain 静默授权**：`SecItemCopyMatching` 使用 `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，已有授权静默返回，无授权不弹窗；自动刷新链路不写入 Keychain、不读取浏览器 Cookie（`SecureCredentialStore.swift`）
+- **opencode CLI 路径校验**：多路径候选 + `codesign --verify` 签名校验，防止执行未签名二进制（`OpenCodeZenBalanceProvider.swift`）
+
 ## [v0.5.1] - 2026-05-20
 
-> 当前下一版目标为 `v0.5.1`，以下为相对 `v0.5.0` 的累计变更。
+> 相对 `v0.5.0` 的累计变更。
 
 ### Added
 - **浏览器凭证自动导入**：从 Edge / Chrome / Brave / Arc 自动提取 opencode.ai 的 Cookie 和 Workspace ID，通过 Keychain + PBKDF2 + AES-128-CBC 本地解密后存入钥匙串（`BrowserCookieExtractor.swift`、`CommonCryptoBridge.c`、`SecureCredentialStore.swift`、`SettingsView.swift`）
@@ -127,6 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
+[v0.6.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.5.1...v0.6.0
 [v0.5.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.1.1...v0.5.0
 [v0.1.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.1.0
