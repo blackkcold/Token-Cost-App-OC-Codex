@@ -15,10 +15,12 @@ final class AppPreferencesModel: ObservableObject {
         self.preferences = loaded.preferences
         self.loadWarningMessage = loaded.errorMessage
         AppLocalization.setLanguage(loaded.preferences.language)
-        if let wid = loaded.preferences.opencodeGoWorkspaceID {
-            SecureCredentialStore.saveWorkspaceID(wid)
-        }
         try? CodexAppPaths.ensureRuntimeDirectories()
+    }
+
+    func migrateThemeFromSettingsIfNeeded(_ legacyTheme: TokenCostThemeChoice) {
+        guard preferences.theme == .ocean, legacyTheme != .ocean else { return }
+        updatePreferences { $0.theme = legacyTheme }
     }
 
     var languageBinding: Binding<AppDisplayLanguage> {
@@ -32,12 +34,23 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
-    var openCodePricingModeBinding: Binding<OverviewPricingMode> {
+    var displayCurrencyBinding: Binding<DisplayCurrency> {
         Binding(
-            get: { self.preferences.openCodePricingMode },
+            get: { self.preferences.displayCurrency },
             set: { newValue in
                 self.updatePreferences { preferences in
-                    preferences.openCodePricingMode = newValue
+                    preferences.displayCurrency = newValue
+                }
+            }
+        )
+    }
+
+    var themeBinding: Binding<TokenCostThemeChoice> {
+        Binding(
+            get: { self.preferences.theme },
+            set: { newValue in
+                self.updatePreferences { preferences in
+                    preferences.theme = newValue
                 }
             }
         )
@@ -58,7 +71,14 @@ final class AppPreferencesModel: ObservableObject {
         Binding(
             get: {
                 let selection = self.preferences.billingSelection(for: provider)
-                return selection.mode == .customMonthlyUSD ? BillingPlanCatalog.customOptionID : selection.presetID
+                if selection.mode == .customMonthlyUSD {
+                    return BillingPlanCatalog.customOptionID
+                }
+                if selection.isSubscribed,
+                   !BillingPlanCatalog.isSubscriptionPresetID(selection.presetID) {
+                    return BillingPlanCatalog.defaultSubscriptionSelection(for: provider).presetID
+                }
+                return selection.presetID
             },
             set: { optionID in
                 self.updatePreferences { preferences in
@@ -69,7 +89,11 @@ final class AppPreferencesModel: ObservableObject {
                         current.customMonthlyUSD = current.customMonthlyUSD ?? fallbackCost
                     } else {
                         current.mode = .preset
-                        current.presetID = optionID
+                        if BillingPlanCatalog.isSubscriptionPresetID(optionID) {
+                            current.presetID = optionID
+                        } else {
+                            current.presetID = BillingPlanCatalog.defaultSubscriptionSelection(for: provider).presetID
+                        }
                         current.customMonthlyUSD = nil
                     }
                     preferences.setBillingSelection(current, for: provider)
@@ -82,14 +106,22 @@ final class AppPreferencesModel: ObservableObject {
         Binding(
             get: {
                 let selection = self.preferences.billingSelection(for: provider)
-                return selection.customMonthlyUSD ?? BillingPlanCatalog.resolve(provider: provider, selection: selection).monthlyUSD ?? 1
+                let usdCost = selection.customMonthlyUSD ?? BillingPlanCatalog.resolve(provider: provider, selection: selection).monthlyUSD ?? 1
+                if self.preferences.displayCurrency == .cny {
+                    return usdCost * BillingPlanCatalog.exchangeRateUSDToCNY
+                }
+                return usdCost
             },
             set: { newValue in
-                guard BillingPlanCatalog.isValidCustomCost(newValue) else { return }
+                guard newValue.isFinite, newValue > 0 else { return }
                 self.updatePreferences { preferences in
                     var selection = preferences.billingSelection(for: provider)
                     selection.mode = .customMonthlyUSD
-                    selection.customMonthlyUSD = newValue
+                    if preferences.displayCurrency == .cny {
+                        selection.customMonthlyUSD = newValue / BillingPlanCatalog.exchangeRateUSDToCNY
+                    } else {
+                        selection.customMonthlyUSD = newValue
+                    }
                     preferences.setBillingSelection(selection, for: provider)
                 }
             }
@@ -102,6 +134,15 @@ final class AppPreferencesModel: ObservableObject {
             set: { newValue in
                 self.updatePreferences { preferences in
                     var selection = preferences.billingSelection(for: provider)
+                    if newValue,
+                       BillingPlanCatalog.subscriptionPresets(for: provider).isEmpty {
+                        return
+                    }
+                    if newValue,
+                       selection.mode == .preset,
+                       !BillingPlanCatalog.isSubscriptionPresetID(selection.presetID) {
+                        selection = BillingPlanCatalog.defaultSubscriptionSelection(for: provider)
+                    }
                     selection.isSubscribed = newValue
                     preferences.setBillingSelection(selection, for: provider)
                 }
@@ -156,12 +197,24 @@ final class AppPreferencesModel: ObservableObject {
         persistPreferences()
     }
 
-    private func persistPreferences() {
+    func persistPreferences() {
+
+    func updateSkillsPanel(showSource: Bool? = nil, showState: Bool? = nil, showTags: Bool? = nil, previewLength: Int? = nil) {
+        updatePreferences { prefs in
+            if let v = showSource { prefs.skillsPanel.showSourceColumn = v }
+            if let v = showState { prefs.skillsPanel.showStateColumn = v }
+            if let v = showTags { prefs.skillsPanel.showTagsColumn = v }
+            if let v = previewLength { prefs.skillsPanel.previewLength = v }
+        }
+    }
         do {
             try store.save(preferences)
             loadWarningMessage = nil
         } catch {
             loadWarningMessage = error.localizedDescription
+#if DEBUG
+            print("[AppPreferencesModel] persistPreferences failed: \(error.localizedDescription)")
+#endif
         }
     }
 }

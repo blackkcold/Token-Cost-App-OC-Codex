@@ -166,7 +166,6 @@ final class CodexTokenCostCoreTests: XCTestCase {
         let preferences = try JSONDecoder().decode(AppPreferences.self, from: data)
 
         XCTAssertEqual(preferences.language, .zhHans)
-        XCTAssertEqual(preferences.openCodePricingMode, .api)
         XCTAssertEqual(preferences.resolvedBillingPlan(for: .opencode).monthlyUSD, 10)
         XCTAssertEqual(preferences.resolvedBillingPlan(for: .codex).monthlyUSD, 20)
         XCTAssertEqual(preferences.resolvedBillingPlan(for: .minimax).monthlyUSD ?? 0, 98 / 7.2, accuracy: 0.0001)
@@ -186,6 +185,83 @@ final class CodexTokenCostCoreTests: XCTestCase {
 
         XCTAssertEqual(preferences.resolvedBillingPlan(for: .opencode).monthlyUSD, 15)
         XCTAssertEqual(preferences.billingOverridesByProviderKey()["opencode-go"], 15)
+    }
+
+    func testSubscriptionPresetsExcludeUsageBasedOptions() {
+        let deepSeekPresetIDs = BillingPlanCatalog.subscriptionPresets(for: .deepseek).map(\.id)
+        XCTAssertTrue(deepSeekPresetIDs.isEmpty, "DeepSeek has no fixed subscription presets")
+        XCTAssertFalse(deepSeekPresetIDs.contains("deepseek-api-paygo"))
+
+        let codexPresetIDs = BillingPlanCatalog.subscriptionPresets(for: .codex).map(\.id)
+        XCTAssertTrue(codexPresetIDs.contains("chatgpt-plus"))
+        XCTAssertTrue(codexPresetIDs.contains("chatgpt-pro"))
+        XCTAssertFalse(codexPresetIDs.contains("chatgpt-business-codex-paygo"))
+    }
+
+    func testUsageBasedDeepSeekSelectionControlsCombinedCost() {
+        var preferences = AppPreferences()
+        for provider in BillingProvider.allCases {
+            preferences.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 1_000_000,
+                totalActualTokens: 1_000_000,
+                totalCacheReadTokens: 0,
+                totalCacheWriteTokens: 0,
+                totalCacheTokens: 0,
+                totalCost: 0,
+                totalMessages: 1,
+                activeDays: 1,
+                dateRange: .init(start: "2026-05-15", end: "2026-05-15"),
+                updatedAt: "2026-05-15T12:00:00Z"
+            ),
+            dailyTotals: [:],
+            modelTotals: [:],
+            providerCosts: [:],
+            providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-05-15",
+                    model: "deepseek-chat",
+                    provider: "deepseek",
+                    input: 1_000_000,
+                    output: 0,
+                    reasoning: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    cacheWriteMissingCount: 0,
+                    cacheWriteReportedCount: 1,
+                    total: 1_000_000,
+                    cost: 0,
+                    msgCount: 1
+                )
+            ]
+        )
+
+        // DeepSeek paygo disabled: API usage counts (DeepSeek has no fixed subscription)
+        preferences.setBillingSelection(
+            BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false),
+            for: .deepseek
+        )
+        let disabledCost = preferences.combinedMonthlyCost(payload: payload) ?? 0
+        XCTAssertEqual(disabledCost, 0.14, accuracy: 0.0001)
+
+        // DeepSeek: subscription toggle is disabled; subscribed=true is normalized away by AppPreferencesModel guard
+        // and by resolve() normalizing usageBased→isSubscribed=false. Combined cost remains API-only.
+        preferences.setBillingSelection(
+            BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: true),
+            for: .deepseek
+        )
+        let enabledCost = preferences.combinedMonthlyCost(payload: payload) ?? 0
+        XCTAssertEqual(enabledCost, 0.14, accuracy: 0.0001)
     }
 
     func testTotalActualInputTokensSumsRowInputDirectlyWithoutCacheSubtraction() {
@@ -341,7 +417,69 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertNil(json["opencode_go_workspace_id"])
     }
 
+    func testAppPreferencesStorePersistsAutomaticSettings() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("app_preferences_store_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = AppPreferencesStore(runtimeRoot: tempDir)
+        var preferences = AppPreferences(balanceEnabled: true, theme: .violet, displayCurrency: .cny)
+        preferences.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: false),
+            for: .opencode
+        )
+
+        try store.save(preferences)
+
+        let loaded = store.load()
+        XCTAssertFalse(loaded.didFallbackToDefaults)
+        XCTAssertEqual(loaded.preferences.balanceEnabled, true)
+        XCTAssertEqual(loaded.preferences.theme, .violet)
+        XCTAssertEqual(loaded.preferences.displayCurrency, .cny)
+        XCTAssertEqual(loaded.preferences.billingSelection(for: .opencode).isSubscribed, false)
+    }
+
+    func testSettingsStorePersistsSourceSettings() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("settings_store_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = SettingsStore(runtimeRoot: tempDir)
+        let settings = TokenCostSettings(
+            sourceRoots: ["/tmp/opencode"],
+            manualSourcePaths: ["/tmp/opencode/state.db"],
+            selectedSourceID: "selected-source",
+            autoRescan: false,
+            maxScanDepth: 3,
+            maxScanCandidates: 12,
+            snapshotRetentionCount: 7,
+            theme: .forest,
+            showZeroUsageXiaomiProvider: true
+        )
+
+        try store.save(settings)
+
+        let loaded = store.load()
+        XCTAssertFalse(loaded.didFallbackToDefaults)
+        XCTAssertEqual(loaded.settings.sourceRoots, ["/tmp/opencode"])
+        XCTAssertEqual(loaded.settings.manualSourcePaths, ["/tmp/opencode/state.db"])
+        XCTAssertEqual(loaded.settings.selectedSourceID, "selected-source")
+        XCTAssertEqual(loaded.settings.autoRescan, false)
+        XCTAssertEqual(loaded.settings.snapshotRetentionCount, 7)
+        XCTAssertEqual(loaded.settings.showZeroUsageXiaomiProvider, true)
+    }
+
     // MARK: - SecureCredentialStore workspace-id round trip with isolated service
+
+    func testKeychainReadQueryUsesAuthenticationUISkip() {
+        let query = SecureCredentialStore.readQuery(
+            account: "workspace-id",
+            service: "com.test.read-query"
+        )
+
+        XCTAssertEqual(query[kSecUseAuthenticationUI as String] as? String, kSecUseAuthenticationUISkip as String)
+        XCTAssertNil(query[kSecUseAuthenticationUISkip as String])
+    }
 
     func testWorkspaceIDRoundTripWithIsolatedService() {
         let testService = "com.test.workspace-id-test-\(UUID().uuidString)"
@@ -590,6 +728,248 @@ final class CodexTokenCostCoreTests: XCTestCase {
         let browsers = BrowserKind.allCases
         XCTAssertEqual(browsers.first, .edge)
         XCTAssertEqual(browsers.count, 4)
+    }
+
+    // MARK: - Unified billing model
+
+    func testBillingOverridesCoversAllFiveProvidersWhenSubscribed() {
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "chatgpt-plus", isSubscribed: true),
+            for: .codex
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "minimax-plus-speed-monthly", isSubscribed: true),
+            for: .minimax
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "mimo-current-default", isSubscribed: true),
+            for: .xiaomiMimo
+        )
+        // DeepSeek has no fixed subscription; toggle is disabled.
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false),
+            for: .deepseek
+        )
+
+        let overrides = prefs.billingOverridesByProviderKey()
+        XCTAssertEqual(overrides["opencode-go"], 10)
+        XCTAssertEqual(overrides["openai"], 20)
+        XCTAssertGreaterThan(overrides["minimax-cn-coding-plan"] ?? 0, 0)
+        XCTAssertGreaterThan(overrides["xiaomi-token-plan-cn"] ?? 0, 0)
+        XCTAssertNil(overrides["deepseek-api-cn"], "DeepSeek has no subscription preset")
+    }
+
+    func testBillingOverridesExcludesUnsubscribedAndNormalizesUsageBasedSubscriptions() {
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        // Codex: subscribed but usage-based gets normalized to the default fixed subscription.
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "chatgpt-business-codex-paygo", isSubscribed: true),
+            for: .codex
+        )
+        // MiniMax: not subscribed
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "minimax-plus-speed-monthly", isSubscribed: false),
+            for: .minimax
+        )
+
+        let overrides = prefs.billingOverridesByProviderKey()
+        XCTAssertEqual(overrides["opencode-go"], 10)
+        XCTAssertEqual(overrides["openai"], 20)
+        XCTAssertNil(overrides["minimax-cn-coding-plan"])
+    }
+
+    func testCombinedMonthlyCostAllSubscribed() {
+        let payload = makeTestPayload(provider: "opencode-go", rawCost: 0.01)
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            let presetID = BillingPlanCatalog.defaultSelection(for: provider).presetID
+            // DeepSeek has no subscription preset; its defaultSelection is isSubscribed=false
+            let isSubscribed = provider != .deepseek
+            prefs.setBillingSelection(
+                BillingPlanSelection(presetID: presetID, isSubscribed: isSubscribed),
+                for: provider
+            )
+        }
+
+        let total = prefs.combinedMonthlyCost(payload: payload)
+        let expected = (prefs.resolvedBillingPlan(for: .opencode).monthlyUSD ?? 0) +
+                       (prefs.resolvedBillingPlan(for: .codex).monthlyUSD ?? 0) +
+                       (prefs.resolvedBillingPlan(for: .minimax).monthlyUSD ?? 0) +
+                       (prefs.resolvedBillingPlan(for: .xiaomiMimo).monthlyUSD ?? 0) +
+                       (prefs.resolvedBillingPlan(for: .deepseek).monthlyUSD ?? 0)
+        guard let actual = total else { XCTFail("expected non-nil total"); return }
+        XCTAssertEqual(actual, expected, accuracy: 0.01)
+    }
+
+    func testCombinedMonthlyCostAllUnsubscribedIsNil() {
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 0, totalActualTokens: 0,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 0, activeDays: 0,
+                dateRange: .init(start: nil, end: nil),
+                updatedAt: "2026-05-15T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: []
+        )
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+        XCTAssertNil(prefs.combinedMonthlyCost(payload: payload))
+    }
+
+    func testCombinedMonthlyCostAllUnsubscribedReturnsAPIUsage() {
+        let payload = makeTestPayload(provider: "opencode-go", rawCost: 5)
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+        // All fixed subs disabled but payload has rawCost → API usage cost returned
+        guard let cost = prefs.combinedMonthlyCost(payload: payload) else { XCTFail("expected non-nil cost"); return }
+        XCTAssertGreaterThan(cost, 0)
+    }
+
+    func testCombinedMonthlyCostPartialSubscribed() {
+        let payload = makeTestPayload(provider: "opencode-go", rawCost: 5)
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "chatgpt-plus", isSubscribed: true),
+            for: .codex
+        )
+        // Others not subscribed
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "minimax-plus-speed-monthly", isSubscribed: false),
+            for: .minimax
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "mimo-current-default", isSubscribed: false),
+            for: .xiaomiMimo
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false),
+            for: .deepseek
+        )
+
+        guard let total = prefs.combinedMonthlyCost(payload: payload) else { XCTFail("expected non-nil total"); return }
+        XCTAssertEqual(total, 30, accuracy: 0.01)
+    }
+
+    func testNonCodexMonthlyCostSubtractsCodexFixedSubscription() {
+        let payload = makeTestPayload(provider: "deepseek", rawCost: 5)
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "chatgpt-plus", isSubscribed: true),
+            for: .codex
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "minimax-plus-speed-monthly", isSubscribed: false),
+            for: .minimax
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "mimo-current-default", isSubscribed: false),
+            for: .xiaomiMimo
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false),
+            for: .deepseek
+        )
+
+        guard let combined = prefs.combinedMonthlyCost(payload: payload) else { XCTFail("expected non-nil total"); return }
+        guard let nonCodex = prefs.nonCodexMonthlyCost(payload: payload) else { XCTFail("expected non-nil non-Codex cost"); return }
+        XCTAssertEqual(combined, 35, accuracy: 0.01)
+        XCTAssertEqual(nonCodex, 15, accuracy: 0.01)
+    }
+
+    func testCustomMonthlyCostIsIncluded() {
+        let payload = makeTestPayload(provider: "opencode-go", rawCost: 0.01)
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(mode: .customMonthlyUSD, presetID: "opencode-go", customMonthlyUSD: 25, isSubscribed: true),
+            for: .opencode
+        )
+        // Disable all other providers
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+        guard let total = prefs.combinedMonthlyCost(payload: payload) else { XCTFail("expected non-nil total"); return }
+        XCTAssertEqual(total, 25, accuracy: 0.01)
+    }
+
+    // MARK: - Helpers
+
+    private func makeTestPayload(provider: String, rawCost: Double) -> DashboardPayload {
+        DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 110,
+                totalActualTokens: 110,
+                totalCacheReadTokens: 0,
+                totalCacheWriteTokens: 0,
+                totalCacheTokens: 0,
+                totalCost: rawCost,
+                totalMessages: 1,
+                activeDays: 1,
+                dateRange: .init(start: "2026-05-15", end: "2026-05-15"),
+                updatedAt: "2026-05-15T12:00:00Z"
+            ),
+            dailyTotals: [:],
+            modelTotals: [:],
+            providerCosts: [:],
+            providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-05-15",
+                    model: "glm-5.1",
+                    provider: provider,
+                    input: 100000,
+                    output: 10000,
+                    reasoning: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    cacheWriteMissingCount: 0,
+                    cacheWriteReportedCount: 1,
+                    total: 110000,
+                    cost: rawCost,
+                    msgCount: 1
+                )
+            ]
+        )
     }
 }
 

@@ -133,6 +133,7 @@
 "menu.quit" = "Quit";
 "menu.refreshAll" = "Refresh All";
 "menu.refreshBalance" = "Refresh Balance";
+"menu.weeklyTrend" = "Last 7 Days";
 
 "overview.codex.actualInput" = "Actual input token";
 "overview.codex.actualInputSubtitle" = "Cached input removed";
@@ -155,6 +156,7 @@
 "overview.openCode.cacheTokensSubtitle" = "Cache read + write";
 "overview.openCode.dateRange" = "Date range %@ → %@";
 "overview.openCode.messages" = "Messages";
+"overview.openCode.nonCodexCostSubtitle" = "Total cost minus Codex subscription fee";
 "overview.openCode.subtitle" = "Current mode: %@";
 "overview.openCode.title" = "OpenCode";
 "overview.openCode.totalCost" = "Total cost";
@@ -179,7 +181,7 @@
 "overview.summary.totalActualTokens" = "Total actual input token";
 "overview.summary.totalActualTokensSubtitle" = "OpenCode actual input + Codex actual input, excluding cache read/write";
 "overview.summary.totalCost" = "Total cost";
-"overview.summary.totalCostSubtitle" = "%@ + %@";
+"overview.summary.totalCostSubtitle" = "Enabled subscription fees + API estimates for unsubscribed";
 
 "pagination.next" = "Next";
 "pagination.previous" = "Previous";
@@ -228,6 +230,9 @@
 "settings.empty.manualDatabase" = "No database files added";
 "settings.empty.scanRoots" = "No scan directories added";
 "settings.language" = "Language";
+"settings.currency.title" = "Currency";
+"settings.currency.usd" = "USD";
+"settings.currency.cny" = "CNY";
 "settings.manualDatabase.subtitle" = "Add database files directly";
 "settings.manualDatabase.title" = "Manual database";
 "settings.openCodePricingMode" = "OpenCode total-page pricing";
@@ -347,12 +352,13 @@
 "settings.billing.codexPlan" = "Codex Plan";
 "settings.billing.customCost" = "Custom Monthly Cost";
 "settings.billing.pricingDoc" = "Pricing Documentation";
-"settings.billing.customPlan" = "Custom USD monthly cost";
-"settings.billing.customCostHint" = "Custom costs are saved as USD/month. Use a custom cost if you want usage-based or contact-sales plans to count toward totals.";
+"settings.billing.customPlan" = "Custom Monthly Cost";
+"settings.billing.apiOnlyProviders" = "DeepSeek supports API billing only; no subscription management needed.";
+"settings.billing.customCostHint" = "Custom costs are saved in the selected currency. Use a custom cost if you want usage-based or contact-sales plans to count toward totals.";
 "overview.plan.custom" = "Custom";
 
 "overview.plan.apiCost" = "Usage-based";
-"overview.summary.totalCostAllSubscribedSubtitle" = "All subscribed plans combined";
+"overview.summary.totalCostAllSubscribedSubtitle" = "Enabled subscription fees + API estimates for unsubscribed";
 
 "settings.billing.subscribed" = "Subscribe to this plan";
 "settings.billing.notSubscribed" = "Not Subscribed";
@@ -388,3 +394,9 @@
 "settings.opencodeGo.import.success" = "Credentials imported";
 "settings.opencodeGo.import.noBrowser" = "No supported browser data found. Make sure you are logged in to opencode.ai in your browser";
 "settings.opencodeGo.import.partial" = "Cookie imported. Please enter Workspace ID manually";
+
+/* Skills Panel v0.7.0 */
+"tab.skills" = "Skills";
+"tab.skills.tooltip" = "Manage OpenCode Skills";
+"skills.action.refresh" = "Refresh Skills";
+"skills.action.refresh.tooltip" = "Rescan skill directories and config files";

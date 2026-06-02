@@ -306,7 +306,7 @@ final class TokenCostModel: ObservableObject {
         }
     }
 
-    private func persistSettings() {
+    func persistSettings() {
         settings.maxScanDepth = max(settings.maxScanDepth, 1)
         settings.maxScanCandidates = max(settings.maxScanCandidates, 1)
         settings.snapshotRetentionCount = min(max(settings.snapshotRetentionCount, 1), 20)
@@ -316,8 +316,10 @@ final class TokenCostModel: ObservableObject {
         } catch {
             let message = error.localizedDescription
             lastErrorMessage = message
-            settingsLoadWarningMessage = message
             statusState = .settingsSaveFailed
+#if DEBUG
+            print("[TokenCostModel] persistSettings failed: \(message)")
+#endif
         }
     }
 

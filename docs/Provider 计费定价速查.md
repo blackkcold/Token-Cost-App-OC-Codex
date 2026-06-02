@@ -37,8 +37,8 @@
 | 层级 | 模型 | Cache Miss Input | Cache Hit Input | Output | 缓存写 |
 |---|---|---|---|---|---|
 | Flash | V4-Flash | $0.14 | **$0.0028 (98% off)** | $0.28 | **不存在** |
-| Pro | V4-Pro（促销 ~5/31） | $0.435 | $0.003625 | $0.87 | **不存在** |
-| Pro | V4-Pro（正价） | $1.74 | $0.0145 | $3.48 | **不存在** |
+| Pro | V4-Pro（促销 已过期） | ~~$0.435~~ | ~~$0.003625~~ | ~~$0.87~~ | **不存在** |
+| Pro | V4-Pro（正式永久定价） | $0.435 | $0.003625 | $0.87 | **不存在** |
 
 > 缓存写**无额外费用**。自动 KV 缓存，首次按 miss 价收费，后续命中自动 98% 折扣。无 TTL 声明，缓存自动维护。
 
@@ -108,7 +108,7 @@ MiMo Credit 消耗：MiMo-V2.5 为 1 Token = 1 Credit；MiMo-V2.5-Pro 为 1 Toke
 | 维度 | Anthropic | Gemini | DeepSeek | OpenAI |
 |---|---|---|---|---|
 | 最低 Input | $1.00 (Haiku) | **$0.10** (Flash-Lite) | **$0.14** (V4-Flash) | **$0.10** (GPT-4.1 Nano) |
-| 最高 Input | $5.00 (Opus) | $2.00 (3.1 Pro) | $1.74 (V4-Pro) | $5.00 (GPT-5.5) |
+| 最高 Input | $5.00 (Opus) | $2.00 (3.1 Pro) | $0.435 (V4-Pro) | $5.00 (GPT-5.5) |
 | 缓存读折扣 | 90% off | 90% off | **98% off** | 75%~90% off |
 | 缓存写溢价 | **1.25x / 2x** | 无（+存储费） | **无** | 无 |
 | 缓存机制 | 显式 `cache_control` | 显式 context caching | 自动 KV cache | 自动 prompt caching |
@@ -118,13 +118,16 @@ MiMo Credit 消耗：MiMo-V2.5 为 1 Token = 1 Credit；MiMo-V2.5-Pro 为 1 Toke
 ## 通用计费计算策略（基于 OpenCode 数据存储格式）
 
 > 以下公式基于 OpenCode SQLite 数据库中 `$.tokens` 的字段含义（与源码 `getUsage()` 一致）：
-> - `input` = 原始输入 token
-> - `output` = 非推理输出 token
-> - `reasoning` = 推理 token
-> - `cacheRead` = 缓存命中读取 token
-> - `cacheWrite` = 缓存写入 token
 
 ```
+// 各 token 类型独立计费，各自乘以对应单价
+费用 = input × inputPrice + output × outputPrice + reasoning × reasoningPrice + cacheRead × cacheReadPrice + cacheWrite × cacheWritePrice
+
+// 总成本 = 已启用固定订阅费用 + 未订阅部分 API 估算成本
+// 若所有 Provider 订阅均关闭，总成本全部按 API 定价估算（各 Provider 独立判断）
+```
+
+## App 总计费口径（v0.6.x+）
 // 各 token 类型独立计费，各自乘以对应单价
 费用 = input × inputPrice
      + output × outputPrice

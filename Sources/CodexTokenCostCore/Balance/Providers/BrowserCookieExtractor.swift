@@ -162,8 +162,23 @@ public enum BrowserCookieExtractor {
 
     // MARK: - Cookie decryption
 
+    /// Creates a secure temporary directory for browser database copies.
+    /// Uses a dedicated subdirectory with 0700 permissions to prevent
+    /// other users from reading cookie data in multi-user environments.
+    private static func secureTempDirectory() -> URL {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("com.yanghaoran.CodexTokenCost.browserext", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        // Restrict to owner-only access
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: tempRoot.path
+        )
+        return tempRoot
+    }
+
     private static func decryptCookie(dbURL: URL, key: Data) -> String? {
-        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
+        let tempURL = secureTempDirectory()
             .appendingPathComponent("opencode_cookies_\(UUID().uuidString).sqlite")
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
@@ -237,7 +252,7 @@ public enum BrowserCookieExtractor {
             return nil
         }
 
-        let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
+        let tempURL = secureTempDirectory()
             .appendingPathComponent("opencode_history_\(UUID().uuidString).sqlite")
         defer { try? FileManager.default.removeItem(at: tempURL) }
 

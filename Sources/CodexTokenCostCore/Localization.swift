@@ -20,22 +20,6 @@ public enum AppDisplayLanguage: String, Codable, CaseIterable, Identifiable, Sen
     }
 }
 
-public enum OverviewPricingMode: String, Codable, CaseIterable, Identifiable, Sendable {
-    case api
-    case subscription
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .api:
-            return AppLocalization.text("overview.pricing.api")
-        case .subscription:
-            return AppLocalization.text("overview.pricing.subscription")
-        }
-    }
-}
-
 public enum AppLocalization {
     nonisolated(unsafe) public static var currentLanguage: AppDisplayLanguage = .zhHans
 

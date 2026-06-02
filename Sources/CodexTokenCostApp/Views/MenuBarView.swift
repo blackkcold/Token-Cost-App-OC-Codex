@@ -1,4 +1,5 @@
 import AppKit
+import Charts
 import SwiftUI
 import CodexTokenCostCore
 
@@ -11,8 +12,25 @@ struct MenuBarView: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
+        let cost = combinedCost
+        let tokens = combinedInputTokens
+        let messages = openCodePayload?.summary.totalMessages
+        let sessions = codexPayload?.summary.sessionCount
+        let points = sparklinePoints
+        let hasSummary = cost != nil || tokens != nil
+
         VStack(alignment: .leading, spacing: 12) {
             header
+
+            if hasSummary {
+                Divider()
+                summaryOverview(cost: cost, tokens: tokens, messages: messages, sessions: sessions)
+            }
+
+            if points.count >= 2 {
+                Divider()
+                sparklineSection(points: points)
+            }
 
             if appPreferencesModel.preferences.balanceEnabled,
                !balanceManager.snapshots.isEmpty {
@@ -50,8 +68,181 @@ struct MenuBarView: View {
                 Label(AppLocalization.text("menu.quit"), systemImage: "xmark.circle")
             }
         }
-        .frame(width: 280)
+        .frame(width: 290)
         .padding(12)
+    }
+
+    // MARK: - Data Accessors
+
+    private var openCodePayload: DashboardPayload? {
+        openCodeModel.selectedPayload
+    }
+
+    private var codexPayload: CodexDashboardPayload? {
+        codexModel.payload
+    }
+
+    private var resolvedOpenCodePlan: ResolvedBillingPlan {
+        appPreferencesModel.preferences.resolvedBillingPlan(for: .opencode)
+    }
+
+    // MARK: - Summary Computed Properties
+
+    private var openCodeOverviewCost: Double? {
+        guard let payload = openCodePayload else { return nil }
+        return appPreferencesModel.preferences.openCodeOverviewCost(payload: payload)
+    }
+
+    private var combinedCost: Double? {
+        guard let payload = openCodePayload else { return nil }
+        return appPreferencesModel.preferences.combinedMonthlyCost(payload: payload)
+    }
+
+    private var combinedInputTokens: Double? {
+        guard let openCodeTokens = openCodePayload?.totalActualInputTokens,
+              let codexTokens = codexPayload?.summary.totalActualInputTokens else { return nil }
+        return openCodeTokens + codexTokens
+    }
+
+    // MARK: - Sparkline
+
+    private struct SparklinePoint: Identifiable {
+        let id: String
+        let date: Date
+        let dateLabel: String
+        let tokens: Double
+    }
+
+    private var sparklinePoints: [SparklinePoint] {
+        guard let rawData = openCodePayload?.rawData, !rawData.isEmpty else { return [] }
+
+        var dailyTotals: [String: Double] = [:]
+        for row in rawData {
+            dailyTotals[row.date, default: 0] += (row.input + row.output + row.reasoning)
+        }
+
+        let sorted = dailyTotals.sorted { $0.key > $1.key }.prefix(7)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        return sorted.compactMap { dateStr, tokens in
+            guard let date = formatter.date(from: dateStr) else { return nil }
+            return SparklinePoint(id: dateStr, date: date, dateLabel: dateStr, tokens: tokens)
+        }.sorted { $0.date < $1.date }
+    }
+
+    // MARK: - Section Views
+
+    private func summaryOverview(
+        cost: Double?,
+        tokens: Double?,
+        messages: Int?,
+        sessions: Int?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(AppLocalization.text("overview.summary.title"))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(palette.subtitle)
+
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8)
+            ], spacing: 6) {
+                miniMetricCard(
+                    icon: "dollarsign.circle",
+                    label: AppLocalization.text("overview.summary.totalCost"),
+                    value: cost.map { TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) },
+                    fallback: AppLocalization.text("common.unavailable"),
+                    tint: palette.accent
+                )
+                miniMetricCard(
+                    icon: "text.word.spacing",
+                    label: AppLocalization.text("overview.summary.totalActualTokens"),
+                    value: tokens.map(TokenCostFormatters.tokens),
+                    fallback: AppLocalization.text("common.unavailable"),
+                    tint: .green
+                )
+                miniMetricCard(
+                    icon: "message",
+                    label: AppLocalization.text("tab.opencode"),
+                    value: messages.map { "\($0)" },
+                    fallback: AppLocalization.text("common.unavailable"),
+                    tint: palette.accentSecondary
+                )
+                miniMetricCard(
+                    icon: "terminal",
+                    label: AppLocalization.text("tab.codex"),
+                    value: sessions.map { "\($0)" },
+                    fallback: AppLocalization.text("common.unavailable"),
+                    tint: .orange
+                )
+            }
+        }
+    }
+
+    private func miniMetricCard(
+        icon: String,
+        label: String,
+        value: String?,
+        fallback: String,
+        tint: Color
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundStyle(tint)
+                .frame(width: 12)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.system(size: 9))
+                    .foregroundStyle(palette.subtitle)
+                    .lineLimit(1)
+                Text(value ?? fallback)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(value != nil ? palette.title : palette.subtitle)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(palette.cardFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(palette.cardStroke.opacity(0.6), lineWidth: 1)
+                )
+        )
+    }
+
+    private func sparklineSection(points: [SparklinePoint]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(AppLocalization.text("menu.weeklyTrend"))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(palette.subtitle)
+
+            Chart(points) { point in
+                AreaMark(
+                    x: .value("Date", point.date),
+                    y: .value("Tokens", point.tokens)
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(palette.accent.opacity(0.12))
+
+                LineMark(
+                    x: .value("Date", point.date),
+                    y: .value("Tokens", point.tokens)
+                )
+                .interpolationMethod(.monotone)
+                .foregroundStyle(palette.accent)
+                .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            }
+            .chartXAxis(.hidden)
+            .chartYAxis(.hidden)
+            .frame(height: 44)
+        }
     }
 
     private func activateMainWindow() {
@@ -60,6 +251,8 @@ struct MenuBarView: View {
             window.makeKeyAndOrderFront(nil)
         }
     }
+
+    // MARK: - Balance Summary
 
     private var balanceSummary: some View {
         VStack(alignment: .leading, spacing: 6) {

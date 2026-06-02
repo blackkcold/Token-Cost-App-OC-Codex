@@ -170,7 +170,7 @@ public struct TokenCostSettings: Codable, Equatable, Sendable {
         case manualSourcePaths
         case scanRoots
         case manualDatabasePaths
-        case selectedSourceID
+        case selectedSourceID = "selectedSourceId"
         case autoRescan
         case maxScanDepth
         case maxScanCandidates

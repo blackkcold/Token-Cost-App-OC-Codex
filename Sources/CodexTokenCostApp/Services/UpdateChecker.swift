@@ -88,7 +88,9 @@ enum UpdateChecker {
             try store.ensureDirectory("config")
             try store.writeCodable(cache, to: "config/update-check.json")
         } catch {
+            #if DEBUG
             print("[UpdateChecker] Failed to save cache: \(error.localizedDescription)")
+            #endif
         }
     }
 
@@ -192,7 +194,9 @@ enum UpdateChecker {
             throw UpdateError.downloadVerificationFailed
         }
 
+        #if DEBUG
         print("[UpdateChecker] Download verified: \(fileSize) bytes")
+        #endif
 
         // Unzip
         try unzipUpdate(at: destinationURL)
@@ -218,11 +222,34 @@ enum UpdateChecker {
         process.waitUntilExit()
 
         guard process.terminationStatus == 0 else {
+            #if DEBUG
             print("[UpdateChecker] ditto unzip failed with status \(process.terminationStatus)")
+            #endif
             throw UpdateError.unzipFailed
         }
 
+        #if DEBUG
         print("[UpdateChecker] Unzip complete: \(updatesDirectory.path)")
+        #endif
+
+        guard let appURL = downloadedAppURL(), verifyCodeSign(at: appURL) else {
+            throw UpdateError.downloadVerificationFailed
+        }
+    }
+
+    private static func verifyCodeSign(at appURL: URL) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["--verify", "--verbose=1", appURL.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Locate extracted app

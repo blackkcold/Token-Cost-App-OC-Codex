@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import CodexTokenCostCore
 
-@main
+    @main
 struct CodexTokenCostApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appPreferencesModel = AppPreferencesModel()
@@ -10,6 +10,7 @@ struct CodexTokenCostApp: App {
     @StateObject private var codexModel = CodexSessionModel()
     @StateObject private var balanceManager = BalanceManager()
     @StateObject private var updateChecker = UpdateCheckerModel()
+    @StateObject private var skillsModel = OpenCodeSkillsModel()
 
     var body: some Scene {
         WindowGroup(CodexAppPaths.appDisplayName, id: "main") {
@@ -18,8 +19,12 @@ struct CodexTokenCostApp: App {
                 codexModel: codexModel,
                 appPreferencesModel: appPreferencesModel,
                 balanceManager: balanceManager,
-                updateChecker: updateChecker
+                updateChecker: updateChecker,
+                skillsModel: skillsModel
             )
+            .task {
+                appPreferencesModel.migrateThemeFromSettingsIfNeeded(openCodeModel.settings.theme)
+            }
         }
         .defaultSize(width: 1260, height: 860)
         .environment(\.locale, appPreferencesModel.preferences.language.locale)
@@ -49,7 +54,7 @@ struct CodexTokenCostApp: App {
                 codexModel: codexModel,
                 appPreferencesModel: appPreferencesModel,
                 balanceManager: balanceManager,
-                palette: TokenCostPalette(theme: openCodeModel.settings.theme)
+                palette: TokenCostPalette(theme: appPreferencesModel.preferences.theme)
             )
         }
         .menuBarExtraStyle(.window)
