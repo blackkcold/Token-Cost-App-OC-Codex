@@ -210,14 +210,15 @@ public struct TokenCostDashboardAnalytics: Sendable {
             providerAccumulators[providerKey]?.models.insert(modelKey)
             providerAccumulators[providerKey]?.rows.append(row)
 
-            if providerKey == "opencode-go" {
-                providerAccumulators[providerKey]?.syntheticApiCost += TokenCostPricingCatalog.apiCost(
-                    model: row.model,
-                    input: row.input,
-                    output: row.output,
-                    cacheRead: row.cacheRead,
-                    cacheWrite: row.cacheWrite
-                )
+            let apiCost = TokenCostPricingCatalog.apiCost(
+                model: row.model,
+                input: row.input,
+                output: row.output,
+                cacheRead: row.cacheRead,
+                cacheWrite: row.cacheWrite
+            )
+            if apiCost > 0 {
+                providerAccumulators[providerKey]?.syntheticApiCost += apiCost
             }
 
             if modelAccumulators[modelKey] == nil {
@@ -354,6 +355,26 @@ public struct TokenCostDashboardAnalytics: Sendable {
         return rows
     }
 
+    /// Returns per-provider raw cost and synthetic API cost directly from payload rows,
+    /// without billing overrides or legacy fallback subscription interference.
+    public static func providerUsageCosts(payload: DashboardPayload) -> [String: (raw: Double, synthetic: Double)] {
+        var result: [String: (raw: Double, synthetic: Double)] = [:]
+        for row in payload.rawData {
+            let key = Self.normalizeProviderKey(row.provider)
+            var entry = result[key] ?? (0, 0)
+            entry.raw += row.cost
+            entry.synthetic += TokenCostPricingCatalog.apiCost(
+                model: row.model,
+                input: row.input,
+                output: row.output,
+                cacheRead: row.cacheRead,
+                cacheWrite: row.cacheWrite
+            )
+            result[key] = entry
+        }
+        return result
+    }
+
     private func compare(_ lhs: DashboardPayload.RawRow, _ rhs: DashboardPayload.RawRow, field: TokenCostDetailSortField) -> Bool {
         switch field {
         case .date:
@@ -403,16 +424,14 @@ public struct TokenCostDashboardAnalytics: Sendable {
                 continue
             }
 
-            if providerKey == "opencode-go" {
-                effectiveCosts[providerKey] = TokenCostPricingCatalog.subscriptionMonthlyCost(for: providerKey)
-                    ?? accumulator.rawCost
-                continue
-            }
-
             if let subscriptionCost = TokenCostPricingCatalog.subscriptionMonthlyCost(for: providerKey), subscriptionCost > 0 {
                 effectiveCosts[providerKey] = subscriptionCost
-            } else {
+            } else if accumulator.rawCost > 0 {
                 effectiveCosts[providerKey] = accumulator.rawCost
+            } else if accumulator.syntheticApiCost > 0 {
+                effectiveCosts[providerKey] = accumulator.syntheticApiCost
+            } else {
+                effectiveCosts[providerKey] = 0
             }
         }
 
@@ -754,16 +773,20 @@ public struct TokenCostDashboardAnalytics: Sendable {
     }
 }
 
-private enum TokenCostPricingCatalog {
-    static let subscriptionMonthlyCosts: [String: Double] = [
-        "minimax-cn-coding-plan": 98 / 7.2,
-        "xiaomi-token-plan-cn": 34.9 / 7.2,
-        "openai": 19.99,
-        "opencode-go": 10
+    private enum TokenCostPricingCatalog {
+    /// Legacy fallback subscription costs — used ONLY when billingOverridesByProviderKey
+    /// does not provide a value for a given provider key. User billing plan selections
+    /// (via AppPreferences.billingOverridesByProviderKey()) always take precedence.
+    static let legacyFallbackMonthlyCosts: [String: Double] = [
+        "minimax-cn-coding-plan": 98 / BillingPlanCatalog.exchangeRateUSDToCNY,
+        "xiaomi-token-plan-cn": 34.9 / BillingPlanCatalog.exchangeRateUSDToCNY,
+        "openai": 19.99
     ]
 
     private static let modelAliases: [String: String] = [
-        "minimax-m2.7-highspeed": "minimax-m2.7"
+        "minimax-m2.7-highspeed": "minimax-m2.7",
+        "deepseek-chat": "deepseek-v4-flash",
+        "deepseek-reasoner": "deepseek-v4-pro"
     ]
 
     private static let zenPricing: [String: [String: Double]] = [
@@ -786,7 +809,8 @@ private enum TokenCostPricingCatalog {
         "gpt-5.4-nano": ["input": 0.20, "output": 1.25, "cacheRead": 0.02],
         "gpt-5": ["input": 1.07, "output": 8.50, "cacheRead": 0.107],
         "gpt-5.4-pro": ["input": 30.00, "output": 180.00, "cacheRead": 30.00],
-        "deepseek-v4-pro": ["input": 1.74, "output": 3.48, "cacheRead": 0.145],
+        "deepseek-v4-pro": ["input": 0.435, "output": 0.87, "cacheRead": 0.003625],  // 正式永久定价（原参考价 1/4，2026/06/01 起生效）
+        "deepseek-v4-flash": ["input": 0.14, "output": 0.28, "cacheRead": 0.0028],
         "big-pickle": ["input": 0, "output": 0, "cacheRead": 0],
         "mimo-v2-omni": ["input": 0.30, "output": 1.20, "cacheRead": 0.06, "cacheWrite": 0.375],
         "mimo-v2-pro": ["input": 0.30, "output": 1.20, "cacheRead": 0.06, "cacheWrite": 0.375],
@@ -813,7 +837,7 @@ private enum TokenCostPricingCatalog {
 
     static func subscriptionMonthlyCost(for provider: String) -> Double? {
         let key = provider.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let cost = subscriptionMonthlyCosts[key], cost > 0 else {
+        guard let cost = legacyFallbackMonthlyCosts[key], cost > 0 else {
             return nil
         }
         return cost

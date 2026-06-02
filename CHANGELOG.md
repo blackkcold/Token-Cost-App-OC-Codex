@@ -5,17 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.7.0] - Unreleased
-
-> 当前下一版目标为 `v0.7.0`，以下为相对 `v0.6.0` 的累计变更。
+## [v0.7.0] - 2026-06-02
 
 ### Added
 
+- **OpenCode Skills 只读面板**：发现 global skill 目录，解析 SKILL.md frontmatter，可视化 permission 规则链与 8-agent 可用性矩阵；多维度过滤（来源/状态/标签），Section 分组列表，Liquid Glass 毛玻璃 UI，Skill 正文预览（折叠/展开），Settings 页 Skills 显示偏好（`OpenCodeSkillsPageView.swift`、`OpenCodeSkillManifest.swift`、`OpenCodeSkillDiscovery.swift`、`OpenCodeSkillPermissions.swift`、`OpenCodeSkillsReadOnlyStore.swift`、`OpenCodeSkillsModel.swift`、`AppPreferences.swift`）
+
 ### Fixed
+
+- **设置页订阅方案 Picker 不再显示 API 按量计费选项**：过滤 `usageBased` 类型 preset（如 DeepSeek API 按量计费、Business Codex paygo），仅保留固定月费型订阅方案；旧配置中 `usageBased + subscribed=true` 会在解析和 UI binding 层回正到默认固定订阅，关闭订阅开关后才走 API 计费路径（`BillingPlanCatalog.swift`、`AppPreferencesModel.swift`、`SettingsView.swift`）
+- **总计页 OpenCode 卡片总成本口径修复**：OpenCode 合计与 OpenCode 卡片总成本统一改为 `combinedMonthlyCost - Codex 订阅费用`，不再优先使用 `openCodeOverviewCost` 或兜底 `summary.totalCost`，消除关闭 DeepSeek 订阅后 195.96 / 1090.05 两条计算路径来回跳的问题（`BillingPlanCatalog.swift`、`TotalView.swift`、`Localizable.strings`）
 
 ### Changed
 
 ### Security
+
+- v0.7.0 Skills 面板为**纯只读**，无安全姿态变更
 
 ---
 

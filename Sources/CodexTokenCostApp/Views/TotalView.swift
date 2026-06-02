@@ -11,7 +11,6 @@ struct TotalView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                overviewSettingsCard
                 overviewCard
                 BalanceOverviewCard(
                     snapshots: balanceManager.snapshots,
@@ -45,59 +44,20 @@ struct TotalView: View {
         codexPayload?.summary
     }
 
-    private var openCodePricingMode: OverviewPricingMode {
-        appPreferencesModel.preferences.openCodePricingMode
+    private var preferences: AppPreferences {
+        appPreferencesModel.preferences
     }
 
     private var resolvedOpenCodePlan: ResolvedBillingPlan {
-        appPreferencesModel.preferences.resolvedBillingPlan(for: .opencode)
+        preferences.resolvedBillingPlan(for: .opencode)
     }
 
     private var resolvedCodexPlan: ResolvedBillingPlan {
-        appPreferencesModel.preferences.resolvedBillingPlan(for: .codex)
-    }
-
-    private var resolvedMinimaxPlan: ResolvedBillingPlan {
-        appPreferencesModel.preferences.resolvedBillingPlan(for: .minimax)
-    }
-
-    private var resolvedXiaomiMimoPlan: ResolvedBillingPlan {
-        appPreferencesModel.preferences.resolvedBillingPlan(for: .xiaomiMimo)
-    }
-
-    private var openCodePlanName: String {
-        switch openCodePricingMode {
-        case .api:
-            return AppLocalization.text("overview.openCode.apiPlan")
-        case .subscription:
-            return resolvedOpenCodePlan.displayName
-        }
-    }
-
-    private var openCodePlanSubtitle: String {
-        switch openCodePricingMode {
-        case .api:
-            return AppLocalization.text("overview.plan.apiCost")
-        case .subscription:
-            return resolvedOpenCodePlan.priceDescription
-        }
-    }
-
-    private var openCodeOverviewCost: Double? {
-        guard let openCodeSummary else {
-            return nil
-        }
-
-        switch openCodePricingMode {
-        case .api:
-            return openCodeSummary.totalCost
-        case .subscription:
-            return resolvedOpenCodePlan.monthlyUSD
-        }
+        preferences.resolvedBillingPlan(for: .codex)
     }
 
     private var codexOverviewCost: Double? {
-        resolvedCodexPlan.monthlyUSD
+        resolvedCodexPlan.isSubscribed ? resolvedCodexPlan.monthlyUSD : nil
     }
 
     private var openCodeActualInputTokens: Double? {
@@ -112,62 +72,13 @@ struct TotalView: View {
     }
 
     private var combinedCost: Double? {
-        guard let openCodeOverviewCost else { return nil }
-        var total = openCodeOverviewCost
-        if resolvedCodexPlan.isSubscribed, let cost = resolvedCodexPlan.monthlyUSD { total += cost }
-        if resolvedMinimaxPlan.isSubscribed, let cost = resolvedMinimaxPlan.monthlyUSD { total += cost }
-        if resolvedXiaomiMimoPlan.isSubscribed, let cost = resolvedXiaomiMimoPlan.monthlyUSD { total += cost }
-        return total
+        guard let payload = openCodePayload else { return nil }
+        return preferences.combinedMonthlyCost(payload: payload)
     }
 
-    private var overviewSettingsCard: some View {
-        TokenSectionCard(
-            title: AppLocalization.text("overview.settings.title"),
-            subtitle: AppLocalization.text("overview.settings.subtitle"),
-            trailing: nil,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(AppLocalization.text("overview.settings.openCodePricingMode"))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(palette.subtitle)
-
-                    Picker(
-                        AppLocalization.text("overview.settings.openCodePricingMode"),
-                        selection: appPreferencesModel.openCodePricingModeBinding
-                    ) {
-                        ForEach(OverviewPricingMode.allCases) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                HStack(spacing: 12) {
-                    TokenMetricCard(
-                        title: AppLocalization.text("overview.settings.openCodePlan"),
-                        value: openCodePlanName,
-                        subtitle: openCodePlanSubtitle,
-                        tint: palette.accent,
-                        palette: palette,
-                        compact: true
-                    )
-
-                    TokenMetricCard(
-                        title: AppLocalization.text("overview.settings.codexPlan"),
-                        value: resolvedCodexPlan.displayName,
-                        subtitle: AppLocalization.format(
-                            "overview.settings.codexPlanSubtitle",
-                            resolvedCodexPlan.priceDescription
-                        ),
-                        tint: palette.accentSecondary,
-                        palette: palette,
-                        compact: true
-                    )
-                }
-            }
-        }
+    private var nonCodexMonthlyCost: Double? {
+        guard let payload = openCodePayload else { return nil }
+        return preferences.nonCodexMonthlyCost(payload: payload)
     }
 
     private var overviewCard: some View {
@@ -180,14 +91,8 @@ struct TotalView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                 TokenMetricCard(
                     title: AppLocalization.text("overview.summary.openCodeCost"),
-                    value: openCodeOverviewCost.map(TokenCostFormatters.currency) ?? AppLocalization.text("common.unavailable"),
-                    subtitle: openCodeActualInputTokens.map {
-                        AppLocalization.format(
-                            "overview.summary.openCodeCostSubtitle",
-                            TokenCostFormatters.tokens($0),
-                            openCodePlanName
-                        )
-                    } ?? AppLocalization.text("overview.summary.missingData"),
+                    value: nonCodexMonthlyCost.map { TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) } ?? AppLocalization.text("common.unavailable"),
+                    subtitle: AppLocalization.text("overview.openCode.nonCodexCostSubtitle"),
                     tint: palette.accent,
                     palette: palette
                 )
@@ -195,7 +100,7 @@ struct TotalView: View {
 
                 TokenMetricCard(
                     title: AppLocalization.text("overview.summary.codexCost"),
-                    value: codexOverviewCost.map(TokenCostFormatters.monthlyCurrency) ?? AppLocalization.text("common.unavailable"),
+                    value: codexOverviewCost.map { TokenCostFormatters.monthlyCurrency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) } ?? AppLocalization.text("common.unavailable"),
                     subtitle: resolvedCodexPlan.displayName,
                     tint: palette.accentSecondary,
                     palette: palette
@@ -204,8 +109,8 @@ struct TotalView: View {
 
                 TokenMetricCard(
                     title: AppLocalization.text("overview.summary.totalCost"),
-                    value: combinedCost.map(TokenCostFormatters.currency) ?? AppLocalization.text("common.unavailable"),
-                    subtitle: AppLocalization.text("overview.summary.totalCostAllSubscribedSubtitle"),
+                    value: combinedCost.map { TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) } ?? AppLocalization.text("common.unavailable"),
+                    subtitle: AppLocalization.text("overview.summary.totalCostSubtitle"),
                     tint: .orange,
                     palette: palette
                 )
@@ -226,7 +131,7 @@ struct TotalView: View {
     private var openCodeCard: some View {
         TokenSectionCard(
             title: AppLocalization.text("overview.openCode.title"),
-            subtitle: AppLocalization.format("overview.openCode.subtitle", openCodePlanName),
+            subtitle: AppLocalization.format("overview.openCode.subtitle", resolvedOpenCodePlan.displayName),
             trailing: nil,
             palette: palette
         ) {
@@ -243,8 +148,10 @@ struct TotalView: View {
 
                     TokenMetricCard(
                         title: AppLocalization.text("overview.openCode.totalCost"),
-                        value: TokenCostFormatters.currency(summary.totalCost),
-                        subtitle: AppLocalization.text("overview.openCode.apiCostSubtitle"),
+                        value: nonCodexMonthlyCost.map {
+                            TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency)
+                        } ?? AppLocalization.text("common.unavailable"),
+                        subtitle: AppLocalization.text("overview.openCode.nonCodexCostSubtitle"),
                         tint: palette.accentSecondary,
                         palette: palette
                     )

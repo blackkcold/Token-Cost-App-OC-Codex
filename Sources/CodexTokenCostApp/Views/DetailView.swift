@@ -134,7 +134,7 @@ struct DetailView: View {
                 )
                 TokenMetricCard(
                     title: AppLocalization.text("detail.overview.totalCost"),
-                    value: TokenCostFormatters.currency(analytics.overview.totalCost),
+                    value: TokenCostFormatters.currency(analytics.overview.totalCost, displayCurrency: appPreferencesModel.preferences.displayCurrency),
                     subtitle: AppLocalization.text("detail.overview.totalCostSubtitle"),
                     tint: .green,
                     palette: palette,
@@ -308,7 +308,7 @@ struct DetailView: View {
                     )
                     TokenMetricCard(
                         title: AppLocalization.text("detail.cache.savedCost"),
-                        value: TokenCostFormatters.currency(analytics.cache.cacheSavedCost),
+                        value: TokenCostFormatters.currency(analytics.cache.cacheSavedCost, displayCurrency: appPreferencesModel.preferences.displayCurrency),
                         subtitle: AppLocalization.text("detail.cache.savedCostSubtitle"),
                         tint: .purple,
                         palette: palette
@@ -600,7 +600,7 @@ struct DetailView: View {
             Text(TokenCostFormatters.tokens(row.cacheRead)).frame(width: 100, alignment: .trailing)
             Text(TokenCostFormatters.tokens(row.cacheWrite)).frame(width: 100, alignment: .trailing)
             Text(TokenCostFormatters.tokens(row.total)).frame(width: 98, alignment: .trailing)
-            Text(row.cost > 0 ? TokenCostFormatters.currency(row.cost) : "-")
+            Text(row.cost > 0 ? TokenCostFormatters.currency(row.cost, displayCurrency: appPreferencesModel.preferences.displayCurrency) : "-")
                 .frame(width: 96, alignment: .trailing)
                 .foregroundStyle(row.cost > 0 ? .green : palette.subtitle)
         }
@@ -699,20 +699,21 @@ struct DetailView: View {
         guard let cost = row.effectiveCost else {
             return AppLocalization.text("detail.providerRank.noPricing")
         }
+        let dc = appPreferencesModel.preferences.displayCurrency
         if row.isSynthetic {
-            return AppLocalization.format("detail.providerRank.apiPricing", TokenCostFormatters.currency(cost))
+            return AppLocalization.format("detail.providerRank.apiPricing", TokenCostFormatters.currency(cost, displayCurrency: dc))
         }
         if row.isSubscription {
-            return AppLocalization.format("detail.providerRank.subscriptionPricing", TokenCostFormatters.currency(cost))
+            return AppLocalization.format("detail.providerRank.subscriptionPricing", TokenCostFormatters.currency(cost, displayCurrency: dc))
         }
-        return TokenCostFormatters.currency(cost)
+        return TokenCostFormatters.currency(cost, displayCurrency: dc)
     }
 
     private func modelCostLabel(_ row: TokenCostDashboardAnalytics.ModelComparisonRow) -> String {
         guard row.allocatedCost > 0 else {
             return AppLocalization.text("detail.providerRank.noPricing")
         }
-        return TokenCostFormatters.currency(row.allocatedCost)
+        return TokenCostFormatters.currency(row.allocatedCost, displayCurrency: appPreferencesModel.preferences.displayCurrency)
     }
 
     private func updateTrendSelection(

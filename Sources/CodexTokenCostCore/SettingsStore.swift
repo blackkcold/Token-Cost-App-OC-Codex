@@ -60,6 +60,23 @@ public final class SettingsStore {
         let backupURL = backupDirectory.appendingPathComponent("\(baseName)-\(timestamp()).json")
         try? FileManager.default.removeItem(at: backupURL)
         try FileManager.default.copyItem(at: currentURL, to: backupURL)
+        rotateBackups(in: backupDirectory, keep: 10)
+    }
+
+    private func rotateBackups(in directory: URL, keep: Int) {
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let sorted = urls.sorted { lhs, rhs in
+            let lhDate = (try? lhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            let rhDate = (try? rhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            return lhDate > rhDate
+        }
+        guard sorted.count > keep else { return }
+        for url in sorted.dropFirst(keep) {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private func timestamp() -> String {

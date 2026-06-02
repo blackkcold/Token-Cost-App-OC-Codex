@@ -5,6 +5,7 @@ public enum BillingProvider: String, Codable, CaseIterable, Identifiable, Sendab
     case codex
     case minimax
     case xiaomiMimo = "xiaomi-mimo"
+    case deepseek
 
     public var id: String { rawValue }
 
@@ -14,6 +15,7 @@ public enum BillingProvider: String, Codable, CaseIterable, Identifiable, Sendab
         case .codex: return "Codex / ChatGPT"
         case .minimax: return "MiniMax"
         case .xiaomiMimo: return "Xiaomi MiMo"
+        case .deepseek: return "DeepSeek"
         }
     }
 
@@ -23,6 +25,7 @@ public enum BillingProvider: String, Codable, CaseIterable, Identifiable, Sendab
         case .codex: return "openai"
         case .minimax: return "minimax-cn-coding-plan"
         case .xiaomiMimo: return "xiaomi-token-plan-cn"
+        case .deepseek: return "deepseek-api-cn"
         }
     }
 }
@@ -105,7 +108,10 @@ public struct BillingPlanSelection: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case mode, presetID, customMonthlyUSD, isSubscribed
+        case mode
+        case presetID = "presetId"
+        case customMonthlyUSD = "customMonthlyUsd"
+        case isSubscribed
     }
 
     public init(from decoder: Decoder) throws {
@@ -140,7 +146,9 @@ public struct ResolvedBillingPlan: Equatable, Sendable {
 public enum BillingPlanCatalog {
     public static let customOptionID = "__custom_monthly_usd"
 
-    private static let cnyToUSD: Double = 1 / 7.2
+    public static let exchangeRateUSDToCNY: Double = 7.2
+
+    private static let cnyToUSD: Double = 1 / exchangeRateUSDToCNY
 
     public static let presets: [BillingPlanPreset] = [
         BillingPlanPreset(
@@ -203,6 +211,18 @@ public enum BillingPlanCatalog {
             sourceNote: "OpenAI ChatGPT pricing。",
             usageNote: "开发团队按量计费，无固定 seat fee。"
         ),
+        BillingPlanPreset(
+            id: "deepseek-api-paygo",
+            provider: .deepseek,
+            name: "DeepSeek API",
+            kind: .usageBased,
+            currencyCode: "CNY",
+            price: nil,
+            displayPrice: "按量计费",
+            normalizedMonthlyUSD: nil,
+            sourceNote: "DeepSeek API 官方定价（2026/06）。V4-Pro 正式永久定价为原参考价 1/4。",
+            usageNote: "V4-Flash: $0.14/$0.28 · V4-Pro: $0.435/$0.87/M tokens"
+        ),
         minimax(id: "minimax-starter-monthly", name: "Starter 标准版", cny: 29, usage: "M2.7 600 次请求/5小时"),
         minimax(id: "minimax-plus-monthly", name: "Plus 标准版", cny: 49, usage: "M2.7 1,500 次请求/5小时"),
         minimax(id: "minimax-max-monthly", name: "Max 标准版", cny: 119, usage: "M2.7 4,500 次请求/5小时"),
@@ -228,9 +248,18 @@ public enum BillingPlanCatalog {
         presets.filter { $0.provider == provider }
     }
 
+    public static func subscriptionPresets(for provider: BillingProvider) -> [BillingPlanPreset] {
+        presets(for: provider).filter { isSubscriptionPreset($0) }
+    }
+
     public static func preset(id: String) -> BillingPlanPreset? {
         let normalized = normalize(id)
         return presets.first { normalize($0.id) == normalized }
+    }
+
+    public static func isSubscriptionPresetID(_ presetID: String) -> Bool {
+        guard let preset = preset(id: presetID) else { return false }
+        return isSubscriptionPreset(preset)
     }
 
     public static func defaultSelection(for provider: BillingProvider) -> BillingPlanSelection {
@@ -243,7 +272,20 @@ public enum BillingPlanCatalog {
             return BillingPlanSelection(presetID: "minimax-plus-speed-monthly")
         case .xiaomiMimo:
             return BillingPlanSelection(presetID: "mimo-current-default")
+        case .deepseek:
+            return BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false)
         }
+    }
+
+    public static func defaultSubscriptionSelection(for provider: BillingProvider) -> BillingPlanSelection {
+        let defaultSelection = defaultSelection(for: provider)
+        if isSubscriptionPresetID(defaultSelection.presetID) {
+            return defaultSelection
+        }
+        guard let preset = subscriptionPresets(for: provider).first else {
+            return defaultSelection
+        }
+        return BillingPlanSelection(presetID: preset.id)
     }
 
     public static func provider(forLegacyProviderKey providerKey: String) -> BillingProvider? {
@@ -252,8 +294,16 @@ public enum BillingPlanCatalog {
     }
 
     public static func resolve(provider: BillingProvider, selection: BillingPlanSelection?) -> ResolvedBillingPlan {
-        let effectiveSelection = selection ?? defaultSelection(for: provider)
-        let preset = preset(id: effectiveSelection.presetID) ?? preset(id: defaultSelection(for: provider).presetID)
+        var effectiveSelection = selection ?? defaultSelection(for: provider)
+        if effectiveSelection.isSubscribed,
+           effectiveSelection.mode == .preset,
+           !isSubscriptionPresetID(effectiveSelection.presetID) {
+            effectiveSelection = defaultSubscriptionSelection(for: provider)
+        }
+        let fallbackSelection = effectiveSelection.isSubscribed
+            ? defaultSubscriptionSelection(for: provider)
+            : defaultSelection(for: provider)
+        let preset = preset(id: effectiveSelection.presetID) ?? preset(id: fallbackSelection.presetID)
 
         guard effectiveSelection.isSubscribed else {
             return ResolvedBillingPlan(
@@ -320,6 +370,17 @@ public enum BillingPlanCatalog {
         value.formatted(.currency(code: "USD"))
     }
 
+    public static func formatRMB(_ value: Double) -> String {
+        "¥" + trim(value)
+    }
+
+    public static func formatCurrency(_ usdAmount: Double, displayCurrency: DisplayCurrency) -> String {
+        switch displayCurrency {
+        case .usd: return formatUSD(usdAmount)
+        case .cny:  return formatRMB(usdAmount * exchangeRateUSDToCNY)
+        }
+    }
+
     private static func minimax(id: String, name: String, cny: Double, usage: String) -> BillingPlanPreset {
         BillingPlanPreset(
             id: id,
@@ -373,6 +434,10 @@ public enum BillingPlanCatalog {
         value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static func isSubscriptionPreset(_ preset: BillingPlanPreset) -> Bool {
+        preset.kind == .fixedMonthly || preset.kind == .fixedAnnual
+    }
+
     private static func trim(_ value: Double) -> String {
         if value.rounded() == value {
             return String(Int(value))
@@ -394,14 +459,105 @@ public extension AppPreferences {
         BillingPlanCatalog.resolve(provider: provider, selection: billingSelection(for: provider))
     }
 
+    /// Returns billing overrides for all 5 providers.
+    ///
+    /// Each provider is resolved independently:
+    /// - subscribed with a fixed monthly cost → override = that monthly USD
+    /// - not subscribed or usage-based (nil monthlyUSD) → no override
+    ///   (analytics falls back to API/raw/synthetic cost)
     func billingOverridesByProviderKey() -> [String: Double] {
         var overrides: [String: Double] = [:]
         for provider in BillingProvider.allCases {
             let resolved = resolvedBillingPlan(for: provider)
-            if let monthlyUSD = resolved.monthlyUSD, monthlyUSD > 0 {
-                overrides[provider.legacySubscriptionKey] = monthlyUSD
+            guard resolved.isSubscribed,
+                  resolved.isFixedCost,
+                  let monthlyUSD = resolved.monthlyUSD,
+                  monthlyUSD > 0
+            else {
+                continue
             }
+            overrides[provider.legacySubscriptionKey] = monthlyUSD
+            overrides[provider.rawValue] = monthlyUSD
         }
         return overrides
+    }
+
+    /// Computes the OpenCode cost for the total overview card.
+    /// Fixed monthly subscription takes priority; otherwise falls back to API usage cost.
+    func openCodeOverviewCost(payload: DashboardPayload) -> Double? {
+        let resolved = resolvedBillingPlan(for: .opencode)
+        if resolved.isSubscribed, resolved.isFixedCost,
+           let monthlyUSD = resolved.monthlyUSD, monthlyUSD > 0 {
+            return monthlyUSD
+        }
+        let usageCosts = TokenCostDashboardAnalytics.providerUsageCosts(payload: payload)
+        for (key, (raw, synthetic)) in usageCosts {
+            let normalized = key.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard normalized == "opencode-go" || normalized == "opencode" else { continue }
+            let cost = raw > 0 ? raw : synthetic
+            if cost > 0 { return cost }
+        }
+        return nil
+    }
+
+    func nonCodexMonthlyCost(payload: DashboardPayload) -> Double? {
+        guard let combined = combinedMonthlyCost(payload: payload) else { return nil }
+        let codexCost: Double
+        let resolved = resolvedBillingPlan(for: .codex)
+        if resolved.isSubscribed,
+           resolved.isFixedCost,
+           let monthlyUSD = resolved.monthlyUSD,
+           monthlyUSD > 0 {
+            codexCost = monthlyUSD
+        } else {
+            codexCost = 0
+        }
+        let cost = combined - codexCost
+        return cost > 0 ? cost : nil
+    }
+
+    /// Computes the combined monthly cost across OpenCode, Codex, MiniMax,
+    /// Xiaomi MiMo, and DeepSeek according to the unified rule:
+    ///
+    ///     total = Σ enabled fixed subscriptions
+    ///           + Σ API usage cost for providers not covered by a fixed subscription
+    ///
+    /// API usage cost for a provider is `rawCost > 0 ? rawCost : syntheticApiCost`.
+    /// Legacy fallback subscription costs are NOT used — only explicit user selections.
+    /// Returns nil when no provider has any cost.
+    func combinedMonthlyCost(payload: DashboardPayload) -> Double? {
+        var total: Double = 0
+        var hasAnyCost = false
+        var coveredRawKeys: Set<String> = []
+
+        func addCost(_ cost: Double?) {
+            guard let cost, cost.isFinite, cost > 0 else { return }
+            total += cost
+            hasAnyCost = true
+        }
+
+        for provider in BillingProvider.allCases {
+            let resolved = resolvedBillingPlan(for: provider)
+            guard resolved.isSubscribed,
+                  resolved.isFixedCost,
+                  let monthlyUSD = resolved.monthlyUSD,
+                  monthlyUSD > 0
+            else {
+                continue
+            }
+            addCost(monthlyUSD)
+            coveredRawKeys.insert(provider.rawValue)
+            coveredRawKeys.insert(provider.legacySubscriptionKey)
+        }
+
+        let usageCosts = TokenCostDashboardAnalytics.providerUsageCosts(payload: payload)
+        for (rawKey, (raw, synthetic)) in usageCosts {
+            let normalized = rawKey.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            if coveredRawKeys.contains(normalized) { continue }
+            let cost = raw > 0 ? raw : synthetic
+            addCost(cost)
+        }
+
+        return hasAnyCost ? total : nil
     }
 }

@@ -133,6 +133,7 @@
 "menu.quit" = "退出";
 "menu.refreshAll" = "刷新全部";
 "menu.refreshBalance" = "刷新余额";
+"menu.weeklyTrend" = "近 7 天用量";
 
 "overview.codex.actualInput" = "实际输入 token";
 "overview.codex.actualInputSubtitle" = "扣除缓存输入";
@@ -154,6 +155,7 @@
 "overview.openCode.cacheTokens" = "缓存 token";
 "overview.openCode.cacheTokensSubtitle" = "缓存读 + 写";
 "overview.openCode.messages" = "消息数";
+"overview.openCode.nonCodexCostSubtitle" = "总成本 - Codex 订阅费用";
 "overview.openCode.subtitle" = "当前口径：%@";
 "overview.openCode.title" = "OpenCode";
 "overview.openCode.totalCost" = "总成本";
@@ -178,7 +180,7 @@
 "overview.summary.totalActualTokens" = "总实际输入 token";
 "overview.summary.totalActualTokensSubtitle" = "OpenCode 实际输入 + Codex 实际输入，不含缓存读写";
 "overview.summary.totalCost" = "总成本";
-"overview.summary.totalCostSubtitle" = "%@ + %@";
+"overview.summary.totalCostSubtitle" = "已启用订阅费用 + 未订阅部分 API 估算";
 "overview.openCode.dateRange" = "日期区间 %@ → %@";
 
 "pagination.next" = "下一页";
@@ -228,6 +230,9 @@
 "settings.empty.manualDatabase" = "未添加数据库文件";
 "settings.empty.scanRoots" = "未添加扫描目录";
 "settings.language" = "界面语言";
+"settings.currency.title" = "计价货币";
+"settings.currency.usd" = "美元 USD";
+"settings.currency.cny" = "人民币 CNY";
 "settings.manualDatabase.subtitle" = "直接添加数据库文件";
 "settings.manualDatabase.title" = "手动数据库";
 "settings.openCodePricingMode" = "OpenCode 总览计价";
@@ -347,12 +352,13 @@
 "settings.billing.codexPlan" = "Codex 方案";
 "settings.billing.customCost" = "自定义月费";
 "settings.billing.pricingDoc" = "定价文档";
-"settings.billing.customPlan" = "自定义 USD 月费";
-"settings.billing.customCostHint" = "自定义费用统一按 USD/月保存；按量计费和 contact-sales 档位如需纳入总成本，请使用自定义费用。";
+"settings.billing.customPlan" = "自定义月费";
+"settings.billing.apiOnlyProviders" = "DeepSeek 仅支持 API 按量计费，无需订阅管理。";
+"settings.billing.customCostHint" = "自定义费用按当前选择的计价货币保存；按量计费和 contact-sales 档位如需纳入总成本，请使用自定义费用。";
 "overview.plan.custom" = "自定义";
 
 "overview.plan.apiCost" = "按量计费";
-"overview.summary.totalCostAllSubscribedSubtitle" = "全部已订阅方案总和";
+"overview.summary.totalCostAllSubscribedSubtitle" = "已启用订阅费用 + 未订阅部分 API 估算";
 
 "settings.billing.subscribed" = "订阅该方案";
 "settings.billing.notSubscribed" = "未订阅";
@@ -389,3 +395,8 @@
 "settings.opencodeGo.import.noBrowser" = "未找到支持的浏览器数据，请确认已在浏览器中登录 opencode.ai";
 "settings.opencodeGo.import.partial" = "已导入 Cookie，请手动填写 Workspace ID";
 
+/* Skills 管理面板 v0.7.0 */
+"tab.skills" = "Skills";
+"tab.skills.tooltip" = "管理 OpenCode Skills";
+"skills.action.refresh" = "刷新 Skills";
+"skills.action.refresh.tooltip" = "重新扫描 skill 目录和配置文件";

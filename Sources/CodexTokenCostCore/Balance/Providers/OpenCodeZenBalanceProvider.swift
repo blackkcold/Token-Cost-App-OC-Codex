@@ -76,42 +76,89 @@ public struct OpenCodeZenBalanceChecker: BalanceChecker {
 
 extension OpenCodeZenBalanceChecker {
     private static func locateBinary() -> URL? {
-        // Try PATH via `which opencode`
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        which.arguments = ["which", "opencode"]
-        let outPipe = Pipe()
-        which.standardOutput = outPipe
-        do {
-            try which.run()
-            which.waitUntilExit()
-            if which.terminationStatus == 0 {
-                let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-                let path = String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !path.isEmpty {
-                    return URL(fileURLWithPath: path)
-                }
-            }
-        } catch {}
+        var unsignedFallback: URL?
 
-        // Fallback paths
-        let candidates = [
-            "/opt/homebrew/bin/opencode",
-            "/usr/local/bin/opencode",
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".opencode/bin/opencode").path,
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local/bin/opencode").path
-        ]
-
-        for path in candidates {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return URL(fileURLWithPath: path)
-            }
+        for url in binaryCandidates() {
+            guard FileManager.default.isExecutableFile(atPath: url.path) else { continue }
+            if verifyBinarySignature(url) { return url }
+            if unsignedFallback == nil { unsignedFallback = url }
         }
 
-        return nil
+        return unsignedFallback
+    }
+
+    private static func binaryCandidates() -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let fixedPaths = [
+            "/opt/homebrew/bin/opencode",
+            "/usr/local/bin/opencode",
+            home.appendingPathComponent(".opencode/bin/opencode").path,
+            home.appendingPathComponent(".local/bin/opencode").path,
+            home.appendingPathComponent("bin/opencode").path,
+        ]
+
+        let discoveredPaths = [findBinaryViaWhich(), findBinaryViaLoginShell()]
+            .compactMap { $0?.path }
+
+        var seen = Set<String>()
+        return (fixedPaths + discoveredPaths).compactMap { path in
+            guard !path.isEmpty, seen.insert(path).inserted else { return nil }
+            return URL(fileURLWithPath: path)
+        }
+    }
+
+    private static func findBinaryViaWhich() -> URL? {
+        runPathLookup(executable: "/usr/bin/which", arguments: ["opencode"])
+    }
+
+    private static func findBinaryViaLoginShell() -> URL? {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        guard FileManager.default.isExecutableFile(atPath: shell) else { return nil }
+        return runPathLookup(executable: shell, arguments: ["-lc", "which opencode 2>/dev/null"])
+    }
+
+    private static func runPathLookup(executable: String, arguments: [String]) -> URL? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        guard process.terminationStatus == 0 else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let firstLine = output.split(separator: "\n").first,
+            !firstLine.isEmpty
+        else { return nil }
+
+        let path = String(firstLine)
+        guard FileManager.default.isExecutableFile(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    private static func verifyBinarySignature(_ url: URL) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["--verify", "--verbose=1", url.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 }
 

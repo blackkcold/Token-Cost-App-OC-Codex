@@ -59,7 +59,9 @@ final class UpdateCheckerModel: ObservableObject {
                     self.state = .updateAvailable(version: release.tagName)
                 }
             } catch {
+                #if DEBUG
                 print("[UpdateCheckerModel] Auto-check failed: \(error.localizedDescription)")
+                #endif
             }
         }
     }
@@ -95,7 +97,9 @@ final class UpdateCheckerModel: ObservableObject {
                     self.state = .upToDate(version: UpdateChecker.currentVersion)
                 }
             } catch {
+                #if DEBUG
                 print("[UpdateCheckerModel] Manual check failed: \(error.localizedDescription)")
+                #endif
                 self.state = .upToDate(version: UpdateChecker.currentVersion)
             }
         }
@@ -125,7 +129,9 @@ final class UpdateCheckerModel: ObservableObject {
                 }
                 self.state = .downloadComplete
             } catch {
+                #if DEBUG
                 print("[UpdateCheckerModel] Download failed: \(error.localizedDescription)")
+                #endif
                 self.state = .error(message: error.localizedDescription)
             }
         }
@@ -139,7 +145,9 @@ final class UpdateCheckerModel: ObservableObject {
             return
         }
 
+        #if DEBUG
         print("[UpdateCheckerModel] Opening downloaded app: \(appURL.path)")
+        #endif
         NSWorkspace.shared.open(appURL)
     }
 

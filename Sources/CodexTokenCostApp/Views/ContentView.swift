@@ -5,6 +5,7 @@ enum CodexDashboardPage: String, CaseIterable, Identifiable {
     case total
     case opencode
     case codex
+    case skills
 
     var id: String { rawValue }
 }
@@ -15,12 +16,14 @@ struct ContentView: View {
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     @ObservedObject var balanceManager: BalanceManager
     @ObservedObject var updateChecker: UpdateCheckerModel
+    @ObservedObject var skillsModel: OpenCodeSkillsModel
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedPage: CodexDashboardPage = .total
     @State private var didOpenCodexSourcePrompt = false
 
     private var palette: TokenCostPalette {
-        TokenCostPalette(theme: openCodeModel.settings.theme)
+        TokenCostPalette(theme: appPreferencesModel.preferences.theme)
     }
 
     private var isAnyRefreshing: Bool {
@@ -71,6 +74,12 @@ struct ContentView: View {
                         .tabItem {
                             Label(AppLocalization.text("tab.codex"), systemImage: "terminal")
                         }
+
+                    OpenCodeSkillsPageView(model: skillsModel, palette: palette)
+                        .tag(CodexDashboardPage.skills)
+                        .tabItem {
+                            Label(AppLocalization.text("tab.skills"), systemImage: "gearshape.2")
+                        }
                 }
                 .task {
                     openCodeModel.bootstrapIfNeeded()
@@ -97,6 +106,13 @@ struct ContentView: View {
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
                     updateChecker.dismissUpdate()
                 }
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background || newPhase == .inactive {
+                appPreferencesModel.persistPreferences()
+                openCodeModel.persistSettings()
+                codexModel.persistSettings()
             }
         }
     }
@@ -126,6 +142,13 @@ struct ContentView: View {
                 Label(AppLocalization.text("settings.action.refreshCodex"), systemImage: "arrow.clockwise")
             }
             .disabled(codexModel.isBootstrapping || codexModel.isRefreshing)
+        case .skills:
+            Button {
+                skillsModel.refresh()
+            } label: {
+                Label(AppLocalization.text("skills.action.refresh"), systemImage: "arrow.clockwise")
+            }
+            .disabled(skillsModel.isRefreshing)
         }
     }
 

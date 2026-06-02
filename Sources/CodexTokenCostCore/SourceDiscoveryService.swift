@@ -54,6 +54,11 @@ public final class SourceDiscoveryService {
     ) {
         let locationURL = TokenCostPathUtilities.expandedURL(from: path)
         let canonicalLocationURL = TokenCostPathUtilities.canonicalURL(locationURL)
+
+        guard isValidScanRoot(canonicalLocationURL) else {
+            return
+        }
+
         var isDirectory: ObjCBool = false
 
         guard fileManager.fileExists(atPath: canonicalLocationURL.path, isDirectory: &isDirectory) else {
@@ -205,5 +210,13 @@ public final class SourceDiscoveryService {
         case .missing: return 3
         case .unknown: return 4
         }
+    }
+
+    private static let forbiddenScanRoots: Set<String> = ["/", "/System", "/Users", "/Applications", "/Library", "/private", "/.Trash"]
+
+    private func isValidScanRoot(_ url: URL) -> Bool {
+        let path = url.path
+        guard !Self.forbiddenScanRoots.contains(path) else { return false }
+        return true
     }
 }

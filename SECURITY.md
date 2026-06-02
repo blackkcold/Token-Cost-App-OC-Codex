@@ -4,7 +4,7 @@
 
 | 版本   | 支持状态       |
 |--------|--------------|
-| 0.7.0  | Unreleased (开发中) |
+| 0.7.0  | Unreleased (开发中) — 新增 Skills 只读管理面板 |
 | 0.6.0  | 当前稳定版，接受安全报告和修复 |
 | 0.5.1  | 当前稳定版，接受安全报告和修复 |
 | 0.5.0  | 当前稳定版 |
@@ -24,8 +24,8 @@
 
 ## 安全设计原则
 
-- 本应用**只读**访问 OpenCode 数据库和 Codex session 文件
-- 不修改任何源数据文件
+- 本应用**只读**访问 OpenCode 数据库和 Codex session 文件，不修改任何源数据文件
+- **OpenCode Skills 只读面板（v0.7.0+）**：仅读取 skill 目录和配置进行分析展示，不做任何写入操作。权限可视化基于全局配置文件只读解析，不修改 `permission.skill` 规则。
 - 配置和快照仅写入本地 `Application Support` 目录
 - 语言设置、总览计价偏好和 Provider 计费方案选择只写入本地 `config/app-preferences.json`，不接触源数据
 - 总览页的实际 token 只是从已有来源数据派生的展示值（按 `input + output + reasoning` 计算），不会回写数据库、session 文件或网络

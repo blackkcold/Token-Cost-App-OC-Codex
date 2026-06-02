@@ -14,12 +14,12 @@ enum TokenCostFormatters {
         value.formatted(.percent.precision(.fractionLength(1)))
     }
 
-    static func currency(_ value: Double) -> String {
-        value.formatted(.currency(code: "USD"))
+    static func currency(_ value: Double, displayCurrency: DisplayCurrency = .usd) -> String {
+        BillingPlanCatalog.formatCurrency(value, displayCurrency: displayCurrency)
     }
 
-    static func monthlyCurrency(_ value: Double) -> String {
-        "\(currency(value))\(AppLocalization.text("unit.perMonth"))"
+    static func monthlyCurrency(_ value: Double, displayCurrency: DisplayCurrency = .usd) -> String {
+        "\(currency(value, displayCurrency: displayCurrency))\(AppLocalization.text("unit.perMonth"))"
     }
 
     static func localDateTime(_ isoDateString: String?) -> String {

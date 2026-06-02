@@ -264,8 +264,6 @@ final class CodexSessionModel: ObservableObject {
         if let warning = loadedSettings.errorMessage {
             lastErrorMessage = warning
             statusState = .settingsLoadFallback
-        } else {
-            persistSettings()
         }
         payload = snapshotStore.loadLatest(settings: settings)
         refreshDiscoverySources()
@@ -306,7 +304,7 @@ final class CodexSessionModel: ObservableObject {
         return results
     }
 
-    private func persistSettings() {
+    func persistSettings() {
         normalizeSettings()
         do {
             try settingsStore.save(settings)
@@ -314,8 +312,10 @@ final class CodexSessionModel: ObservableObject {
         } catch {
             let message = error.localizedDescription
             lastErrorMessage = message
-            settingsLoadWarningMessage = message
             statusState = .settingsSaveFailed
+#if DEBUG
+            print("[CodexSessionModel] persistSettings failed: \(message)")
+#endif
         }
     }
 

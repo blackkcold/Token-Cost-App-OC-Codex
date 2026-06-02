@@ -27,7 +27,7 @@ struct SettingsView: View {
     private let listPageSize = 10
 
     private var palette: TokenCostPalette {
-        TokenCostPalette(theme: openCodeModel.settings.theme)
+        TokenCostPalette(theme: appPreferencesModel.preferences.theme)
     }
 
     var body: some View {
@@ -53,6 +53,7 @@ struct SettingsView: View {
                     codexSection
                     codexRootsSection
                     codexManualSection
+                    skillsPanelSection
                     safetySection
                 }
                 .padding(20)
@@ -128,9 +129,9 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
 
-                Picker(AppLocalization.text("settings.openCodePricingMode"), selection: appPreferencesModel.openCodePricingModeBinding) {
-                    ForEach(OverviewPricingMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
+                Picker(AppLocalization.text("settings.currency.title"), selection: appPreferencesModel.displayCurrencyBinding) {
+                    ForEach(DisplayCurrency.allCases) { currency in
+                        Text(currency.displayName).tag(currency)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -160,7 +161,9 @@ struct SettingsView: View {
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
-                    ForEach(BillingProvider.allCases) { provider in
+                    ForEach(BillingProvider.allCases.filter {
+                        !BillingPlanCatalog.subscriptionPresets(for: $0).isEmpty
+                    }) { provider in
                         BillingProviderPlanCard(
                             provider: provider,
                             appPreferencesModel: appPreferencesModel,
@@ -170,6 +173,9 @@ struct SettingsView: View {
                 }
 
                 Text(AppLocalization.text("settings.billing.customCostHint"))
+                    .font(.caption)
+                    .foregroundStyle(palette.subtitle)
+                Text(AppLocalization.text("settings.billing.apiOnlyProviders"))
                     .font(.caption)
                     .foregroundStyle(palette.subtitle)
             }
@@ -190,11 +196,9 @@ struct SettingsView: View {
                 ForEach(TokenCostThemeChoice.allCases, id: \.self) { choice in
                     ThemeChoiceCard(
                         choice: choice,
-                        isSelected: openCodeModel.settings.theme == choice
+                        isSelected: appPreferencesModel.preferences.theme == choice
                     ) {
-                        openCodeModel.updateSettings { settings in
-                            settings.theme = choice
-                        }
+                        appPreferencesModel.themeBinding.wrappedValue = choice
                     }
                 }
             }
@@ -763,6 +767,36 @@ struct SettingsView: View {
         }
     }
 
+    private var skillsPanelSection: some View {
+        TokenSectionCard(
+            title: "Skills Panel",
+            subtitle: "Customize the Skills tab display preferences",
+            trailing: nil,
+            palette: palette
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle("Show source badges", isOn: $appPreferencesModel.preferences.skillsPanel.showSourceColumn)
+                Toggle("Show state indicators", isOn: $appPreferencesModel.preferences.skillsPanel.showStateColumn)
+                Toggle("Show tag badges", isOn: $appPreferencesModel.preferences.skillsPanel.showTagsColumn)
+                HStack {
+                    Text(verbatim: "Detail preview length:")
+                        .font(.caption)
+                    Picker("", selection: $appPreferencesModel.preferences.skillsPanel.previewLength) {
+                        Text("200").tag(200)
+                        Text("300").tag(300)
+                        Text("500").tag(500)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
+                }
+            }
+        }
+        .onChange(of: appPreferencesModel.preferences.skillsPanel.showSourceColumn) { _, _ in appPreferencesModel.persistPreferences() }
+        .onChange(of: appPreferencesModel.preferences.skillsPanel.showStateColumn) { _, _ in appPreferencesModel.persistPreferences() }
+        .onChange(of: appPreferencesModel.preferences.skillsPanel.showTagsColumn) { _, _ in appPreferencesModel.persistPreferences() }
+        .onChange(of: appPreferencesModel.preferences.skillsPanel.previewLength) { _, _ in appPreferencesModel.persistPreferences() }
+    }
+
     private var safetySection: some View {
         TokenSectionCard(
             title: AppLocalization.text("settings.security.title"),
@@ -841,6 +875,10 @@ private struct BillingProviderPlanCard: View {
         resolvedPlan.isSubscribed
     }
 
+    private var hasSubscriptionPresets: Bool {
+        !BillingPlanCatalog.subscriptionPresets(for: provider).isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(provider.displayName)
@@ -852,10 +890,11 @@ private struct BillingProviderPlanCard: View {
                     .font(.caption)
             }
             .toggleStyle(.switch)
+            .disabled(!hasSubscriptionPresets)
 
-            if isSubscribed {
+            if isSubscribed && hasSubscriptionPresets {
                 Picker(provider.displayName, selection: appPreferencesModel.billingPlanOptionBinding(for: provider)) {
-                    ForEach(BillingPlanCatalog.presets(for: provider)) { preset in
+                    ForEach(BillingPlanCatalog.subscriptionPresets(for: provider)) { preset in
                         Text("\(preset.name) · \(preset.displayPrice)").tag(preset.id)
                     }
                     Text(AppLocalization.text("settings.billing.customPlan")).tag(BillingPlanCatalog.customOptionID)
@@ -864,7 +903,7 @@ private struct BillingProviderPlanCard: View {
 
                 if isCustomSelected {
                     HStack(spacing: 8) {
-                        Text("USD")
+                        Text(appPreferencesModel.preferences.displayCurrency.symbol)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(palette.subtitle)
 
