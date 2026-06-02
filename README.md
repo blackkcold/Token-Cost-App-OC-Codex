@@ -1,18 +1,27 @@
 # Token Cost App - OC Codex
 
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
+
 跨平台的 AI 编程工具 token 用量和费用可视化仪表盘。支持 OpenCode 和 Codex 双数据源。
+
+> **最新版本**: [v0.7.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.7.0) — Skills 只读面板全新上线
 
 ## 功能特性
 
 - **双源统计** — 同时读取 OpenCode (SQLite) 和 Codex (JSONL Session) 数据
 - **费用分析** — 按实际 API 定价和订阅成本统一口径计算费用；总成本 = 已启用固定订阅费用 + 未订阅部分 API 估算成本；支持 OpenCode、ChatGPT/Codex、MiniMax、Xiaomi MiMo 的官方订阅 / Token Plan 预设，并可用 DIY 月费应对价格变更
+- **OpenCode Skills 只读面板** — 全局 skill 发现、manifest 校验、permission 规则链可视化、8-agent 可用性矩阵；多维度过滤（来源/状态/标签），Section 分组列表，Liquid Glass 毛玻璃 UI
 - **可视化仪表盘** — 每日趋势图、Provider 性价比排行、模型分布饼图、堆叠条形图
+- **菜单栏速览** — 综合月费概览卡片 + 最近 7 天 OpenCode 日用量迷你趋势图，无需打开主窗口
 - **中英双语** — 界面可在中文 / 英语之间切换，术语保持一致
 - **多主题** — 海湾蓝、森林绿、暮光橙、极光紫 4 种主题色
-- **本地离线** — 纯本地运行；版本更新检查可手动触发（仅匿名拉取 GitHub 公开 Release API），不上传数据
-- **只读安全** — 源数据（数据库和 session 文件）只读访问，不修改任何源数据；OpenCode skill 权限为只读分析功能，仅展示全局基线配置，不修改任何 OpenCode 文件
-
-- **OpenCode Skills 只读面板** — 全局 skill 发现、manifest 校验、permission 权限可视化（当前阶段为只读）
+- **人民币/美元计价切换** — 所有价格展示随币种动态切换，自定义月费自动换算
+- **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen 余额实时查询，梯度色条可视化
+- **版本更新检查** — 启动时静默检查 + 手动触发，自动下载更新包
+- **本地离线** — 纯本地运行；版本更新检查仅匿名拉取 GitHub 公开 Release API，不上传数据
+- **只读安全** — 源数据只读访问，不修改任何源数据
 
 ## 快速开始
 
