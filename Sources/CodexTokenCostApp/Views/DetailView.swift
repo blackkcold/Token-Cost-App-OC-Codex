@@ -10,11 +10,11 @@ struct DetailView: View {
 
     @State private var detailSortField: TokenCostDetailSortField = .date
     @State private var detailSortDirection: TokenCostSortDirection = .descending
-    @State private var hoveredTrendPoint: TokenCostDashboardAnalytics.TrendPoint?
     @State private var detailPageIndex = 0
     @State private var stackedPageIndex = 0
     @State private var modelComparisonExpanded = false
     @State private var distributionCardHeight: CGFloat = 0
+    @State private var trendDayRange: Int = 30
 
     private let recentWindowLimit = 100
     private let sectionPageSize = 20
@@ -74,7 +74,6 @@ struct DetailView: View {
             detailPageIndex = 0
             stackedPageIndex = 0
             modelComparisonExpanded = false
-            hoveredTrendPoint = nil
         }
     }
 
@@ -169,11 +168,11 @@ struct DetailView: View {
     }
 
     private func trendSection(_ analytics: TokenCostDashboardAnalytics) -> some View {
-        let points = analytics.trendPoints
+        let points = Array(analytics.trendPoints.suffix(trendDayRange)).map(openCodeTrendPoint)
         return TokenSectionCard(
             title: AppLocalization.text("detail.trend.title"),
-            subtitle: AppLocalization.text("detail.trend.subtitle"),
-            trailing: nil,
+            subtitle: "\(AppLocalization.text("detail.trend.subtitle")) · 近 \(trendDayRange) 日",
+            trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange)),
             palette: palette
         ) {
             if points.isEmpty {
@@ -181,90 +180,7 @@ struct DetailView: View {
                     .foregroundStyle(palette.subtitle)
                     .frame(maxWidth: .infinity, minHeight: 200)
             } else {
-                ZStack(alignment: .topTrailing) {
-                    Chart {
-                        ForEach(points) { point in
-                            AreaMark(
-                                x: .value(AppLocalization.text("chart.label.date"), point.date),
-                                y: .value(AppLocalization.text("chart.label.actual"), point.actualTokens)
-                            )
-                            .interpolationMethod(.monotone)
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [
-                                        palette.accent.opacity(0.32),
-                                        palette.accent.opacity(0.04)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-
-                            LineMark(
-                                x: .value(AppLocalization.text("chart.label.date"), point.date),
-                                y: .value(AppLocalization.text("chart.label.actual"), point.actualTokens)
-                            )
-                            .interpolationMethod(.monotone)
-                            .foregroundStyle(palette.accent)
-                            .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-
-                            LineMark(
-                                x: .value(AppLocalization.text("chart.label.date"), point.date),
-                                y: .value(AppLocalization.text("chart.label.cacheHit"), point.cacheReadTokens)
-                            )
-                            .interpolationMethod(.monotone)
-                            .foregroundStyle(.green)
-                            .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: [5, 4]))
-                        }
-
-                        if let hoveredTrendPoint {
-                                RuleMark(x: .value(AppLocalization.text("chart.label.date"), hoveredTrendPoint.date))
-                                .foregroundStyle(palette.subtitle.opacity(0.55))
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-
-                            PointMark(
-                                x: .value(AppLocalization.text("chart.label.date"), hoveredTrendPoint.date),
-                                y: .value(AppLocalization.text("chart.label.actual"), hoveredTrendPoint.actualTokens)
-                            )
-                            .symbolSize(60)
-                            .foregroundStyle(palette.accent)
-
-                            PointMark(
-                                x: .value(AppLocalization.text("chart.label.date"), hoveredTrendPoint.date),
-                                y: .value(AppLocalization.text("chart.label.cacheHit"), hoveredTrendPoint.cacheReadTokens)
-                            )
-                            .symbolSize(48)
-                            .foregroundStyle(.green)
-                        }
-                    }
-                    .chartYAxis {
-                        AxisMarks(position: .leading)
-                    }
-                    .chartLegend(position: .bottom, alignment: .leading, spacing: 8)
-                    .frame(height: 260)
-                    .padding(.top, 4)
-                    .chartOverlay { proxy in
-                        GeometryReader { geometry in
-                            Rectangle()
-                                .fill(.clear)
-                                .contentShape(Rectangle())
-                                .onContinuousHover { phase in
-                                    switch phase {
-                                    case .active(let location):
-                                        updateTrendSelection(location: location, proxy: proxy, geometry: geometry, points: points)
-                                    case .ended:
-                                        hoveredTrendPoint = nil
-                                    }
-                                }
-                        }
-                    }
-
-                    if let hoveredTrendPoint {
-                        TrendTooltipCard(point: hoveredTrendPoint, palette: palette)
-                            .padding(.trailing, 8)
-                            .padding(.top, 8)
-                    }
-                }
+                TokenTrendChartView(points: points, palette: palette)
             }
         }
     }
@@ -716,27 +632,29 @@ struct DetailView: View {
         return TokenCostFormatters.currency(row.allocatedCost, displayCurrency: appPreferencesModel.preferences.displayCurrency)
     }
 
-    private func updateTrendSelection(
-        location: CGPoint,
-        proxy: ChartProxy,
-        geometry: GeometryProxy,
-        points: [TokenCostDashboardAnalytics.TrendPoint]
-    ) {
-        guard let plotFrame = proxy.plotFrame else {
-            hoveredTrendPoint = nil
-            return
-        }
-
-        let frame = geometry[plotFrame]
-        let x = location.x - frame.origin.x
-        guard let selectedDate: Date = proxy.value(atX: x, as: Date.self) else {
-            hoveredTrendPoint = nil
-            return
-        }
-
-        hoveredTrendPoint = points.min { lhs, rhs in
-            abs(lhs.date.timeIntervalSince(selectedDate)) < abs(rhs.date.timeIntervalSince(selectedDate))
-        }
+    private func openCodeTrendPoint(_ point: TokenCostDashboardAnalytics.TrendPoint) -> TokenTrendChartPoint {
+        TokenTrendChartPoint(
+            date: point.date,
+            dateString: point.dateString,
+            actualTokens: point.actualTokens,
+            tooltipLines: [
+                TokenTrendTooltipLine(
+                    color: palette.accent,
+                    title: AppLocalization.text("detail.tooltip.actualTokens"),
+                    value: TokenCostFormatters.tokens(point.actualTokens)
+                ),
+                TokenTrendTooltipLine(
+                    color: .green,
+                    title: AppLocalization.text("detail.tooltip.cacheHit"),
+                    value: TokenCostFormatters.tokens(point.cacheReadTokens)
+                ),
+                TokenTrendTooltipLine(
+                    color: .orange,
+                    title: AppLocalization.text("detail.tooltip.cacheWrite"),
+                    value: TokenCostFormatters.tokens(point.cacheWriteTokens)
+                )
+            ]
+        )
     }
 
     private func dayTotal(at index: Int, series: [DetailStackSeries]) -> Double {
@@ -917,43 +835,6 @@ struct DetailView: View {
                     .foregroundStyle(palette.subtitle)
             }
             .frame(maxWidth: .infinity, minHeight: 180)
-        }
-    }
-}
-
-private struct TrendTooltipCard: View {
-    let point: TokenCostDashboardAnalytics.TrendPoint
-    let palette: TokenCostPalette
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(point.dateString)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(palette.title)
-
-            tooltipLine(color: palette.accent, title: AppLocalization.text("detail.tooltip.actualTokens"), value: TokenCostFormatters.tokens(point.actualTokens))
-            tooltipLine(color: .green, title: AppLocalization.text("detail.tooltip.cacheHit"), value: TokenCostFormatters.tokens(point.cacheReadTokens))
-            tooltipLine(color: .orange, title: AppLocalization.text("detail.tooltip.cacheWrite"), value: TokenCostFormatters.tokens(point.cacheWriteTokens))
-        }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(palette.cardStroke, lineWidth: 1)
-        )
-        .shadow(color: palette.cardShadow, radius: 10, x: 0, y: 8)
-    }
-
-    private func tooltipLine(color: Color, title: String, value: String) -> some View {
-        HStack(spacing: 8) {
-            Circle().fill(color).frame(width: 8, height: 8)
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(palette.subtitle)
-            Spacer(minLength: 0)
-            Text(value)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(palette.title)
         }
     }
 }

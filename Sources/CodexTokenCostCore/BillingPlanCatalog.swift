@@ -220,7 +220,7 @@ public enum BillingPlanCatalog {
             price: nil,
             displayPrice: "按量计费",
             normalizedMonthlyUSD: nil,
-            sourceNote: "DeepSeek API 官方定价（2026/06）。V4-Pro 正式永久定价为原参考价 1/4。",
+            sourceNote: "DeepSeek API 官方定价（2026/06）。",
             usageNote: "V4-Flash: $0.14/$0.28 · V4-Pro: $0.435/$0.87/M tokens"
         ),
         minimax(id: "minimax-starter-monthly", name: "Starter 标准版", cny: 29, usage: "M2.7 600 次请求/5小时"),
