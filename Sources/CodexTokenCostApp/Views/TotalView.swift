@@ -18,6 +18,7 @@ struct TotalView: View {
                     palette: palette
                 )
                 openCodeCard
+                tokenHeatmapCard
                 codexCard
             }
             .padding(20)
@@ -25,6 +26,33 @@ struct TotalView: View {
         .task {
             openCodeModel.bootstrapIfNeeded()
             codexModel.bootstrapIfNeeded()
+        }
+    }
+
+    // MARK: - Heatmap data
+
+    private var codexDailyTokens: [String: Double] {
+        guard let payload = codexPayload else { return [:] }
+        return CodexDashboardAnalytics.dailyTrendPoints(from: payload).reduce(into: [:]) { dict, point in
+            dict[point.dateString, default: 0] += point.actualTokens
+        }
+    }
+
+    private var tokenHeatmapCard: some View {
+        TokenSectionCard(
+            title: "每日用量热力图",
+            subtitle: "过去 52 周 · OpenCode + Codex 合计",
+            trailing: nil,
+            palette: palette
+        ) {
+            TokenHeatmapGrid(
+                data: TokenHeatmapBuilder.build(
+                    fromOpenCodeDaily: openCodePayload?.dailyTotals ?? [:],
+                    codexDaily: codexDailyTokens,
+                    referenceDate: Date()
+                ),
+                palette: palette
+            )
         }
     }
 

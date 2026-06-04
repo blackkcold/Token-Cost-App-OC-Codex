@@ -809,7 +809,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
         "gpt-5.4-nano": ["input": 0.20, "output": 1.25, "cacheRead": 0.02],
         "gpt-5": ["input": 1.07, "output": 8.50, "cacheRead": 0.107],
         "gpt-5.4-pro": ["input": 30.00, "output": 180.00, "cacheRead": 30.00],
-        "deepseek-v4-pro": ["input": 0.435, "output": 0.87, "cacheRead": 0.003625],  // 正式永久定价（原参考价 1/4，2026/06/01 起生效）
+        "deepseek-v4-pro": ["input": 0.435, "output": 0.87, "cacheRead": 0.003625],  // 官方当前定价（2026/06）
         "deepseek-v4-flash": ["input": 0.14, "output": 0.28, "cacheRead": 0.0028],
         "big-pickle": ["input": 0, "output": 0, "cacheRead": 0],
         "mimo-v2-omni": ["input": 0.30, "output": 1.20, "cacheRead": 0.06, "cacheWrite": 0.375],

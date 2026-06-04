@@ -13,7 +13,7 @@
 
 A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
 
-> **Latest**: [v0.7.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.7.0) — OpenCode Skills read-only panel now available
+> **Latest**: [v0.8.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.8.0) — unified trend charts and responsive usage heatmap
 
 ### Why Token Cost App?
 
@@ -27,7 +27,7 @@ AI coding tools charge by token — but most developers have no idea what they'r
 - **Dual-Source Aggregation** — Reads OpenCode SQLite databases and Codex JSONL session files simultaneously; no manual export required
 - **Cost Analytics** — Unified billing model: total cost = enabled fixed subscription fees + pay-as-you-go API estimates; supports official plans for OpenCode Go/Zen, ChatGPT Plus/Pro/Business Codex, MiniMax Token Plan, Xiaomi MiMo Token Plan, plus custom DIY monthly fees
 - **OpenCode Skills Panel** — Discover global skills, validate SKILL.md manifests, visualize permission rule chains, and view 8-agent availability matrix; multi-criteria filtering (source/status/tags), grouped sections, Liquid Glass UI
-- **Visual Dashboard** — Daily trend charts, provider cost-efficiency rankings, model distribution pie charts, stacked bar charts
+- **Visual Dashboard** — Unified 7/30-day daily trend charts, responsive 52-week usage heatmap, provider cost-efficiency rankings, model distribution pie charts, stacked bar charts
 - **Menu Bar Widget** — Combined monthly cost overview card + 7-day OpenCode daily usage mini trend chart — no need to open the main window
 - **Bilingual UI** — Switch between Chinese and English; terminology stays consistent
 - **Multi-Theme** — Bay Blue, Forest Green, Twilight Orange, Aurora Purple
@@ -115,7 +115,7 @@ MIT License — see [LICENSE](LICENSE)
 
 一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
 
-> **最新版本**: [v0.7.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.7.0) — Skills 只读面板全新上线
+> **最新版本**: [v0.8.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.8.0) — 趋势图统一、响应式用量热力图
 
 ### 为什么需要它？
 
@@ -129,7 +129,7 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 - **双源统计** — 同时读取 OpenCode (SQLite) 和 Codex (JSONL Session) 数据；无需手动导出
 - **费用分析** — 统一计费模型：总成本 = 已启用固定订阅费用 + 未订阅部分 API 估算成本；支持 OpenCode Go/Zen、ChatGPT Plus/Pro/Business Codex、MiniMax Token Plan、小米 MiMo Token Plan 官方方案，并可用 DIY 月费应对价格变更
 - **OpenCode Skills 只读面板** — 发现全局 skill 目录，校验 SKILL.md manifest，可视化 permission 规则链与 8-agent 可用性矩阵；多维度过滤（来源/状态/标签），Section 分组列表，Liquid Glass 毛玻璃 UI
-- **可视化仪表盘** — 每日趋势图、Provider 性价比排行、模型分布饼图、堆叠条形图
+- **可视化仪表盘** — 统一 7/30 日趋势图、过去 52 周响应式用量热力图、Provider 性价比排行、模型分布饼图、堆叠条形图
 - **菜单栏速览** — 综合月费概览卡片 + 最近 7 天 OpenCode 日用量迷你趋势图，无需打开主窗口
 - **中英双语** — 界面可在中文 / 英语之间切换，术语保持一致
 - **多主题** — 海湾蓝、森林绿、暮光橙、极光紫 4 种主题色

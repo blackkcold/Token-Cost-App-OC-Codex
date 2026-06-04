@@ -932,6 +932,35 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(total, 25, accuracy: 0.01)
     }
 
+    func testTokenHeatmapBuilderMergesSourcesAndSortsCellsChronologically() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let referenceDate = try XCTUnwrap(formatter.date(from: "2026-06-04"))
+
+        let data = TokenHeatmapBuilder.build(
+            fromOpenCodeDaily: [
+                "2026-06-02": 10,
+                "2026-06-03": 20
+            ],
+            codexDaily: [
+                "2026-06-03": 5,
+                "2026-06-05": 99
+            ],
+            referenceDate: referenceDate
+        )
+
+        XCTAssertEqual(data.rows.count, 7)
+        XCTAssertTrue(data.rows.allSatisfy { $0.count == 52 })
+        XCTAssertEqual(data.allCells.map(\.date), data.allCells.map(\.date).sorted())
+        XCTAssertEqual(data.allCells.last?.dateString, "2026-06-04")
+        XCTAssertFalse(data.allCells.contains { $0.dateString == "2026-06-05" })
+
+        let mergedCell = try XCTUnwrap(data.allCells.first { $0.dateString == "2026-06-03" })
+        XCTAssertEqual(mergedCell.tokenCount, 25)
+    }
+
     // MARK: - Helpers
 
     private func makeTestPayload(provider: String, rawCost: Double) -> DashboardPayload {
@@ -1016,4 +1045,101 @@ private final class TokenCapturingMockChecker: BalanceChecker, @unchecked Sendab
             isAvailable: true
         )
     }
+
+    // MARK: - DeepSeek V4 pricing
+
+    func testDeepSeekV4FlashPricing() {
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID, isSubscribed: false),
+                for: provider
+            )
+        }
+        let payload = makeSingleModelPayload(model: "deepseek-chat", provider: "deepseek", input: 1_000_000, output: 1_000_000)
+        // V4-Flash: $0.14/M input + $0.28/M output = $0.42
+        let cost = prefs.combinedMonthlyCost(payload: payload) ?? 0
+        XCTAssertEqual(cost, 0.42, accuracy: 0.0001)
+    }
+
+    func testDeepSeekV4ProPricing() {
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID, isSubscribed: false),
+                for: provider
+            )
+        }
+        let payload = makeSingleModelPayload(model: "deepseek-reasoner", provider: "deepseek", input: 1_000_000, output: 1_000_000)
+        // V4-Pro: $0.435/M input + $0.87/M output = $1.305
+        let cost = prefs.combinedMonthlyCost(payload: payload) ?? 0
+        XCTAssertEqual(cost, 1.305, accuracy: 0.0001)
+    }
+
+    func testDeepSeekV4FlashCacheReadPricing() {
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID, isSubscribed: false),
+                for: provider
+            )
+        }
+        let payload = makeSingleModelPayload(model: "deepseek-chat", provider: "deepseek", input: 0, output: 0, cacheRead: 1_000_000)
+        // V4-Flash cacheRead: $0.0028/M
+        let cost = prefs.combinedMonthlyCost(payload: payload) ?? 0
+        XCTAssertEqual(cost, 0.0028, accuracy: 0.0001)
+    }
+
+    func testDeepSeekV4ProCacheReadPricing() {
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID, isSubscribed: false),
+                for: provider
+            )
+        }
+        let payload = makeSingleModelPayload(model: "deepseek-reasoner", provider: "deepseek", input: 0, output: 0, cacheRead: 1_000_000)
+        // V4-Pro cacheRead: $0.003625/M
+        let cost = prefs.combinedMonthlyCost(payload: payload) ?? 0
+        XCTAssertEqual(cost, 0.003625, accuracy: 0.0001)
+    }
+
+    private func makeSingleModelPayload(model: String, provider: String, input: Double, output: Double = 0, cacheRead: Double = 0, cacheWrite: Double = 0) -> DashboardPayload {
+        DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: input + output + cacheRead + cacheWrite,
+                totalActualTokens: input + output,
+                totalCacheReadTokens: cacheRead,
+                totalCacheWriteTokens: cacheWrite,
+                totalCacheTokens: cacheRead + cacheWrite,
+                totalCost: 0,
+                totalMessages: 1,
+                activeDays: 1,
+                dateRange: .init(start: "2026-06-04", end: "2026-06-04"),
+                updatedAt: "2026-06-04T12:00:00Z"
+            ),
+            dailyTotals: [:],
+            modelTotals: [:],
+            providerCosts: [:],
+            providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-04",
+                    model: model,
+                    provider: provider,
+                    input: input,
+                    output: output,
+                    reasoning: 0,
+                    cacheRead: cacheRead,
+                    cacheWrite: cacheWrite,
+                    cacheWriteMissingCount: 0,
+                    cacheWriteReportedCount: 1,
+                    total: input + output + cacheRead + cacheWrite,
+                    cost: 0,
+                    msgCount: 1
+                )
+            ]
+        )
+    }
+
 }

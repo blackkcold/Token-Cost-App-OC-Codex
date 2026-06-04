@@ -1,4 +1,3 @@
-import Charts
 import SwiftUI
 import CodexTokenCostCore
 
@@ -9,7 +8,7 @@ struct CodexPageView: View {
     @State private var sessionPageIndex = 0
     @State private var sessionSortField: CodexSessionSortField = .updatedAt
     @State private var sessionSortDirection: TokenCostSortDirection = .descending
-    @State private var hoveredTrendPoint: CodexDailyTrendPoint?
+    @State private var trendDayRange: Int = 30
 
     private let sessionPageSize = 20
     private var summaryColumns: [GridItem] {
@@ -40,7 +39,6 @@ struct CodexPageView: View {
         }
         .onChange(of: model.payload?.summary.updatedAt ?? "") { _, _ in
             sessionPageIndex = 0
-            hoveredTrendPoint = nil
         }
     }
 
@@ -155,86 +153,20 @@ struct CodexPageView: View {
     private var dailyTrendCard: some View {
         TokenSectionCard(
             title: AppLocalization.text("codex.trend.title"),
-            subtitle: AppLocalization.text("codex.trend.subtitle"),
-            trailing: nil,
+            subtitle: "\(AppLocalization.text("codex.trend.subtitle")) · 近 \(trendDayRange) 日",
+            trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange)),
             palette: palette
         ) {
             if let payload = model.payload {
                 let points = CodexDashboardAnalytics.dailyTrendPoints(from: payload)
+                let visiblePoints = Array(points.suffix(trendDayRange)).map(codexTrendPoint)
 
-                if points.isEmpty {
+                if visiblePoints.isEmpty {
                     Text(AppLocalization.text("common.noData"))
                         .foregroundStyle(palette.subtitle)
                         .frame(maxWidth: .infinity, minHeight: 200, alignment: .leading)
                 } else {
-                    ZStack(alignment: .topTrailing) {
-                        Chart {
-                            ForEach(points) { point in
-                                AreaMark(
-                                    x: .value(AppLocalization.text("chart.label.date"), point.date),
-                                    y: .value(AppLocalization.text("chart.label.actual"), point.actualTokens)
-                                )
-                                .interpolationMethod(.monotone)
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [
-                                            palette.accent.opacity(0.30),
-                                            palette.accent.opacity(0.04)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-
-                                LineMark(
-                                    x: .value(AppLocalization.text("chart.label.date"), point.date),
-                                    y: .value(AppLocalization.text("chart.label.actual"), point.actualTokens)
-                                )
-                                .interpolationMethod(.monotone)
-                                .foregroundStyle(palette.accent)
-                                .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-                            }
-
-                            if let hoveredTrendPoint {
-                                RuleMark(x: .value(AppLocalization.text("chart.label.date"), hoveredTrendPoint.date))
-                                    .foregroundStyle(palette.subtitle.opacity(0.55))
-                                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-
-                                PointMark(
-                                    x: .value(AppLocalization.text("chart.label.date"), hoveredTrendPoint.date),
-                                    y: .value(AppLocalization.text("chart.label.actual"), hoveredTrendPoint.actualTokens)
-                                )
-                                .symbolSize(60)
-                                .foregroundStyle(palette.accent)
-                            }
-                        }
-                        .chartYAxis {
-                            AxisMarks(position: .leading)
-                        }
-                        .frame(height: 260)
-                        .padding(.top, 4)
-                        .chartOverlay { proxy in
-                            GeometryReader { geometry in
-                                Rectangle()
-                                    .fill(.clear)
-                                    .contentShape(Rectangle())
-                                    .onContinuousHover { phase in
-                                        switch phase {
-                                        case .active(let location):
-                                            updateTrendSelection(location: location, proxy: proxy, geometry: geometry, points: points)
-                                        case .ended:
-                                            hoveredTrendPoint = nil
-                                        }
-                                    }
-                            }
-                        }
-
-                        if let hoveredTrendPoint {
-                            CodexTrendTooltipCard(point: hoveredTrendPoint, palette: palette)
-                                .padding(.trailing, 8)
-                                .padding(.top, 8)
-                        }
-                    }
+                    TokenTrendChartView(points: visiblePoints, palette: palette)
                 }
             } else {
                 Text(model.statusMessage)
@@ -323,6 +255,32 @@ struct CodexPageView: View {
                 .foregroundStyle(.orange)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func codexTrendPoint(_ point: CodexDailyTrendPoint) -> TokenTrendChartPoint {
+        let actualInputTokens = max(point.inputTokens - point.cachedInputTokens, 0)
+        return TokenTrendChartPoint(
+            date: point.date,
+            dateString: point.dateString,
+            actualTokens: point.actualTokens,
+            tooltipLines: [
+                TokenTrendTooltipLine(
+                    color: palette.accent,
+                    title: AppLocalization.text("codex.tooltip.actualTokens"),
+                    value: TokenCostFormatters.tokens(point.actualTokens)
+                ),
+                TokenTrendTooltipLine(
+                    color: .green,
+                    title: AppLocalization.text("codex.tooltip.actualInput"),
+                    value: TokenCostFormatters.tokens(actualInputTokens)
+                ),
+                TokenTrendTooltipLine(
+                    color: .blue,
+                    title: AppLocalization.text("codex.tooltip.cachedInput"),
+                    value: TokenCostFormatters.tokens(point.cachedInputTokens)
+                )
+            ]
+        )
     }
 }
 
@@ -454,64 +412,4 @@ private extension CodexPageView {
         .buttonStyle(.plain)
     }
 
-    func updateTrendSelection(
-        location: CGPoint,
-        proxy: ChartProxy,
-        geometry: GeometryProxy,
-        points: [CodexDailyTrendPoint]
-    ) {
-        guard let plotFrame = proxy.plotFrame else {
-            hoveredTrendPoint = nil
-            return
-        }
-
-        let frame = geometry[plotFrame]
-        let x = location.x - frame.origin.x
-        guard let selectedDate: Date = proxy.value(atX: x, as: Date.self) else {
-            hoveredTrendPoint = nil
-            return
-        }
-
-        hoveredTrendPoint = points.min { lhs, rhs in
-            abs(lhs.date.timeIntervalSince(selectedDate)) < abs(rhs.date.timeIntervalSince(selectedDate))
-        }
-    }
-}
-
-private struct CodexTrendTooltipCard: View {
-    let point: CodexDailyTrendPoint
-    let palette: TokenCostPalette
-
-    var body: some View {
-        let actualInputTokens = max(point.inputTokens - point.cachedInputTokens, 0)
-        VStack(alignment: .leading, spacing: 8) {
-            Text(point.dateString)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(palette.title)
-
-            tooltipLine(color: palette.accent, title: AppLocalization.text("codex.tooltip.actualTokens"), value: TokenCostFormatters.tokens(point.actualTokens))
-            tooltipLine(color: .green, title: AppLocalization.text("codex.tooltip.actualInput"), value: TokenCostFormatters.tokens(actualInputTokens))
-            tooltipLine(color: .blue, title: AppLocalization.text("codex.tooltip.cachedInput"), value: TokenCostFormatters.tokens(point.cachedInputTokens))
-        }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(palette.cardStroke, lineWidth: 1)
-        )
-        .shadow(color: palette.cardShadow, radius: 10, x: 0, y: 8)
-    }
-
-    private func tooltipLine(color: Color, title: String, value: String) -> some View {
-        HStack(spacing: 8) {
-            Circle().fill(color).frame(width: 8, height: 8)
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(palette.subtitle)
-            Spacer(minLength: 0)
-            Text(value)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(palette.title)
-        }
-    }
 }

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.8.0] - 2026-06-04
+
+### Added
+
+- **总计页每日用量热力图**：新增 OpenCode + Codex 合计热力图，以过去 52 周为窗口展示每日 token 用量；热力图数据由 `TokenHeatmapBuilder` 合并双源日聚合、自动排除未来日期，并提供按日期升序的 `allCells` 供 UI 自适应排列（`TotalView.swift`、`TokenHeatmapGrid.swift`、`TokenHeatmapBuilder.swift`）
+- **共享趋势图组件**：新增 `TokenTrendChartView` 与 `TokenTrendRangePicker`，Codex 页面和 OpenCode 页面共用同一套曲线、渐变面积、hover tooltip 和 7/30 日范围切换（`TrendChartView.swift`、`CodexPageView.swift`、`DetailView.swift`）
+- **图表与计价回归测试**：新增热力图双源合并、日期排序、未来日期过滤和 7x52 兼容布局测试；补充 DeepSeek V4 官方 API 定价回归测试，防止计价口径误改（`CodexTokenCostCoreTests.swift`）
+
+### Changed
+
+- **OpenCode 趋势图 UI 与 Codex 对齐**：OpenCode 趋势图改为与 Codex 页面一致的单曲线实际 token 趋势；缓存读/写保留在 hover tooltip 中，不再额外绘制第二条缓存曲线，避免两个页面视觉口径不一致（`DetailView.swift`）
+- **Codex 趋势图增加 7/30 日切换**：Codex 趋势图保留原有视觉风格，并补齐与 OpenCode 一致的时间范围控件（`CodexPageView.swift`）
+- **热力图卡片内自适应填充**：热力图卡片高度保持不变，内部 cells 根据卡片可用宽高自动计算列数和 cell size，按日期顺序自动换行排列，避免固定 52 列导致过小或排列异常（`TokenHeatmapGrid.swift`）
+
+### Fixed
+
+- **趋势图悬浮状态重置**：共享趋势图在数据点集合变化时自动清空 hover 选中状态，避免切换 7/30 日或刷新数据后 tooltip 停留在旧点位（`TrendChartView.swift`）
+- **热力图日期顺序问题**：热力图 UI 不再依赖 7x52 固定矩阵的视觉顺序，统一使用按日期升序的 cells 渲染，确保自动换行后仍保持正确时间顺序（`TokenHeatmapBuilder.swift`、`TokenHeatmapGrid.swift`）
+
+### Security
+
+- v0.8.0 仅新增本地派生图表和测试覆盖，不新增数据写入面或网络请求；OpenCode / Codex 源数据仍保持只读访问。
+
+---
+
 ## [v0.7.0] - 2026-06-02
 
 ### Added
@@ -196,7 +221,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[v0.7.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.6.0...HEAD
+[v0.8.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.7.0...HEAD
+[v0.7.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.6.0...v0.7.0
 [v0.6.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.5.1...v0.6.0
 [v0.5.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.1.1...v0.5.0
 [v0.1.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.1.0...v0.1.1
