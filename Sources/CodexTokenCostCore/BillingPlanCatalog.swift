@@ -494,7 +494,7 @@ public extension AppPreferences {
         for (key, (raw, synthetic)) in usageCosts {
             let normalized = key.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             guard normalized == "opencode-go" || normalized == "opencode" else { continue }
-            let cost = raw > 0 ? raw : synthetic
+            let cost = synthetic > 0 ? synthetic : raw
             if cost > 0 { return cost }
         }
         return nil
@@ -554,7 +554,7 @@ public extension AppPreferences {
         for (rawKey, (raw, synthetic)) in usageCosts {
             let normalized = rawKey.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             if coveredRawKeys.contains(normalized) { continue }
-            let cost = raw > 0 ? raw : synthetic
+            let cost = synthetic > 0 ? synthetic : raw
             addCost(cost)
         }
 
