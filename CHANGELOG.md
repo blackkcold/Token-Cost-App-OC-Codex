@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OpenCode Go 环境变量开关真正生效**：`allowEnvironmentCredentials` 不再只是 UI 开关，运行时凭证发现、测试连接和 checker 构建都会按当前设置决定是否读取环境变量（`SecureCredentialStore.swift`、`OpenCodeGoBalanceProvider.swift`、`BalanceManager.swift`、`SettingsView.swift`）
 - **Provider 凭证发现边界收紧**：OpenCode Go 与 DeepSeek 改为只读取各自显式配置的凭证，不再跨 Provider 回退错误的 `api_key` / `key` 字段（`AuthTokenProvider.swift`）
 - **余额配置启动同步与测试回归**：`BalanceManager` 启动时直接吃已持久化配置，排序与启用列表稳定；补齐 `BalanceManager`、环境变量 gating、Keychain 发现和 AppPreferences round-trip 测试（`BalanceManager.swift`、`CodexTokenCostCoreTests.swift`、`AppPreferencesModelTests.swift`）
+- **Release 构建兼容 Xcode 16.4 严格并发检查**：`WindowLifecycleManager` 与 `AppDelegate` 明确对齐 `@MainActor`，observer token 清理与测试时序同步更新，修复 GitHub macOS 15 release workflow 的 actor-isolated 编译错误（`WindowLifecycleManager.swift`、`AppDelegate.swift`、`WindowLifecycleManagerTests.swift`）
 
 ### Security
 
