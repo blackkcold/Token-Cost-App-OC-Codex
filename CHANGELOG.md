@@ -15,11 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- 暂无
+- **Release note 流程回正**：GitHub Release 正文不再从仓库内 `release/release-notes/` 读取；仓库只保留 `CHANGELOG.md` 与 `release/versions.json`，正式发布说明在 GitHub Release 页面维护（`.github/workflows/release.yml`、`docs/开发手册.md`）
 
 ### Fixed
 
-- 暂无
+- **Release 构建兼容 Xcode 16.4 严格并发检查**：`WindowLifecycleManager` 与 `AppDelegate` 明确对齐 `@MainActor`，observer token 清理与测试时序同步更新，修复 GitHub macOS 15 release workflow 的 actor-isolated 编译错误（`WindowLifecycleManager.swift`、`AppDelegate.swift`、`WindowLifecycleManagerTests.swift`）
 
 ### Security
 
@@ -49,7 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **OpenCode Go 凭证边界正式固化**：auth cookie 继续只进 macOS Keychain，环境变量 `OPENCODE_GO_WORKSPACE_ID` / `OPENCODE_GO_AUTH_COOKIE` 默认禁用，只有用户在设置中显式开启后才参与发现链路（`SecureCredentialStore.swift`、`SECURITY.md`）
 - **OpenCode Zen CLI 校验增强**：二进制定位增加固定路径、签名校验与哈希辅助能力，拒绝继续依赖宽松 PATH 回退（`OpenCodeZenBalanceProvider.swift`）
-- **GitHub Release 自动发布链路对齐**：tag 工作流改为读取仓库内双语 `release/release-notes/vX.Y.Z.md`，并上传版本化 zip 产物，避免发布说明与实际构建文件名脱节（`.github/workflows/release.yml`、`docs/开发手册.md`）
 
 ## [v0.8.0] - 2026-06-04
 

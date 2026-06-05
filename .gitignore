@@ -30,10 +30,10 @@ release/v*.*.*/*.app
 release/v*.*.*/*.zip
 release/v*.*.*-*/*.app
 release/v*.*.*-*/*.zip
+release/release-notes/
 
 # Keep these release metadata files
 !release/versions.json
-!release/release-notes/
 !release/.gitkeep
 !release/latest/.gitkeep
 

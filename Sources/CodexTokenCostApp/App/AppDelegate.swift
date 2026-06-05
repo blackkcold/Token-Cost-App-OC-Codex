@@ -5,7 +5,8 @@ extension Notification.Name {
     static let openMainWindow = Notification.Name("CodexTokenCost.openMainWindow")
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lifecycleManager: WindowLifecycleManager?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -14,11 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NSApp.activate(ignoringOtherApps: true)
         lifecycleManager?.windowDidOpen(identifier: "main")
         lifecycleManager?.startObservingWindowClose { [weak lifecycleManager] window in
-            MainActor.assumeIsolated {
-                guard let manager = lifecycleManager else { return }
-                if manager.isMainWindow(window) {
-                    manager.windowWillClose(identifier: "main")
-                }
+            guard let manager = lifecycleManager else { return }
+            if manager.isMainWindow(window) {
+                manager.windowWillClose(identifier: "main")
             }
         }
     }

@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 @testable import CodexTokenCostApp
 
+@MainActor
 final class WindowLifecycleManagerTests: XCTestCase {
 
     // MARK: - Policy Tests
@@ -32,7 +33,6 @@ final class WindowLifecycleManagerTests: XCTestCase {
 
     // MARK: - Window Identification Tests
 
-    @MainActor
     func testIsMainWindowMatchesIdentifier() {
         let manager = WindowLifecycleManager.withDefaultPolicies()
         let window = NSWindow(
@@ -45,7 +45,6 @@ final class WindowLifecycleManagerTests: XCTestCase {
         XCTAssertTrue(manager.isMainWindow(window))
     }
 
-    @MainActor
     func testIsMainWindowRejectsOtherIdentifiers() {
         let manager = WindowLifecycleManager.withDefaultPolicies()
         let window = NSWindow(
@@ -58,7 +57,6 @@ final class WindowLifecycleManagerTests: XCTestCase {
         XCTAssertFalse(manager.isMainWindow(window))
     }
 
-    @MainActor
     func testIsMainWindowRejectsSettingsWindow() {
         let manager = WindowLifecycleManager.withDefaultPolicies()
         let window = NSWindow(
@@ -145,7 +143,6 @@ final class WindowLifecycleManagerTests: XCTestCase {
 
     // MARK: - Observer Management
 
-    @MainActor
     func testObserversAreAddedAndRemoved() {
         let manager = WindowLifecycleManager(
             setPolicy: { _ in }, getPolicy: { .regular }, retryCount: 0
@@ -166,7 +163,12 @@ final class WindowLifecycleManagerTests: XCTestCase {
             name: NSWindow.willCloseNotification,
             object: window
         )
-        XCTAssertEqual(counter.value, 1)
+        let firstDelivery = XCTestExpectation(description: "Observer should receive first close")
+        DispatchQueue.main.async {
+            XCTAssertEqual(counter.value, 1)
+            firstDelivery.fulfill()
+        }
+        wait(for: [firstDelivery], timeout: 1.0)
 
         manager.stopObserving()
 
@@ -174,7 +176,12 @@ final class WindowLifecycleManagerTests: XCTestCase {
             name: NSWindow.willCloseNotification,
             object: window
         )
-        XCTAssertEqual(counter.value, 1, "Observer should be removed")
+        let secondDelivery = XCTestExpectation(description: "Removed observer should stay silent")
+        DispatchQueue.main.async {
+            XCTAssertEqual(counter.value, 1, "Observer should be removed")
+            secondDelivery.fulfill()
+        }
+        wait(for: [secondDelivery], timeout: 1.0)
     }
 }
 

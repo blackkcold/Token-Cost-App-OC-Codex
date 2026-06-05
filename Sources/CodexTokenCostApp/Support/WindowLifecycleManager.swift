@@ -1,19 +1,20 @@
 import AppKit
 
-final class WindowLifecycleManager: @unchecked Sendable {
+@MainActor
+final class WindowLifecycleManager {
 
-    private let setPolicy: @Sendable (NSApplication.ActivationPolicy) -> Void
-    private let getPolicy: @Sendable () -> NSApplication.ActivationPolicy
+    private let setPolicy: @MainActor @Sendable (NSApplication.ActivationPolicy) -> Void
+    private let getPolicy: @MainActor @Sendable () -> NSApplication.ActivationPolicy
     private let retryCount: Int
     private let retryDelay: UInt64
 
     private var mainWindowOpen = false
     private var settingsWindowOpen = false
-    private var observationToken: Any?
+    private var observationToken: ObservationTokenBox?
 
     init(
-        setPolicy: @escaping @Sendable (NSApplication.ActivationPolicy) -> Void,
-        getPolicy: @escaping @Sendable () -> NSApplication.ActivationPolicy,
+        setPolicy: @escaping @MainActor @Sendable (NSApplication.ActivationPolicy) -> Void,
+        getPolicy: @escaping @MainActor @Sendable () -> NSApplication.ActivationPolicy,
         retryCount: Int = 3,
         retryDelay: UInt64 = 100_000_000
     ) {
@@ -24,10 +25,11 @@ final class WindowLifecycleManager: @unchecked Sendable {
     }
 
     deinit {
-        stopObserving()
+        if let token = observationToken {
+            NotificationCenter.default.removeObserver(token.rawValue)
+        }
     }
 
-    @MainActor
     func isMainWindow(_ window: NSWindow) -> Bool {
         window.identifier?.rawValue == "main"
     }
@@ -67,22 +69,26 @@ final class WindowLifecycleManager: @unchecked Sendable {
     }
 
     func startObservingWindowClose(
-        onWillClose: @escaping @Sendable (NSWindow) -> Void
+        onWillClose: @escaping @MainActor @Sendable (NSWindow) -> Void
     ) {
         stopObserving()
-        observationToken = NotificationCenter.default.addObserver(
+        observationToken = ObservationTokenBox(
+            NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: nil,
             queue: .main
         ) { notification in
             guard let window = notification.object as? NSWindow else { return }
-            onWillClose(window)
+            Task { @MainActor in
+                onWillClose(window)
+            }
         }
+        )
     }
 
     func stopObserving() {
         if let token = observationToken {
-            NotificationCenter.default.removeObserver(token)
+            NotificationCenter.default.removeObserver(token.rawValue)
             observationToken = nil
         }
     }
@@ -99,9 +105,9 @@ final class WindowLifecycleManager: @unchecked Sendable {
     private func verifyRetry(target: NSApplication.ActivationPolicy, attemptsLeft: Int) {
         guard attemptsLeft > 0 else { return }
         if getPolicy() == target { return }
-        let nsDelay = Double(retryDelay) / 1_000_000_000
-        DispatchQueue.main.asyncAfter(deadline: .now() + nsDelay) { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
+            try? await Task.sleep(nanoseconds: retryDelay)
             self.setPolicy(target)
             self.verifyRetry(target: target, attemptsLeft: attemptsLeft - 1)
         }
@@ -109,11 +115,18 @@ final class WindowLifecycleManager: @unchecked Sendable {
 }
 
 extension WindowLifecycleManager {
-    @MainActor
     static func withDefaultPolicies() -> WindowLifecycleManager {
         WindowLifecycleManager(
             setPolicy: { NSApp.setActivationPolicy($0) },
             getPolicy: { NSApp.activationPolicy() }
         )
+    }
+}
+
+private final class ObservationTokenBox: @unchecked Sendable {
+    let rawValue: Any
+
+    init(_ rawValue: Any) {
+        self.rawValue = rawValue
     }
 }
