@@ -61,8 +61,9 @@ struct BalanceOverviewCard: View {
     }
 
     private func balanceRow(_ snapshot: BalanceSnapshot) -> some View {
-        let showWindows = snapshot.primaryWindowUsagePercent != nil
+        let showWindows = snapshot.primaryWindowUsagePercent != nil || snapshot.quotaWindows != nil
         let showCostOnly = snapshot.usagePercent == nil && snapshot.totalCostUSD != nil
+        let showValueEntries = snapshot.valueEntries != nil && !(snapshot.valueEntries?.isEmpty ?? true)
 
         return HStack(spacing: 12) {
             Circle()
@@ -95,6 +96,24 @@ struct BalanceOverviewCard: View {
                             .font(.caption2)
                             .foregroundStyle(palette.subtitle)
                     }
+                } else if showValueEntries {
+                    if let entries = snapshot.valueEntries {
+                        ForEach(entries) { entry in
+                            HStack(spacing: 6) {
+                                Text(entry.currencyCode ?? "")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(palette.accent)
+                                Text(String(format: "%.2f", entry.amount))
+                                    .font(.caption)
+                                    .foregroundStyle(palette.title)
+                                if let granted = entry.grantedAmount {
+                                    Text("(赠 \(String(format: "%.2f", granted)))")
+                                        .font(.caption2)
+                                        .foregroundStyle(palette.subtitle)
+                                }
+                            }
+                        }
+                    }
                 } else if let pct = snapshot.usagePercent {
                     windowProgressBar(label: nil, pct: pct)
                 }
@@ -102,14 +121,14 @@ struct BalanceOverviewCard: View {
 
             Spacer()
 
-            Text(showCostOnly ? "按量" : snapshot.gradient.label)
+            Text(showCostOnly || showValueEntries ? "余额" : snapshot.gradient.label)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(gradientColor(for: showCostOnly ? .low : snapshot.gradient))
+                .foregroundStyle(gradientColor(for: (showCostOnly || showValueEntries) ? .low : snapshot.gradient))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(gradientColor(for: showCostOnly ? .low : snapshot.gradient).opacity(0.12))
+                        .fill(gradientColor(for: (showCostOnly || showValueEntries) ? .low : snapshot.gradient).opacity(0.12))
                 )
         }
         .padding(12)

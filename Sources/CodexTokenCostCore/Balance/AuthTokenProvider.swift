@@ -21,6 +21,8 @@ public enum AuthTokenProvider {
             return readOpenCodeAuthToken()
         case .codex:
             return readCodexAuthToken()
+        case .deepseek:
+            return readDeepSeekAuthToken()
         }
     }
 
@@ -37,8 +39,8 @@ public enum AuthTokenProvider {
             if let key = provider["api_key"] as? String, !key.isEmpty { return key }
         }
 
-        // Fallback to generic extraction
-        return extractAPIKey(from: json)
+        // Go only accepts explicit opencode-go credentials (no cross-provider fallback).
+        return nil
     }
 
     // MARK: - OpenCode auth.json
@@ -61,17 +63,10 @@ public enum AuthTokenProvider {
         if let key = json["api_key"] as? String, !key.isEmpty { return key }
 
         // Try nested provider blocks
-        for providerKey in ["opencode", "openai", "openrouter", "anthropic", "google", "deepseek", "moonshot", "minimax"] {
+        for providerKey in ["opencode", "openai", "openrouter", "anthropic", "google"] {
             guard let provider = json[providerKey] as? [String: Any] else { continue }
             if let key = provider["api_key"] as? String, !key.isEmpty { return key }
             if let key = provider["key"] as? String, !key.isEmpty { return key }
-        }
-
-        // Fallback: any top-level key ending in "api_key" or "key"
-        for (k, v) in json {
-            guard k.hasSuffix("api_key") || k.hasSuffix("key") || k == "token",
-                  let key = v as? String, !key.isEmpty else { continue }
-            return key
         }
 
         return nil
@@ -97,6 +92,24 @@ public enum AuthTokenProvider {
             if let token = nested["token"] as? String, !token.isEmpty { return token }
             if let token = nested["accessToken"] as? String, !token.isEmpty { return token }
             if let token = nested["access_token"] as? String, !token.isEmpty { return token }
+        }
+
+        return nil
+    }
+
+    // MARK: - DeepSeek auth.json
+
+    private static func readDeepSeekAuthToken() -> String? {
+        let authURL = openCodeAuthURL
+        guard FileManager.default.fileExists(atPath: authURL.path),
+              let data = try? Data(contentsOf: authURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        // DeepSeek only accepts explicit deepseek provider credentials.
+        if let provider = json["deepseek"] as? [String: Any] {
+            if let key = provider["key"] as? String, !key.isEmpty { return key }
+            if let key = provider["api_key"] as? String, !key.isEmpty { return key }
         }
 
         return nil

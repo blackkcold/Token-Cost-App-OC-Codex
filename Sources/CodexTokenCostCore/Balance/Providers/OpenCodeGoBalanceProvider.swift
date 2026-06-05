@@ -2,15 +2,20 @@ import Foundation
 
 public struct OpenCodeGoBalanceChecker: BalanceChecker {
     public var providerKind: BalanceProviderKind { .opencodeGo }
+    let allowEnvironmentCredentials: Bool
 
-    public init() {}
+    public init(allowEnvironmentCredentials: Bool = false) {
+        self.allowEnvironmentCredentials = allowEnvironmentCredentials
+    }
 
     public func fetch(authToken: String) async -> BalanceSnapshot {
         guard !authToken.isEmpty else {
             return .unavailable(.opencodeGo, reason: "未找到 OpenCode Go API key")
         }
 
-        let (workspaceID, cookie) = SecureCredentialStore.discoverCredentials()
+        let (workspaceID, cookie) = SecureCredentialStore.shared.discoverCredentials(
+            allowEnvironment: allowEnvironmentCredentials
+        )
         guard let workspaceID, let cookie else {
             return .unavailable(.opencodeGo, reason: "请先在设置中配置 OpenCode Go 凭证")
         }
@@ -30,6 +35,30 @@ public struct OpenCodeGoBalanceChecker: BalanceChecker {
         let weekly = usage.weekly
         let monthly = usage.monthly
 
+        // Build unified quotaWindows
+        var windows: [BalanceQuotaWindow] = []
+        if let r = rolling {
+            windows.append(BalanceQuotaWindow(
+                label: "5小时", usedRatio: r.usagePercent / 100.0,
+                remainingRatio: r.usagePercent < 100 ? (100 - r.usagePercent) / 100.0 : 0,
+                resetAt: r.resetDate, windowSeconds: 5 * 3600
+            ))
+        }
+        if let w = weekly {
+            windows.append(BalanceQuotaWindow(
+                label: "每周", usedRatio: w.usagePercent / 100.0,
+                remainingRatio: w.usagePercent < 100 ? (100 - w.usagePercent) / 100.0 : 0,
+                resetAt: w.resetDate, windowSeconds: 7 * 86400
+            ))
+        }
+        if let m = monthly {
+            windows.append(BalanceQuotaWindow(
+                label: "每月", usedRatio: m.usagePercent / 100.0,
+                remainingRatio: m.usagePercent < 100 ? (100 - m.usagePercent) / 100.0 : 0,
+                resetAt: m.resetDate, windowSeconds: 30 * 86400
+            ))
+        }
+
         return BalanceSnapshot(
             provider: .opencodeGo,
             fetchedAt: Date(),
@@ -43,7 +72,8 @@ public struct OpenCodeGoBalanceChecker: BalanceChecker {
             secondaryWindowResetAt: weekly?.resetDate,
             tertiaryWindowLabel: monthly != nil ? "每月" : nil,
             tertiaryWindowUsagePercent: monthly.map { $0.usagePercent / 100.0 },
-            tertiaryWindowResetAt: monthly?.resetDate
+            tertiaryWindowResetAt: monthly?.resetDate,
+            quotaWindows: windows.isEmpty ? nil : windows
         )
     }
 

@@ -1,16 +1,30 @@
 import AppKit
+import Combine
 import SwiftUI
 import CodexTokenCostCore
 
-    @main
+@main
 struct CodexTokenCostApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var appPreferencesModel = AppPreferencesModel()
-    @StateObject private var openCodeModel = TokenCostModel()
-    @StateObject private var codexModel = CodexSessionModel()
-    @StateObject private var balanceManager = BalanceManager()
-    @StateObject private var updateChecker = UpdateCheckerModel()
-    @StateObject private var skillsModel = OpenCodeSkillsModel()
+    @Environment(\.openWindow) private var openWindow
+    @StateObject private var appPreferencesModel: AppPreferencesModel
+    @StateObject private var openCodeModel: TokenCostModel
+    @StateObject private var codexModel: CodexSessionModel
+    @StateObject private var balanceManager: BalanceManager
+    @StateObject private var updateChecker: UpdateCheckerModel
+    @StateObject private var skillsModel: OpenCodeSkillsModel
+
+    init() {
+        let preferencesModel = AppPreferencesModel()
+        _appPreferencesModel = StateObject(wrappedValue: preferencesModel)
+        _openCodeModel = StateObject(wrappedValue: TokenCostModel())
+        _codexModel = StateObject(wrappedValue: CodexSessionModel())
+        _balanceManager = StateObject(
+            wrappedValue: BalanceManager(configuration: preferencesModel.effectiveBalanceConfiguration)
+        )
+        _updateChecker = StateObject(wrappedValue: UpdateCheckerModel())
+        _skillsModel = StateObject(wrappedValue: OpenCodeSkillsModel())
+    }
 
     var body: some Scene {
         WindowGroup(CodexAppPaths.appDisplayName, id: "main") {
@@ -24,6 +38,12 @@ struct CodexTokenCostApp: App {
             )
             .task {
                 appPreferencesModel.migrateThemeFromSettingsIfNeeded(openCodeModel.settings.theme)
+            }
+            .onChange(of: appPreferencesModel.preferences.balanceConfig) { _, newConfig in
+                balanceManager.updateConfiguration(newConfig ?? BalanceConfiguration())
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openMainWindow)) { _ in
+                openWindow(id: "main")
             }
         }
         .defaultSize(width: 1260, height: 860)

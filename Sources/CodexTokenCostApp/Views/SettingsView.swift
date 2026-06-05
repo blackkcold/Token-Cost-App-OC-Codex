@@ -8,6 +8,19 @@ struct SettingsView: View {
     @ObservedObject var balanceManager: BalanceManager
     @Environment(\.dismiss) private var dismiss
 
+    @State private var isPricingDocPresented = false
+    @State private var isAppPreferencesExpanded = true
+    @State private var isBillingExpanded = false
+    @State private var isBalanceExpanded = false
+    @State private var isOpenCodeExpanded = false
+    @State private var isOpenCodeScanRootsExpanded = false
+    @State private var isOpenCodeManualDatabaseExpanded = false
+    @State private var isCodexExpanded = false
+    @State private var isCodexRootsExpanded = false
+    @State private var isCodexManualExpanded = false
+    @State private var isSkillsExpanded = false
+    @State private var isSafetyExpanded = true
+
     @State private var scanRootsPageIndex = 0
     @State private var manualDatabasePageIndex = 0
     @State private var codexDiscoveryPageIndex = 0
@@ -44,15 +57,8 @@ struct SettingsView: View {
                     appPreferencesSection
                     billingPlanSection
                     balanceMonitorSection
-                    themeSection
-                    sourceSection
-                    scanRootsSection
-                    manualDatabaseSection
-                    codexHeader
-                    codexDiscoverySection
-                    codexSection
-                    codexRootsSection
-                    codexManualSection
+                    openCodeModuleSection
+                    codexModuleSection
                     skillsPanelSection
                     safetySection
                 }
@@ -115,37 +121,59 @@ struct SettingsView: View {
     }
 
     private var appPreferencesSection: some View {
-        TokenSectionCard(
+        TokenCollapsibleSectionCard(
             title: AppLocalization.text("settings.appPreferences.title"),
             subtitle: AppLocalization.text("settings.appPreferences.subtitle"),
-            trailing: nil,
+            isExpanded: $isAppPreferencesExpanded,
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                Picker(AppLocalization.text("settings.language"), selection: appPreferencesModel.languageBinding) {
-                    ForEach(AppDisplayLanguage.allCases) { language in
-                        Text(language.displayName).tag(language)
+                SettingsControlGrid(minimumWidth: 260) {
+                    SettingsControlTile(
+                        title: AppLocalization.text("settings.language"),
+                        palette: palette,
+                        minHeight: 74
+                    ) {
+                        Picker("", selection: appPreferencesModel.languageBinding) {
+                            ForEach(AppDisplayLanguage.allCases) { language in
+                                Text(language.displayName).tag(language)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                    }
+
+                    SettingsControlTile(
+                        title: AppLocalization.text("settings.currency.title"),
+                        palette: palette,
+                        minHeight: 74
+                    ) {
+                        Picker("", selection: appPreferencesModel.displayCurrencyBinding) {
+                            ForEach(DisplayCurrency.allCases) { currency in
+                                Text(currency.displayName).tag(currency)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
                     }
                 }
-                .pickerStyle(.segmented)
 
-                Picker(AppLocalization.text("settings.currency.title"), selection: appPreferencesModel.displayCurrencyBinding) {
-                    ForEach(DisplayCurrency.allCases) { currency in
-                        Text(currency.displayName).tag(currency)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+                    ForEach(TokenCostThemeChoice.allCases, id: \.self) { choice in
+                        ThemeChoiceCard(
+                            choice: choice,
+                            isSelected: appPreferencesModel.preferences.theme == choice
+                        ) {
+                            appPreferencesModel.themeBinding.wrappedValue = choice
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-
-
             }
         }
     }
 
-    
-    @State private var isPricingDocPresented = false
-
     private var billingPlanSection: some View {
-        TokenSectionCard(
+        TokenCollapsibleSectionCard(
             title: AppLocalization.text("settings.billing.title"),
             subtitle: AppLocalization.text("settings.billing.subtitle"),
             trailing: AnyView(
@@ -157,6 +185,7 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(palette.accent)
             ),
+            isExpanded: $isBillingExpanded,
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 14) {
@@ -185,41 +214,46 @@ struct SettingsView: View {
         }
     }
 
-    private var themeSection: some View {
-        TokenSectionCard(
-            title: AppLocalization.text("settings.theme.title"),
-            subtitle: AppLocalization.text("settings.theme.subtitle"),
-            trailing: nil,
+    private var codexHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(AppLocalization.text("settings.codex.body"))
+                .font(.callout)
+                .foregroundStyle(palette.subtitle)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var openCodeModuleSection: some View {
+        TokenCollapsibleSectionCard(
+            title: AppLocalization.text("settings.opencode.title"),
+            subtitle: AppLocalization.text("settings.opencode.subtitle"),
+            isExpanded: $isOpenCodeExpanded,
             palette: palette
         ) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
-                ForEach(TokenCostThemeChoice.allCases, id: \.self) { choice in
-                    ThemeChoiceCard(
-                        choice: choice,
-                        isSelected: appPreferencesModel.preferences.theme == choice
-                    ) {
-                        appPreferencesModel.themeBinding.wrappedValue = choice
-                    }
-                }
+            VStack(alignment: .leading, spacing: 12) {
+                sourceSection
+                scanRootsSection
+                manualDatabaseSection
             }
         }
     }
 
-    private var codexHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(AppLocalization.text("settings.codex.title"))
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(palette.title)
-
-            Text(AppLocalization.text("settings.codex.subtitle"))
-                .font(.callout)
-                .foregroundStyle(palette.subtitle)
-            Text(AppLocalization.text("settings.codex.body"))
-                .font(.caption)
-                .foregroundStyle(palette.subtitle)
+    private var codexModuleSection: some View {
+        TokenCollapsibleSectionCard(
+            title: AppLocalization.text("settings.codex.title"),
+            subtitle: AppLocalization.text("settings.codex.subtitle"),
+            isExpanded: $isCodexExpanded,
+            palette: palette
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                codexHeader
+                codexDiscoverySection
+                codexSection
+                codexRootsSection
+                codexManualSection
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 6)
     }
 
     private var codexDiscoverySection: some View {
@@ -262,30 +296,42 @@ struct SettingsView: View {
                     }
                 }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 12)], spacing: 12) {
+                SettingsActionWrap {
                     Button {
                         codexModel.refresh()
                     } label: {
                         Label(AppLocalization.text("settings.action.rescan"), systemImage: "arrow.clockwise")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         codexModel.addSourceRoot()
                     } label: {
                         Label(AppLocalization.text("settings.action.selectDirectory"), systemImage: "folder.badge.plus")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         codexModel.addSourceFile()
                     } label: {
                         Label(AppLocalization.text("settings.action.selectFile"), systemImage: "doc.badge.plus")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         dismiss()
                     } label: {
                         Label(AppLocalization.text("settings.action.close"), systemImage: "xmark")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -299,45 +345,65 @@ struct SettingsView: View {
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                Toggle(AppLocalization.text("settings.source.autoRescan"), isOn: binding(\.autoRescan))
-                Toggle(AppLocalization.text("settings.source.showZeroUsageProvider"), isOn: binding(\.showZeroUsageXiaomiProvider))
+                SettingsControlGrid {
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.source.autoRescan"), isOn: binding(\.autoRescan))
+                    }
 
-                Stepper(value: binding(\.maxScanDepth), in: 1...8) {
-                    Text(AppLocalization.format("settings.source.scanDepth", openCodeModel.settings.maxScanDepth))
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.source.showZeroUsageProvider"), isOn: binding(\.showZeroUsageXiaomiProvider))
+                    }
+
+                    SettingsControlTile(palette: palette, minHeight: 62) {
+                        Stepper(value: binding(\.maxScanDepth), in: 1...8) {
+                            Text(AppLocalization.format("settings.source.scanDepth", openCodeModel.settings.maxScanDepth))
+                        }
+                    }
+
+                    SettingsControlTile(palette: palette, minHeight: 62) {
+                        Stepper(value: binding(\.snapshotRetentionCount), in: 1...20) {
+                            Text(AppLocalization.format("settings.source.snapshotRetention", openCodeModel.settings.snapshotRetentionCount))
+                        }
+                    }
                 }
 
-                Stepper(value: binding(\.snapshotRetentionCount), in: 1...20) {
-                    Text(AppLocalization.format("settings.source.snapshotRetention", openCodeModel.settings.snapshotRetentionCount))
-                }
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 148), spacing: 12)], spacing: 12) {
+                SettingsActionWrap {
                     Button {
                         openCodeModel.addScanRoot()
                     } label: {
                         Label(AppLocalization.text("settings.action.addInstallDirectory"), systemImage: "folder.badge.plus")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         openCodeModel.addDatabaseFile()
                     } label: {
                         Label(AppLocalization.text("settings.action.addDatabaseFile"), systemImage: "externaldrive.badge.plus")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         openCodeModel.rescanSources()
                     } label: {
                         Label(AppLocalization.text("settings.action.rescan"), systemImage: "arrow.clockwise")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
     }
 
     private var scanRootsSection: some View {
-        TokenSectionCard(
+        TokenCollapsibleSectionCard(
             title: AppLocalization.text("settings.scanRoots.title"),
             subtitle: AppLocalization.text("settings.scanRoots.subtitle"),
-            trailing: nil,
+            isExpanded: $isOpenCodeScanRootsExpanded,
             palette: palette
         ) {
             if openCodeModel.settings.scanRoots.isEmpty {
@@ -376,10 +442,10 @@ struct SettingsView: View {
     }
 
     private var manualDatabaseSection: some View {
-        TokenSectionCard(
+        TokenCollapsibleSectionCard(
             title: AppLocalization.text("settings.manualDatabase.title"),
             subtitle: AppLocalization.text("settings.manualDatabase.subtitle"),
-            trailing: nil,
+            isExpanded: $isOpenCodeManualDatabaseExpanded,
             palette: palette
         ) {
             if openCodeModel.settings.manualDatabasePaths.isEmpty {
@@ -418,142 +484,172 @@ struct SettingsView: View {
     }
 
     private var balanceMonitorSection: some View {
-        TokenSectionCard(
-            title: "余额监控",
-            subtitle: "开启后将通过 HTTPS 查询各 Provider 的实时余额。API key 仅从本地 auth.json 读取，不持久化。",
-            trailing: nil,
+        TokenCollapsibleSectionCard(
+            title: AppLocalization.text("settings.balance.title"),
+            subtitle: AppLocalization.text("settings.balance.subtitle"),
+            isExpanded: $isBalanceExpanded,
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                Toggle("启用余额监控", isOn: balanceEnabledBinding)
+                SettingsControlGrid {
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.balance.enable"), isOn: balanceEnabledBinding)
+                    }
+
+                    if appPreferencesModel.preferences.balanceEnabled {
+                        SettingsControlTile(palette: palette, minHeight: 74) {
+                            SettingsInlineControlRow(
+                                title: AppLocalization.text("settings.balance.refreshInterval"),
+                                palette: palette
+                            ) {
+                                Picker("", selection: appPreferencesModel.balanceRefreshMinutesBinding) {
+                                    Text(AppLocalization.format("settings.balance.refreshIntervalOption", 5)).tag(5)
+                                    Text(AppLocalization.format("settings.balance.refreshIntervalOption", 10)).tag(10)
+                                    Text(AppLocalization.format("settings.balance.refreshIntervalOption", 15)).tag(15)
+                                    Text(AppLocalization.format("settings.balance.refreshIntervalOption", 30)).tag(30)
+                                    Text(AppLocalization.format("settings.balance.refreshIntervalOption", 60)).tag(60)
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .frame(width: 120)
+                            }
+                        }
+
+                        SettingsControlTile(palette: palette, minHeight: 74) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Button {
+                                        Task { await balanceManager.refresh() }
+                                    } label: {
+                                        Label(AppLocalization.text("settings.balance.refreshNow"), systemImage: "arrow.clockwise")
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(balanceManager.isRefreshing)
+
+                                    if balanceManager.isRefreshing {
+                                        smallInlineProgressIndicator
+                                    }
+                                }
+
+                                if let lastRefresh = balanceManager.lastRefreshTime {
+                                    Text(AppLocalization.format(
+                                        "settings.balance.lastRefreshAt",
+                                        TokenCostFormatters.localDateTime(ISO8601DateFormatter().string(from: lastRefresh))
+                                    ))
+                                        .font(.caption2)
+                                        .foregroundStyle(palette.subtitle)
+                                }
+                            }
+                        }
+                    }
+                }
 
                 if appPreferencesModel.preferences.balanceEnabled {
-                    HStack(spacing: 8) {
-                        Text("刷新间隔")
-                            .font(.caption)
-                            .foregroundStyle(palette.subtitle)
-
-                        Picker("", selection: appPreferencesModel.balanceRefreshMinutesBinding) {
-                            Text("5 分钟").tag(5)
-                            Text("10 分钟").tag(10)
-                            Text("15 分钟").tag(15)
-                            Text("30 分钟").tag(30)
-                            Text("60 分钟").tag(60)
-                        }
-                        .pickerStyle(.menu)
-                        .frame(width: 120)
-                    }
-
-                    HStack(spacing: 6) {
-                        Button {
-                            Task { await balanceManager.refresh() }
-                        } label: {
-                            Label("立即刷新余额", systemImage: "arrow.clockwise")
-                        }
-                        .disabled(balanceManager.isRefreshing)
-
-                        if balanceManager.isRefreshing {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .frame(width: 16, height: 16)
-                        }
-                    }
-
-                    if let lastRefresh = balanceManager.lastRefreshTime {
-                        Text("上次刷新：\(TokenCostFormatters.localDateTime(ISO8601DateFormatter().string(from: lastRefresh) as String?))")
-                            .font(.caption2)
-                            .foregroundStyle(palette.subtitle)
-                    }
-
-                    Text("已发起 HTTPS 网络请求到 api.opencode.ai、chatgpt.com 等官方端点。")
+                    Text(AppLocalization.text("settings.balance.networkNotice"))
                         .font(.caption2)
                         .foregroundStyle(.orange)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(AppLocalization.text("settings.balance.providerToggles"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(palette.subtitle)
+
+                        SettingsControlGrid {
+                            ForEach(modelSelectableProviders, id: \.self) { provider in
+                                SettingsControlTile(palette: palette, minHeight: 54) {
+                                    Toggle(isOn: providerBinding(for: provider)) {
+                                        Text(provider.displayName)
+                                            .font(.caption)
+                                    }
+                                    .toggleStyle(.switch)
+                                }
+                            }
+
+                            SettingsControlTile(palette: palette, minHeight: 54) {
+                                Toggle(AppLocalization.text("settings.balance.allowEnvironmentCredentials"), isOn: envCredentialsBinding)
+                                    .font(.caption)
+                            }
+                        }
+                    }
                 }
 
                 Divider()
 
-                Text(AppLocalization.text("settings.opencodeGo.credentials.title"))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(palette.subtitle)
-
-                TextField(AppLocalization.text("settings.opencodeGo.credentials.workspaceID"), text: appPreferencesModel.opencodeGoWorkspaceIDBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption)
-
-                HStack(spacing: 8) {
-                    SecureField(AppLocalization.text("settings.opencodeGo.credentials.authCookie"), text: $goCookieInput)
+                SettingsFieldGroup(
+                    title: AppLocalization.text("settings.opencodeGo.credentials.title"),
+                    palette: palette,
+                    spacing: 12
+                ) {
+                    TextField(AppLocalization.text("settings.opencodeGo.credentials.workspaceID"), text: appPreferencesModel.opencodeGoWorkspaceIDBinding)
                         .textFieldStyle(.roundedBorder)
                         .font(.caption)
+                        .controlSize(.small)
 
-                    Button(AppLocalization.text("settings.action.save")) {
-                        if !goCookieInput.isEmpty {
-                            SecureCredentialStore.saveAuthCookie(goCookieInput)
-                            goCookieInput = ""
-                            goCookieSaved = true
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: 8) {
+                            authCookieField
+                            saveGoCookieButton
+                            testGoConnectionButton
+                            if isTestingGoConnection {
+                                smallInlineProgressIndicator
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            authCookieField
+
+                            HStack(spacing: 8) {
+                                saveGoCookieButton
+                                testGoConnectionButton
+                                if isTestingGoConnection {
+                                    smallInlineProgressIndicator
+                                }
+                            }
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
 
-                    Button(AppLocalization.text("settings.action.testConnection")) {
-                        testGoConnection()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(isTestingGoConnection)
-
-                    if isTestingGoConnection {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .frame(width: 16, height: 16)
-                    }
-                }
-
-                if goCookieSaved {
-                    Text(AppLocalization.text("settings.opencodeGo.credentials.saved"))
-                        .font(.caption2)
-                        .foregroundStyle(.green)
-                }
-
-                Text(AppLocalization.text("settings.opencodeGo.credentials.hint"))
-                    .font(.caption2)
-                    .foregroundStyle(palette.subtitle)
-
-                Button(AppLocalization.text("settings.opencodeGo.importFromBrowser")) {
-                    showBrowserImportAlert = true
-                }
-                .disabled(isImportingFromBrowser)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                if isImportingFromBrowser {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                        Text("正在搜索浏览器数据…")
+                    if goCookieSaved {
+                        Text(AppLocalization.text("settings.opencodeGo.credentials.saved"))
                             .font(.caption2)
-                            .foregroundStyle(palette.subtitle)
+                            .foregroundStyle(.green)
                     }
-                }
 
-                if let message = browserImportMessage {
-                    Text(message)
+                    Text(AppLocalization.text("settings.opencodeGo.credentials.hint"))
                         .font(.caption2)
-                        .foregroundStyle(message.contains(AppLocalization.text("settings.opencodeGo.import.success"))
-                            ? .green : .red)
+                        .foregroundStyle(palette.subtitle)
+
+                    browserImportButton
+
+                    if isImportingFromBrowser {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text(AppLocalization.text("settings.balance.searchingBrowser"))
+                                .font(.caption2)
+                                .foregroundStyle(palette.subtitle)
+                        }
+                    }
+
+                    if let message = browserImportMessage {
+                        Text(message)
+                            .font(.caption2)
+                            .foregroundStyle(message.contains(AppLocalization.text("settings.opencodeGo.import.success"))
+                                ? .green : .red)
+                    }
                 }
             }
         }
-        .alert("开启余额监控", isPresented: $showBalanceNetworkAlert) {
-            Button("取消") {
+        .alert(AppLocalization.text("settings.balance.networkAlertTitle"), isPresented: $showBalanceNetworkAlert) {
+            Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {
                 appPreferencesModel.balanceEnabledBinding.wrappedValue = false
             }
-            Button("确认开启") {
+            Button(AppLocalization.text("settings.balance.confirmEnable")) {
                 appPreferencesModel.balanceEnabledBinding.wrappedValue = true
                 Task { await balanceManager.refresh() }
             }
         } message: {
-            Text("此功能将通过网络查询各 Provider 官方 API 获取实时余额。API key 从本地 auth.json 读取，仅临时使用，不存储。确认开启？")
+            Text(AppLocalization.text("settings.balance.networkAlertMessage"))
         }
         .alert(goTestResultAlertTitle, isPresented: $showGoTestResultAlert) {
             Button(AppLocalization.text("settings.action.close"), role: .cancel) { }
@@ -561,8 +657,8 @@ struct SettingsView: View {
             Text(goTestResultAlertMessage)
         }
         .alert(AppLocalization.text("settings.opencodeGo.import.confirmTitle"), isPresented: $showBrowserImportAlert) {
-            Button("取消", role: .cancel) {}
-            Button("继续导入") { Task { await importFromBrowser() } }
+            Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {}
+            Button(AppLocalization.text("settings.action.continueImport")) { Task { await importFromBrowser() } }
         } message: {
             Text(AppLocalization.text("settings.opencodeGo.import.confirmMessage"))
         }
@@ -574,7 +670,7 @@ struct SettingsView: View {
             defer { isTestingGoConnection = false }
 
             if !goCookieInput.isEmpty {
-                SecureCredentialStore.saveAuthCookie(goCookieInput)
+                SecureCredentialStore.shared.saveAuthCookie(goCookieInput)
                 goCookieInput = ""
                 goCookieSaved = true
             }
@@ -586,7 +682,20 @@ struct SettingsView: View {
                 return
             }
 
-            let snapshot = await balanceManager.testSnapshot(for: OpenCodeGoBalanceChecker(), authToken: apiKey)
+            let credentials = SecureCredentialStore.shared.discoverCredentials(
+                allowEnvironment: effectiveBalanceConfiguration.allowEnvironmentCredentials
+            )
+            guard credentials.workspaceID != nil, credentials.cookie != nil else {
+                goTestResultAlertTitle = AppLocalization.text("settings.opencodeGo.test.failed")
+                goTestResultAlertMessage = AppLocalization.text("settings.opencodeGo.test.noCookie")
+                showGoTestResultAlert = true
+                return
+            }
+
+            let checker = OpenCodeGoBalanceChecker(
+                allowEnvironmentCredentials: effectiveBalanceConfiguration.allowEnvironmentCredentials
+            )
+            let snapshot = await balanceManager.testSnapshot(for: checker, authToken: apiKey)
 
             if snapshot.isAvailable {
                 goTestResultAlertTitle = AppLocalization.text("settings.opencodeGo.test.success")
@@ -612,19 +721,58 @@ struct SettingsView: View {
         }
 
         if let browserID = result.workspaceID {
-            SecureCredentialStore.saveWorkspaceID(browserID)
+            SecureCredentialStore.shared.saveWorkspaceID(browserID)
             appPreferencesModel.updatePreferences { prefs in
                 prefs.opencodeGoWorkspaceID = browserID
             }
         }
 
-        SecureCredentialStore.saveAuthCookie(cookie)
+        SecureCredentialStore.shared.saveAuthCookie(cookie)
 
-        if result.workspaceID != nil || SecureCredentialStore.getWorkspaceID() != nil {
+        if result.workspaceID != nil || SecureCredentialStore.shared.getWorkspaceID() != nil {
             browserImportMessage = AppLocalization.text("settings.opencodeGo.import.success")
         } else {
             browserImportMessage = AppLocalization.text("settings.opencodeGo.import.partial")
         }
+    }
+
+    private var modelSelectableProviders: [BalanceProviderKind] {
+        BalanceProviderKind.allCases
+    }
+
+    private var effectiveBalanceConfiguration: BalanceConfiguration {
+        appPreferencesModel.effectiveBalanceConfiguration
+    }
+
+    private func providerBinding(for provider: BalanceProviderKind) -> Binding<Bool> {
+        Binding(
+            get: {
+                effectiveBalanceConfiguration.enabledBalanceProviders.contains(provider)
+            },
+            set: { enabled in
+                appPreferencesModel.updateBalanceConfiguration { config in
+                    if enabled {
+                        if !config.enabledBalanceProviders.contains(provider) {
+                            config.enabledBalanceProviders.append(provider)
+                            config.enabledBalanceProviders.sort { $0.sortOrder < $1.sortOrder }
+                        }
+                    } else {
+                        config.enabledBalanceProviders.removeAll { $0 == provider }
+                    }
+                }
+            }
+        )
+    }
+
+    private var envCredentialsBinding: Binding<Bool> {
+        Binding(
+            get: { effectiveBalanceConfiguration.allowEnvironmentCredentials },
+            set: { allow in
+                appPreferencesModel.updateBalanceConfiguration { config in
+                    config.allowEnvironmentCredentials = allow
+                }
+            }
+        )
     }
 
     private var balanceEnabledBinding: Binding<Bool> {
@@ -640,6 +788,85 @@ struct SettingsView: View {
         )
     }
 
+    private var authCookieField: some View {
+        SecureField(AppLocalization.text("settings.opencodeGo.credentials.authCookie"), text: $goCookieInput)
+            .textFieldStyle(.roundedBorder)
+            .font(.caption)
+            .controlSize(.small)
+    }
+
+    private var saveGoCookieButton: some View {
+        Button(AppLocalization.text("settings.action.save")) {
+            if !goCookieInput.isEmpty {
+                SecureCredentialStore.shared.saveAuthCookie(goCookieInput)
+                goCookieInput = ""
+                goCookieSaved = true
+            }
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+    }
+
+    private var testGoConnectionButton: some View {
+        Button(AppLocalization.text("settings.action.testConnection")) {
+            testGoConnection()
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(isTestingGoConnection)
+    }
+
+    private var smallInlineProgressIndicator: some View {
+        ProgressView()
+            .scaleEffect(0.7)
+            .frame(width: 16, height: 16)
+    }
+
+    private var browserImportButton: some View {
+        Button(AppLocalization.text("settings.opencodeGo.importFromBrowser")) {
+            showBrowserImportAlert = true
+        }
+        .disabled(isImportingFromBrowser)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
+    private var skillsShowSourceBinding: Binding<Bool> {
+        Binding(
+            get: { appPreferencesModel.preferences.skillsPanel.showSourceColumn },
+            set: { newValue in
+                appPreferencesModel.updateSkillsPanel(showSource: newValue)
+            }
+        )
+    }
+
+    private var skillsShowStateBinding: Binding<Bool> {
+        Binding(
+            get: { appPreferencesModel.preferences.skillsPanel.showStateColumn },
+            set: { newValue in
+                appPreferencesModel.updateSkillsPanel(showState: newValue)
+            }
+        )
+    }
+
+    private var skillsShowTagsBinding: Binding<Bool> {
+        Binding(
+            get: { appPreferencesModel.preferences.skillsPanel.showTagsColumn },
+            set: { newValue in
+                appPreferencesModel.updateSkillsPanel(showTags: newValue)
+            }
+        )
+    }
+
+    private var skillsPreviewLengthBinding: Binding<Int> {
+        Binding(
+            get: { appPreferencesModel.preferences.skillsPanel.previewLength },
+            set: { newValue in
+                appPreferencesModel.updateSkillsPanel(previewLength: newValue)
+            }
+        )
+    }
+
     private var codexSection: some View {
         TokenSectionCard(
             title: AppLocalization.text("settings.codex.sources.title"),
@@ -648,46 +875,64 @@ struct SettingsView: View {
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                Toggle(AppLocalization.text("settings.codex.autoRescan"), isOn: codexBinding(\.autoRescan))
+                SettingsControlGrid {
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.codex.autoRescan"), isOn: codexBinding(\.autoRescan))
+                    }
 
-                Stepper(value: codexBinding(\.snapshotRetentionCount), in: 1...20) {
-                    Text(AppLocalization.format("settings.codex.snapshotRetention", codexModel.settings.snapshotRetentionCount))
+                    SettingsControlTile(palette: palette, minHeight: 62) {
+                        Stepper(value: codexBinding(\.snapshotRetentionCount), in: 1...20) {
+                            Text(AppLocalization.format("settings.codex.snapshotRetention", codexModel.settings.snapshotRetentionCount))
+                        }
+                    }
                 }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 154), spacing: 12)], spacing: 12) {
+                SettingsActionWrap {
                     Button {
                         codexModel.addSourceRoot()
                     } label: {
                         Label(AppLocalization.text("settings.action.addSessionDirectory"), systemImage: "folder.badge.plus")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         codexModel.addSourceFile()
                     } label: {
                         Label(AppLocalization.text("settings.action.addSessionFile"), systemImage: "doc.badge.plus")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         codexModel.refresh()
                     } label: {
                         Label(AppLocalization.text("settings.action.refreshCodex"), systemImage: "arrow.clockwise")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button(role: .destructive) {
                         codexModel.resetSettingsToDefaults()
                     } label: {
                         Label(AppLocalization.text("settings.action.restoreCodexDefaults"), systemImage: "arrow.counterclockwise")
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
     }
 
     private var codexRootsSection: some View {
-        TokenSectionCard(
+        TokenCollapsibleSectionCard(
             title: AppLocalization.text("settings.codex.roots.title"),
             subtitle: codexModel.sourceRootsDescription,
-            trailing: nil,
+            isExpanded: $isCodexRootsExpanded,
             palette: palette
         ) {
             if codexModel.settings.sourceRoots.isEmpty {
@@ -726,10 +971,10 @@ struct SettingsView: View {
     }
 
     private var codexManualSection: some View {
-        TokenSectionCard(
+        TokenCollapsibleSectionCard(
             title: AppLocalization.text("settings.codex.manual.title"),
             subtitle: codexModel.manualSourcePathsDescription,
-            trailing: nil,
+            isExpanded: $isCodexManualExpanded,
             palette: palette
         ) {
             if codexModel.settings.manualSourcePaths.isEmpty {
@@ -768,40 +1013,51 @@ struct SettingsView: View {
     }
 
     private var skillsPanelSection: some View {
-        TokenSectionCard(
-            title: "Skills Panel",
-            subtitle: "Customize the Skills tab display preferences",
-            trailing: nil,
+        TokenCollapsibleSectionCard(
+            title: AppLocalization.text("settings.skills.title"),
+            subtitle: AppLocalization.text("settings.skills.subtitle"),
+            isExpanded: $isSkillsExpanded,
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 12) {
-                Toggle("Show source badges", isOn: $appPreferencesModel.preferences.skillsPanel.showSourceColumn)
-                Toggle("Show state indicators", isOn: $appPreferencesModel.preferences.skillsPanel.showStateColumn)
-                Toggle("Show tag badges", isOn: $appPreferencesModel.preferences.skillsPanel.showTagsColumn)
-                HStack {
-                    Text(verbatim: "Detail preview length:")
-                        .font(.caption)
-                    Picker("", selection: $appPreferencesModel.preferences.skillsPanel.previewLength) {
-                        Text("200").tag(200)
-                        Text("300").tag(300)
-                        Text("500").tag(500)
+                SettingsControlGrid(minimumWidth: 240) {
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.skills.showSourceBadges"), isOn: skillsShowSourceBinding)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 200)
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.skills.showStateIndicators"), isOn: skillsShowStateBinding)
+                    }
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.skills.showTagBadges"), isOn: skillsShowTagsBinding)
+                    }
+                }
+
+                SettingsControlTile(palette: palette, minHeight: 72) {
+                    SettingsInlineControlRow(
+                        title: AppLocalization.text("settings.skills.previewLength"),
+                        palette: palette
+                    ) {
+                        Picker("", selection: skillsPreviewLengthBinding) {
+                            Text("200").tag(200)
+                            Text("300").tag(300)
+                            Text("500").tag(500)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 220)
+                    }
                 }
             }
         }
-        .onChange(of: appPreferencesModel.preferences.skillsPanel.showSourceColumn) { _, _ in appPreferencesModel.persistPreferences() }
-        .onChange(of: appPreferencesModel.preferences.skillsPanel.showStateColumn) { _, _ in appPreferencesModel.persistPreferences() }
-        .onChange(of: appPreferencesModel.preferences.skillsPanel.showTagsColumn) { _, _ in appPreferencesModel.persistPreferences() }
-        .onChange(of: appPreferencesModel.preferences.skillsPanel.previewLength) { _, _ in appPreferencesModel.persistPreferences() }
     }
 
     private var safetySection: some View {
-        TokenSectionCard(
+        TokenCollapsibleSectionCard(
             title: AppLocalization.text("settings.security.title"),
             subtitle: AppLocalization.text("settings.security.subtitle"),
-            trailing: nil,
+            isExpanded: $isSafetyExpanded,
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 12) {

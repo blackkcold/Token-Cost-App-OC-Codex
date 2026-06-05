@@ -109,6 +109,29 @@ public struct CodexBalanceChecker: BalanceChecker {
         let primaryReset = primary.map { Date(timeIntervalSince1970: Double($0.resetAt)) }
         let secondaryReset = secondary.map { Date(timeIntervalSince1970: Double($0.resetAt)) }
 
+        // Build unified quotaWindows
+        var windows: [BalanceQuotaWindow] = []
+        if let p = primary {
+            let pct = Double(p.usedPercent) / 100.0
+            windows.append(BalanceQuotaWindow(
+                label: windowLabel(p.limitWindowSeconds),
+                usedRatio: pct,
+                remainingRatio: pct < 1.0 ? 1.0 - pct : 0,
+                resetAt: primaryReset,
+                windowSeconds: p.limitWindowSeconds
+            ))
+        }
+        if let s = secondary {
+            let pct = Double(s.usedPercent) / 100.0
+            windows.append(BalanceQuotaWindow(
+                label: windowLabel(s.limitWindowSeconds),
+                usedRatio: pct,
+                remainingRatio: pct < 1.0 ? 1.0 - pct : 0,
+                resetAt: secondaryReset,
+                windowSeconds: s.limitWindowSeconds
+            ))
+        }
+
         return BalanceSnapshot(
             provider: .codex,
             fetchedAt: Date(),
@@ -121,7 +144,8 @@ public struct CodexBalanceChecker: BalanceChecker {
             primaryWindowResetAt: primaryReset,
             secondaryWindowLabel: secondary.map { windowLabel($0.limitWindowSeconds) },
             secondaryWindowUsagePercent: secondaryPct,
-            secondaryWindowResetAt: secondaryReset
+            secondaryWindowResetAt: secondaryReset,
+            quotaWindows: windows.isEmpty ? nil : windows
         )
     }
 

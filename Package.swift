@@ -42,6 +42,10 @@ let package = Package(
         .testTarget(
             name: "CodexTokenCostCoreTests",
             dependencies: ["CodexTokenCostCore", "CCryptoBridge"]
+        ),
+        .testTarget(
+            name: "CodexTokenCostAppTests",
+            dependencies: ["CodexTokenCostApp"]
         )
     ]
 )

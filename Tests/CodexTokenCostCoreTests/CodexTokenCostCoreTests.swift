@@ -424,6 +424,10 @@ final class CodexTokenCostCoreTests: XCTestCase {
 
         let store = AppPreferencesStore(runtimeRoot: tempDir)
         var preferences = AppPreferences(balanceEnabled: true, theme: .violet, displayCurrency: .cny)
+        preferences.balanceConfig = BalanceConfiguration(
+            enabledBalanceProviders: [.codex, .deepseek],
+            allowEnvironmentCredentials: true
+        )
         preferences.setBillingSelection(
             BillingPlanSelection(presetID: "opencode-go", isSubscribed: false),
             for: .opencode
@@ -436,6 +440,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(loaded.preferences.balanceEnabled, true)
         XCTAssertEqual(loaded.preferences.theme, .violet)
         XCTAssertEqual(loaded.preferences.displayCurrency, .cny)
+        XCTAssertEqual(loaded.preferences.balanceConfig, preferences.balanceConfig)
         XCTAssertEqual(loaded.preferences.billingSelection(for: .opencode).isSubscribed, false)
     }
 
@@ -472,7 +477,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
     // MARK: - SecureCredentialStore workspace-id round trip with isolated service
 
     func testKeychainReadQueryUsesAuthenticationUISkip() {
-        let query = SecureCredentialStore.readQuery(
+        let query = SecureCredentialStore.shared.readQuery(
             account: "workspace-id",
             service: "com.test.read-query"
         )
@@ -481,7 +486,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertNil(query[kSecUseAuthenticationUISkip as String])
     }
 
-    func testWorkspaceIDRoundTripWithIsolatedService() {
+    func testWorkspaceIDRoundTripWithIsolatedService() throws {
         let testService = "com.test.workspace-id-test-\(UUID().uuidString)"
         defer {
             // Clean up test Keychain entries
@@ -492,23 +497,25 @@ final class CodexTokenCostCoreTests: XCTestCase {
             SecItemDelete(query as CFDictionary)
         }
 
+        try skipIfIsolatedKeychainUnavailable(service: testService)
+
         // Initially nil
-        XCTAssertNil(SecureCredentialStore.getWorkspaceID(service: testService))
+        XCTAssertNil(SecureCredentialStore.shared.getWorkspaceID(service: testService))
 
         // Save and read back
-        SecureCredentialStore.saveWorkspaceID("test-ws-001", service: testService)
-        XCTAssertEqual(SecureCredentialStore.getWorkspaceID(service: testService), "test-ws-001")
+        SecureCredentialStore.shared.saveWorkspaceID("test-ws-001", service: testService)
+        XCTAssertEqual(SecureCredentialStore.shared.getWorkspaceID(service: testService), "test-ws-001")
 
         // Overwrite
-        SecureCredentialStore.saveWorkspaceID("test-ws-002", service: testService)
-        XCTAssertEqual(SecureCredentialStore.getWorkspaceID(service: testService), "test-ws-002")
+        SecureCredentialStore.shared.saveWorkspaceID("test-ws-002", service: testService)
+        XCTAssertEqual(SecureCredentialStore.shared.getWorkspaceID(service: testService), "test-ws-002")
 
         // Delete and verify nil
-        SecureCredentialStore.deleteWorkspaceID(service: testService)
-        XCTAssertNil(SecureCredentialStore.getWorkspaceID(service: testService))
+        SecureCredentialStore.shared.deleteWorkspaceID(service: testService)
+        XCTAssertNil(SecureCredentialStore.shared.getWorkspaceID(service: testService))
     }
 
-    func testDeleteWorkspaceIDDoesNotAffectOtherAccounts() {
+    func testDeleteWorkspaceIDDoesNotAffectOtherAccounts() throws {
         let testService = "com.test.isolated-delete-\(UUID().uuidString)"
         defer {
             let query: [String: Any] = [
@@ -518,20 +525,74 @@ final class CodexTokenCostCoreTests: XCTestCase {
             SecItemDelete(query as CFDictionary)
         }
 
+        try skipIfIsolatedKeychainUnavailable(service: testService)
+
         // Save both workspace-id and auth-cookie
-        SecureCredentialStore.saveWorkspaceID("ws-123", service: testService)
-        SecureCredentialStore.saveAuthCookie("cookie-abc", service: testService)
+        SecureCredentialStore.shared.saveWorkspaceID("ws-123", service: testService)
+        SecureCredentialStore.shared.saveAuthCookie("cookie-abc", service: testService)
 
         // Delete only workspace-id
-        SecureCredentialStore.deleteWorkspaceID(service: testService)
+        SecureCredentialStore.shared.deleteWorkspaceID(service: testService)
 
         // Workspace-id should be gone
-        XCTAssertNil(SecureCredentialStore.getWorkspaceID(service: testService))
+        XCTAssertNil(SecureCredentialStore.shared.getWorkspaceID(service: testService))
         // Auth-cookie should still exist
-        XCTAssertEqual(SecureCredentialStore.getAuthCookie(service: testService), "cookie-abc")
+        XCTAssertEqual(SecureCredentialStore.shared.getAuthCookie(service: testService), "cookie-abc")
+    }
+
+    func testDiscoverCredentialsIgnoresEnvironmentWhenDisabled() {
+        let credentials = SecureCredentialStore.shared.discoverCredentialsForTesting(
+            allowEnvironment: false,
+            service: "com.test.env-disabled-\(UUID().uuidString)",
+            environment: [
+                "OPENCODE_GO_WORKSPACE_ID": "wrk_env_disabled",
+                "OPENCODE_GO_AUTH_COOKIE": "cookie_env_disabled"
+            ]
+        )
+
+        XCTAssertNil(credentials.workspaceID)
+        XCTAssertNil(credentials.cookie)
+    }
+
+    func testDiscoverCredentialsUsesEnvironmentWhenEnabled() {
+        let credentials = SecureCredentialStore.shared.discoverCredentialsForTesting(
+            allowEnvironment: true,
+            service: "com.test.env-enabled-\(UUID().uuidString)",
+            environment: [
+                "OPENCODE_GO_WORKSPACE_ID": "wrk_env_enabled",
+                "OPENCODE_GO_AUTH_COOKIE": "cookie_env_enabled"
+            ]
+        )
+
+        XCTAssertEqual(credentials.workspaceID, "wrk_env_enabled")
+        XCTAssertEqual(credentials.cookie, "cookie_env_enabled")
     }
 
     // MARK: - BalanceManager testSnapshot with mock checker
+
+    @MainActor
+    func testBalanceManagerInitialConfigurationBuildsExpectedCheckers() {
+        let manager = BalanceManager(configuration: BalanceConfiguration(
+            enabledBalanceProviders: [.deepseek, .codex],
+            allowEnvironmentCredentials: true
+        ))
+
+        XCTAssertEqual(manager.activeProviderKinds, [.codex, .deepseek])
+        XCTAssertTrue(manager.configuration.allowEnvironmentCredentials)
+    }
+
+    @MainActor
+    func testBalanceManagerUpdateConfigurationRebuildsCheckers() {
+        let manager = BalanceManager()
+
+        manager.updateConfiguration(BalanceConfiguration(
+            enabledBalanceProviders: [.deepseek],
+            allowEnvironmentCredentials: true
+        ))
+
+        XCTAssertEqual(manager.activeProviderKinds, [.deepseek])
+        XCTAssertTrue(manager.configuration.allowEnvironmentCredentials)
+    }
 
     @MainActor func testTestSnapshotWithMockChecker() async {
         let expectedSnapshot = BalanceSnapshot(
@@ -548,7 +609,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
             snapshot: expectedSnapshot
         )
 
-        let manager = BalanceManager(checkers: [])
+        let manager = BalanceManager()
         let snapshot = await manager.testSnapshot(for: mockChecker, authToken: "test-api-key")
 
         XCTAssertTrue(snapshot.isAvailable)
@@ -563,7 +624,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
             errorMessage: "mock fetch failure"
         )
 
-        let manager = BalanceManager(checkers: [])
+        let manager = BalanceManager()
         let snapshot = await manager.testSnapshot(for: mockChecker, authToken: "test-key")
 
         XCTAssertFalse(snapshot.isAvailable)
@@ -583,7 +644,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
             snapshot: expectedSnapshot
         )
 
-        let manager = BalanceManager(checkers: [])
+        let manager = BalanceManager()
         // Call twice rapidly — testSnapshot should not be blocked
         let snap1 = await manager.testSnapshot(for: mockChecker, authToken: "k1")
         let snap2 = await manager.testSnapshot(for: mockChecker, authToken: "k2")
@@ -598,7 +659,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
         // This mock captures the authToken it receives
         let mockChecker = TokenCapturingMockChecker(providerKind: .opencodeGo)
 
-        let manager = BalanceManager(checkers: [])
+        let manager = BalanceManager()
         _ = await manager.testSnapshot(for: mockChecker, authToken: "secret-token-42")
 
         XCTAssertEqual(mockChecker.capturedAuthToken, "secret-token-42")
@@ -961,6 +1022,90 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(mergedCell.tokenCount, 25)
     }
 
+    // MARK: - DeepSeek V4 pricing
+
+    func testDeepSeekV4FlashPricing() {
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+        let payload = makeSingleModelPayload(
+            model: "deepseek-chat",
+            provider: "deepseek",
+            input: 1_000_000,
+            output: 1_000_000
+        )
+        XCTAssertEqual(prefs.combinedMonthlyCost(payload: payload) ?? 0, 0.42, accuracy: 0.0001)
+    }
+
+    func testDeepSeekV4ProPricing() {
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+        let payload = makeSingleModelPayload(
+            model: "deepseek-reasoner",
+            provider: "deepseek",
+            input: 1_000_000,
+            output: 1_000_000
+        )
+        XCTAssertEqual(prefs.combinedMonthlyCost(payload: payload) ?? 0, 1.305, accuracy: 0.0001)
+    }
+
+    func testDeepSeekV4FlashCacheReadPricing() {
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+        let payload = makeSingleModelPayload(
+            model: "deepseek-chat",
+            provider: "deepseek",
+            input: 0,
+            output: 0,
+            cacheRead: 1_000_000
+        )
+        XCTAssertEqual(prefs.combinedMonthlyCost(payload: payload) ?? 0, 0.0028, accuracy: 0.0001)
+    }
+
+    func testDeepSeekV4ProCacheReadPricing() {
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+        let payload = makeSingleModelPayload(
+            model: "deepseek-reasoner",
+            provider: "deepseek",
+            input: 0,
+            output: 0,
+            cacheRead: 1_000_000
+        )
+        XCTAssertEqual(prefs.combinedMonthlyCost(payload: payload) ?? 0, 0.003625, accuracy: 0.0001)
+    }
+
     // MARK: - Helpers
 
     private func makeTestPayload(provider: String, rawCost: Double) -> DashboardPayload {
@@ -999,6 +1144,60 @@ final class CodexTokenCostCoreTests: XCTestCase {
                 )
             ]
         )
+    }
+
+    private func makeSingleModelPayload(
+        model: String,
+        provider: String,
+        input: Double,
+        output: Double = 0,
+        cacheRead: Double = 0,
+        cacheWrite: Double = 0
+    ) -> DashboardPayload {
+        DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: input + output + cacheRead + cacheWrite,
+                totalActualTokens: input + output,
+                totalCacheReadTokens: cacheRead,
+                totalCacheWriteTokens: cacheWrite,
+                totalCacheTokens: cacheRead + cacheWrite,
+                totalCost: 0,
+                totalMessages: 1,
+                activeDays: 1,
+                dateRange: .init(start: "2026-06-04", end: "2026-06-04"),
+                updatedAt: "2026-06-04T12:00:00Z"
+            ),
+            dailyTotals: [:],
+            modelTotals: [:],
+            providerCosts: [:],
+            providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-04",
+                    model: model,
+                    provider: provider,
+                    input: input,
+                    output: output,
+                    reasoning: 0,
+                    cacheRead: cacheRead,
+                    cacheWrite: cacheWrite,
+                    cacheWriteMissingCount: 0,
+                    cacheWriteReportedCount: 1,
+                    total: input + output + cacheRead + cacheWrite,
+                    cost: 0,
+                    msgCount: 1
+                )
+            ]
+        )
+    }
+
+    private func skipIfIsolatedKeychainUnavailable(service: String) throws {
+        SecureCredentialStore.shared.saveWorkspaceID("keychain-probe", service: service)
+        defer { SecureCredentialStore.shared.deleteWorkspaceID(service: service) }
+
+        guard SecureCredentialStore.shared.getWorkspaceID(service: service) == "keychain-probe" else {
+            throw XCTSkip("Keychain round-trip is unavailable in this test environment")
+        }
     }
 }
 
@@ -1045,101 +1244,4 @@ private final class TokenCapturingMockChecker: BalanceChecker, @unchecked Sendab
             isAvailable: true
         )
     }
-
-    // MARK: - DeepSeek V4 pricing
-
-    func testDeepSeekV4FlashPricing() {
-        var prefs = AppPreferences()
-        for provider in BillingProvider.allCases {
-            prefs.setBillingSelection(
-                BillingPlanSelection(presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID, isSubscribed: false),
-                for: provider
-            )
-        }
-        let payload = makeSingleModelPayload(model: "deepseek-chat", provider: "deepseek", input: 1_000_000, output: 1_000_000)
-        // V4-Flash: $0.14/M input + $0.28/M output = $0.42
-        let cost = prefs.combinedMonthlyCost(payload: payload) ?? 0
-        XCTAssertEqual(cost, 0.42, accuracy: 0.0001)
-    }
-
-    func testDeepSeekV4ProPricing() {
-        var prefs = AppPreferences()
-        for provider in BillingProvider.allCases {
-            prefs.setBillingSelection(
-                BillingPlanSelection(presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID, isSubscribed: false),
-                for: provider
-            )
-        }
-        let payload = makeSingleModelPayload(model: "deepseek-reasoner", provider: "deepseek", input: 1_000_000, output: 1_000_000)
-        // V4-Pro: $0.435/M input + $0.87/M output = $1.305
-        let cost = prefs.combinedMonthlyCost(payload: payload) ?? 0
-        XCTAssertEqual(cost, 1.305, accuracy: 0.0001)
-    }
-
-    func testDeepSeekV4FlashCacheReadPricing() {
-        var prefs = AppPreferences()
-        for provider in BillingProvider.allCases {
-            prefs.setBillingSelection(
-                BillingPlanSelection(presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID, isSubscribed: false),
-                for: provider
-            )
-        }
-        let payload = makeSingleModelPayload(model: "deepseek-chat", provider: "deepseek", input: 0, output: 0, cacheRead: 1_000_000)
-        // V4-Flash cacheRead: $0.0028/M
-        let cost = prefs.combinedMonthlyCost(payload: payload) ?? 0
-        XCTAssertEqual(cost, 0.0028, accuracy: 0.0001)
-    }
-
-    func testDeepSeekV4ProCacheReadPricing() {
-        var prefs = AppPreferences()
-        for provider in BillingProvider.allCases {
-            prefs.setBillingSelection(
-                BillingPlanSelection(presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID, isSubscribed: false),
-                for: provider
-            )
-        }
-        let payload = makeSingleModelPayload(model: "deepseek-reasoner", provider: "deepseek", input: 0, output: 0, cacheRead: 1_000_000)
-        // V4-Pro cacheRead: $0.003625/M
-        let cost = prefs.combinedMonthlyCost(payload: payload) ?? 0
-        XCTAssertEqual(cost, 0.003625, accuracy: 0.0001)
-    }
-
-    private func makeSingleModelPayload(model: String, provider: String, input: Double, output: Double = 0, cacheRead: Double = 0, cacheWrite: Double = 0) -> DashboardPayload {
-        DashboardPayload(
-            summary: DashboardPayload.Summary(
-                totalTokens: input + output + cacheRead + cacheWrite,
-                totalActualTokens: input + output,
-                totalCacheReadTokens: cacheRead,
-                totalCacheWriteTokens: cacheWrite,
-                totalCacheTokens: cacheRead + cacheWrite,
-                totalCost: 0,
-                totalMessages: 1,
-                activeDays: 1,
-                dateRange: .init(start: "2026-06-04", end: "2026-06-04"),
-                updatedAt: "2026-06-04T12:00:00Z"
-            ),
-            dailyTotals: [:],
-            modelTotals: [:],
-            providerCosts: [:],
-            providerTotals: [:],
-            rawData: [
-                DashboardPayload.RawRow(
-                    date: "2026-06-04",
-                    model: model,
-                    provider: provider,
-                    input: input,
-                    output: output,
-                    reasoning: 0,
-                    cacheRead: cacheRead,
-                    cacheWrite: cacheWrite,
-                    cacheWriteMissingCount: 0,
-                    cacheWriteReportedCount: 1,
-                    total: input + output + cacheRead + cacheWrite,
-                    cost: 0,
-                    msgCount: 1
-                )
-            ]
-        )
-    }
-
 }

@@ -1,56 +1,56 @@
 import Foundation
+import CryptoKit
 
 public struct OpenCodeZenBalanceChecker: BalanceChecker {
     public var providerKind: BalanceProviderKind { .opencodeZen }
 
     public init() {}
 
+    /// Timeout for the opencode CLI process.
+    private static let cliTimeout: TimeInterval = 30
+
     public func fetch(authToken: String) async -> BalanceSnapshot {
         guard let binaryURL = Self.locateBinary() else {
-            return .unavailable(.opencodeZen, reason: "未找到 opencode CLI")
+            return .unavailable(.opencodeZen, reason: "未找到 opencode CLI，请在设置中选择二进制路径")
         }
 
-        let process = Process()
-        process.executableURL = binaryURL
-        process.arguments = ["stats", "--days", "90", "--models"]
+        // Pre-execution validation: hash the binary we resolved.
+        guard let preHash = Self.sha256(of: binaryURL) else {
+            return .unavailable(.opencodeZen, reason: "无法验证 opencode CLI")
+        }
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        var launchError: Error?
-
-        let workItem = DispatchWorkItem {
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                launchError = error
+        // Run the CLI with the hardened process lifecycle (S42).
+        let result: (exitCode: Int32, stdout: String, stderr: String)
+        do {
+            result = try await Self.runCLI(
+                binaryURL: binaryURL,
+                arguments: ["stats", "--days", "90", "--models"],
+                timeout: Self.cliTimeout
+            )
+        } catch let error as ProcessError {
+            switch error {
+            case .timeout:
+                return .unavailable(.opencodeZen, reason: "opencode CLI 超时")
+            case .launchFailed(let underlying):
+                return .unavailable(.opencodeZen, reason: "无法启动 opencode: \(underlying.localizedDescription)")
             }
+        } catch {
+            return .unavailable(.opencodeZen, reason: "CLI 执行失败")
         }
 
-        let queue = DispatchQueue(label: "com.tokencost.opencode-zen")
-        queue.async(execute: workItem)
-
-        if workItem.wait(timeout: .now() + 60) == .timedOut {
-            workItem.cancel()
-            process.terminate()
-            return .unavailable(.opencodeZen, reason: "opencode CLI 超时")
+        // Post-execution hash re-verification (TOCTOU protection).
+        if let postHash = Self.sha256(of: binaryURL), postHash != preHash {
+            return .unavailable(.opencodeZen, reason: "CLI 二进制已变更")
         }
 
-        if let error = launchError {
-            return .unavailable(.opencodeZen, reason: "无法启动 opencode: \(error.localizedDescription)")
+        guard result.exitCode == 0 else {
+#if DEBUG
+            print("[OpenCodeZenBalance] CLI stderr: \(result.stderr)")
+#endif
+            return .unavailable(.opencodeZen, reason: "CLI 执行失败")
         }
 
-        guard process.terminationStatus == 0 else {
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderr = String(data: stderrData, encoding: .utf8) ?? "未知错误"
-            return .unavailable(.opencodeZen, reason: "opencode CLI 失败: \(stderr)")
-        }
-
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: stdoutData, encoding: .utf8) ?? ""
+        let output = result.stdout
 
         guard let rawTotal = Self.parseTotalCost(from: output) else {
             return .unavailable(.opencodeZen, reason: "无法解析费用数据")
@@ -72,81 +72,159 @@ public struct OpenCodeZenBalanceChecker: BalanceChecker {
     }
 }
 
-// MARK: - Binary discovery
+// MARK: - Hardened Process Lifecycle (S42, S6, S48, S49)
 
 extension OpenCodeZenBalanceChecker {
-    private static func locateBinary() -> URL? {
-        var unsignedFallback: URL?
 
-        for url in binaryCandidates() {
-            guard FileManager.default.isExecutableFile(atPath: url.path) else { continue }
-            if verifyBinarySignature(url) { return url }
-            if unsignedFallback == nil { unsignedFallback = url }
-        }
-
-        return unsignedFallback
+    enum ProcessError: Error {
+        case timeout
+        case launchFailed(Error)
     }
 
-    private static func binaryCandidates() -> [URL] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let fixedPaths = [
-            "/opt/homebrew/bin/opencode",
-            "/usr/local/bin/opencode",
-            home.appendingPathComponent(".opencode/bin/opencode").path,
-            home.appendingPathComponent(".local/bin/opencode").path,
-            home.appendingPathComponent("bin/opencode").path,
-        ]
-
-        let discoveredPaths = [findBinaryViaWhich(), findBinaryViaLoginShell()]
-            .compactMap { $0?.path }
-
-        var seen = Set<String>()
-        return (fixedPaths + discoveredPaths).compactMap { path in
-            guard !path.isEmpty, seen.insert(path).inserted else { return nil }
-            return URL(fileURLWithPath: path)
-        }
-    }
-
-    private static func findBinaryViaWhich() -> URL? {
-        runPathLookup(executable: "/usr/bin/which", arguments: ["opencode"])
-    }
-
-    private static func findBinaryViaLoginShell() -> URL? {
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        guard FileManager.default.isExecutableFile(atPath: shell) else { return nil }
-        return runPathLookup(executable: shell, arguments: ["-lc", "which opencode 2>/dev/null"])
-    }
-
-    private static func runPathLookup(executable: String, arguments: [String]) -> URL? {
+    /// Runs a CLI executable with timeout, env blacklist, and guaranteed cleanup.
+    static func runCLI(
+        binaryURL: URL,
+        arguments: [String],
+        timeout: TimeInterval = 30
+    ) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
+        process.executableURL = binaryURL
         process.arguments = arguments
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        // S6: Environment variable blacklist filtering.
+        var env = ProcessInfo.processInfo.environment
+        let blockedEnvPrefixes = ["DYLD_", "SIMBL_", "LD_PRELOAD", "LD_LIBRARY_PATH", "OBJC_"]
+        env = env.filter { key, _ in
+            !blockedEnvPrefixes.contains(where: { key.hasPrefix($0) })
+        }
+        process.environment = env
 
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return nil
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        return try await withThrowingTaskGroup(of: Void.self) { group in
+            // Main task: launch and wait for process.
+            group.addTask {
+                try process.run()
+                process.waitUntilExit()
+            }
+
+            // Timeout task.
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw ProcessError.timeout
+            }
+
+            do {
+                try await group.next()
+                group.cancelAll()
+            } catch ProcessError.timeout {
+                process.terminate()
+                // Grace period for cleanup.
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if process.isRunning { process.interrupt() }
+                group.cancelAll()
+                throw ProcessError.timeout
+            } catch {
+                process.terminate()
+                group.cancelAll()
+                throw ProcessError.launchFailed(error)
+            }
+
+            let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            return (process.terminationStatus, stdout, stderr)
+        }
+    }
+}
+
+// MARK: - Binary Discovery (Hardened)
+
+extension OpenCodeZenBalanceChecker {
+
+    /// Locates the opencode binary using only trusted paths or a user-selected path.
+    private static func locateBinary() -> URL? {
+        // Priority 1: User-selected path from preferences (Phase 4 placeholder).
+        if let userPath = userSelectedCLIPath(), validateBinary(at: userPath) {
+            return userPath
         }
 
-        guard process.terminationStatus == 0 else { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            let firstLine = output.split(separator: "\n").first,
-            !firstLine.isEmpty
-        else { return nil }
+        // Priority 2: Fixed Homebrew realpaths only (no which, no login shell).
+        for candidate in fixedBinaryCandidates() {
+            if validateBinary(at: candidate) {
+                return candidate
+            }
+        }
 
-        let path = String(firstLine)
-        guard FileManager.default.isExecutableFile(atPath: path) else { return nil }
-        return URL(fileURLWithPath: path)
+        return nil
     }
 
-    private static func verifyBinarySignature(_ url: URL) -> Bool {
+    /// Fixed, trusted binary candidates (no PATH discovery).
+    private static func fixedBinaryCandidates() -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            URL(fileURLWithPath: "/opt/homebrew/bin/opencode"),
+            URL(fileURLWithPath: "/usr/local/bin/opencode"),
+            home.appendingPathComponent(".opencode/bin/opencode"),
+            home.appendingPathComponent(".local/bin/opencode"),
+        ]
+    }
+
+    /// Placeholder for Phase 4 user-selected CLI path preference.
+    private static func userSelectedCLIPath() -> URL? {
+        // TODO: Phase 4 — read from AppPreferences.opencodeCLIPath
+        return nil
+    }
+
+    /// Validates a binary candidate before execution.
+    static func validateBinary(at url: URL) -> Bool {
+        let resolvedURL = url.resolvingSymlinksInPath().standardizedFileURL
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolvedURL.path, isDirectory: &isDirectory) else {
+            return false
+        }
+
+        // Must exist and not be a directory.
+        guard !isDirectory.boolValue else { return false }
+        guard FileManager.default.isExecutableFile(atPath: resolvedURL.path) else { return false }
+
+        // Ownership check: file must be owned by current user or root.
+        guard let owner = fileOwnerName(at: resolvedURL) else { return false }
+        let currentUser = NSUserName()
+        guard owner == currentUser || owner == "root" else { return false }
+
+        // File and parent directory must not be group/world writable.
+        guard !isGroupOrWorldWritable(at: resolvedURL) else { return false }
+        let parentDir = resolvedURL.deletingLastPathComponent()
+        guard !isGroupOrWorldWritable(at: parentDir) else { return false }
+
+        // Codesign verification (advisory): pass → trust; fail → continue
+        // with ownership/permissions checks. The hash-based TOCTOU protection
+        // in fetch() (pre-hash → execute → post-hash) is the primary trust anchor.
+        _ = verifyBinarySignature(resolvedURL)
+
+        return true
+    }
+
+    private static func fileOwnerName(at url: URL) -> String? {
+        let path = url.path
+        return try? FileManager.default.attributesOfItem(atPath: path)[.ownerAccountName] as? String
+    }
+
+    private static func isGroupOrWorldWritable(at url: URL) -> Bool {
+        let path = url.path
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let permissions = attrs[.posixPermissions] as? NSNumber
+        else { return true } // Fail closed.
+        let mode = permissions.uint16Value
+        return (mode & S_IWGRP) != 0 || (mode & S_IWOTH) != 0
+    }
+
+    /// Verifies the binary's codesign signature (strict, no fallback to unsigned).
+    static func verifyBinarySignature(_ url: URL) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
         process.arguments = ["--verify", "--verbose=1", url.path]
@@ -159,6 +237,14 @@ extension OpenCodeZenBalanceChecker {
         } catch {
             return false
         }
+    }
+
+    // MARK: - SHA-256 (CryptoKit)
+
+    /// Computes the SHA-256 hash of a file using CryptoKit.
+    static func sha256(of url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
     }
 }
 

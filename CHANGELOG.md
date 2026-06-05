@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+> 当前下一版目标为 `v0.8.1`，以下为相对 `v0.8.0` 的累计变更。
+
+### Added
+
+- **多 Provider 余额监控**：余额监控扩展为 OpenCode Go / Codex / OpenCode Zen / DeepSeek 四个 Provider；新增结构化 `BalanceConfiguration`、多币种 `valueEntries` 和配额窗口模型，支持在主页面与菜单栏展示多窗口配额和余额条目（`BalanceModels.swift`、`BalanceManager.swift`、`BalanceOverviewCard.swift`、`MenuBarView.swift`、`DeepSeekBalanceProvider.swift`）
+- **关闭窗口后自动隐藏 Dock 图标**：主窗口关闭时自动切换为 `.accessory` 激活策略从 Dock/App Switcher 隐藏，保留 MenuBar 后台运行；通过 MenuBar 重新打开窗口或设置页时自动恢复 Dock 图标（`WindowLifecycleManager.swift`、`AppDelegate.swift`、`MenuBarView.swift`、`TokenCostApp.swift`）
+- **App 层单元测试 target**：新增 `CodexTokenCostAppTests`，覆盖窗口策略切换、窗口识别、观察者管理，以及 `AppPreferencesModel` 的余额配置持久化（`Package.swift`、`Tests/CodexTokenCostAppTests/`）
+
+### Changed
+
+- **设置页模块化重构**：设置页按 `全局偏好 / 计费方案 / 余额监控 / OpenCode / Codex / Skills 面板 / 安全边界` 七个模块重排，一级模块可折叠，OpenCode / Codex 长列表保留二级折叠与分页（`SettingsView.swift`、`Components.swift`、`Localizable.strings`）
+- **设置页横向响应式布局**：模块内短控件统一切换为响应式控制网格、动作条和字段区；默认 900 宽窗口下优先两列排布，显著减少 `余额监控`、`Skills 面板`、`OpenCode / Codex 来源` 的空白浪费（`SettingsView.swift`、`Components.swift`）
+- **余额监控配置统一写入入口**：`balanceConfig` 正式进入 `AppPreferences`，所有 Provider 开关和 `allowEnvironmentCredentials` 改为统一通过 `AppPreferencesModel.updateBalanceConfiguration()` 持久化（`AppPreferences.swift`、`AppPreferencesModel.swift`、`TokenCostApp.swift`）
+
+### Fixed
+
+- **OpenCode Go 环境变量开关真正生效**：`allowEnvironmentCredentials` 不再只是 UI 开关，运行时凭证发现、测试连接和 checker 构建都会按当前设置决定是否读取环境变量（`SecureCredentialStore.swift`、`OpenCodeGoBalanceProvider.swift`、`BalanceManager.swift`、`SettingsView.swift`）
+- **Provider 凭证发现边界收紧**：OpenCode Go 与 DeepSeek 改为只读取各自显式配置的凭证，不再跨 Provider 回退错误的 `api_key` / `key` 字段（`AuthTokenProvider.swift`）
+- **余额配置启动同步与测试回归**：`BalanceManager` 启动时直接吃已持久化配置，排序与启用列表稳定；补齐 `BalanceManager`、环境变量 gating、Keychain 发现和 AppPreferences round-trip 测试（`BalanceManager.swift`、`CodexTokenCostCoreTests.swift`、`AppPreferencesModelTests.swift`）
+
+### Security
+
+- **OpenCode Go 凭证边界正式固化**：auth cookie 继续只进 macOS Keychain，环境变量 `OPENCODE_GO_WORKSPACE_ID` / `OPENCODE_GO_AUTH_COOKIE` 默认禁用，只有用户在设置中显式开启后才参与发现链路（`SecureCredentialStore.swift`、`SECURITY.md`）
+- **OpenCode Zen CLI 校验增强**：二进制定位增加固定路径、签名校验与哈希辅助能力，拒绝继续依赖宽松 PATH 回退（`OpenCodeZenBalanceProvider.swift`）
+
 ## [v0.8.0] - 2026-06-04
 
 ### Added
