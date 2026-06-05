@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Release 构建兼容 Xcode 16.4 严格并发检查**：`WindowLifecycleManager` 与 `AppDelegate` 明确对齐 `@MainActor`，observer token 清理与测试时序同步更新，修复 GitHub macOS 15 release workflow 的 actor-isolated 编译错误（`WindowLifecycleManager.swift`、`AppDelegate.swift`、`WindowLifecycleManagerTests.swift`）
+- **DeepSeek reasoning tokens 未计入成本**：`apiCost()` 新增 `reasoning` 参数，reasoning tokens 按 output 费率计费；修复 DeepSeek V4 Pro thinking mode 下 `syntheticApiCost` 被严重低估的问题，导致 Provider 性价比排行虚高（`DashboardAnalytics.swift`）
+- **模型对比排行成本分配偏差**：`buildModelComparisonRows()` 从 Provider 总成本按 token 比例分配改为各模型独立计算 `apiCost()`，消除同一 Provider 内不同单价的模型（V4 Flash vs V4 Pro）之间的成本均摊偏差（`DashboardAnalytics.swift`）
+- **Provider 成本优先使用 app 定价目录**：`providerEffectiveCosts()`、`combinedMonthlyCost()`、`openCodeOverviewCost()` 三处统一将 `syntheticApiCost` 优先级提到 `rawCost` 之前，避免 OpenCode 写入的过时 `$.cost` 污染排名和总览月费（`DashboardAnalytics.swift`、`BillingPlanCatalog.swift`）
 
 ### Security
 

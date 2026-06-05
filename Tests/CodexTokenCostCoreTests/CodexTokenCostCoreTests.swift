@@ -1129,7 +1129,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
             rawData: [
                 DashboardPayload.RawRow(
                     date: "2026-05-15",
-                    model: "glm-5.1",
+                    model: "legacy-model",
                     provider: provider,
                     input: 100000,
                     output: 10000,

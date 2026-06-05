@@ -214,6 +214,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
                 model: row.model,
                 input: row.input,
                 output: row.output,
+                reasoning: row.reasoning,
                 cacheRead: row.cacheRead,
                 cacheWrite: row.cacheWrite
             )
@@ -367,6 +368,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
                 model: row.model,
                 input: row.input,
                 output: row.output,
+                reasoning: row.reasoning,
                 cacheRead: row.cacheRead,
                 cacheWrite: row.cacheWrite
             )
@@ -426,10 +428,10 @@ public struct TokenCostDashboardAnalytics: Sendable {
 
             if let subscriptionCost = TokenCostPricingCatalog.subscriptionMonthlyCost(for: providerKey), subscriptionCost > 0 {
                 effectiveCosts[providerKey] = subscriptionCost
-            } else if accumulator.rawCost > 0 {
-                effectiveCosts[providerKey] = accumulator.rawCost
             } else if accumulator.syntheticApiCost > 0 {
                 effectiveCosts[providerKey] = accumulator.syntheticApiCost
+            } else if accumulator.rawCost > 0 {
+                effectiveCosts[providerKey] = accumulator.rawCost
             } else {
                 effectiveCosts[providerKey] = 0
             }
@@ -521,16 +523,20 @@ public struct TokenCostDashboardAnalytics: Sendable {
 
         for row in providerAccumulators.values.flatMap({ $0.rows }) {
             let modelKey = TokenCostPricingCatalog.normalizeModelName(row.model)
-            let providerKey = Self.normalizeProviderKey(row.provider)
-            let actualTokens = row.input + row.output + row.reasoning
-            let providerActual = providerAccumulators[providerKey]?.actualTokens ?? 0
-            let providerCost = providerEffectiveCosts[providerKey] ?? 0
-            let allocatedCost = providerActual > 0 ? providerCost * (actualTokens / providerActual) : 0
+
+            let apiModelCost = TokenCostPricingCatalog.apiCost(
+                model: row.model,
+                input: row.input,
+                output: row.output,
+                reasoning: row.reasoning,
+                cacheRead: row.cacheRead,
+                cacheWrite: row.cacheWrite
+            )
 
             if modelRows[modelKey] == nil {
                 modelRows[modelKey] = ModelAccumulator(displayName: modelKey)
             }
-            modelRows[modelKey]?.allocatedCost += allocatedCost
+            modelRows[modelKey]?.allocatedCost += apiModelCost
         }
 
         return modelRows
@@ -850,15 +856,16 @@ public struct TokenCostDashboardAnalytics: Sendable {
         return rawCost > 0 ? rawCost : nil
     }
 
-    static func apiCost(model: String, input: Double, output: Double, cacheRead: Double, cacheWrite: Double) -> Double {
+    static func apiCost(model: String, input: Double, output: Double, reasoning: Double, cacheRead: Double, cacheWrite: Double) -> Double {
         let key = normalizeModelName(model)
         guard let pricing = zenPricing[key] else {
             return 0
         }
         let inputCost = (input / 1_000_000) * (pricing["input"] ?? 0)
         let outputCost = (output / 1_000_000) * (pricing["output"] ?? 0)
+        let reasoningCost = (reasoning / 1_000_000) * (pricing["reasoning"] ?? pricing["output"] ?? 0)
         let cacheReadCost = (cacheRead / 1_000_000) * (pricing["cacheRead"] ?? 0)
         let cacheWriteCost = (cacheWrite / 1_000_000) * (pricing["cacheWrite"] ?? 0)
-        return inputCost + outputCost + cacheReadCost + cacheWriteCost
+        return inputCost + outputCost + reasoningCost + cacheReadCost + cacheWriteCost
     }
 }
