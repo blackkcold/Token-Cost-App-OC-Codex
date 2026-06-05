@@ -4,6 +4,7 @@
 
 | 版本   | 支持状态       |
 |--------|--------------|
+| 0.8.1  | 当前稳定版，接受安全报告和修复 |
 | 0.8.0  | 当前稳定版，接受安全报告和修复 |
 | 0.7.0  | 当前稳定版，接受安全报告和修复 |
 | 0.6.0  | 当前稳定版，接受安全报告和修复 |
@@ -29,13 +30,13 @@
 - **趋势图与热力图（v0.8.0+）**：仅基于已读取的 OpenCode / Codex 本地聚合数据做 UI 派生展示，不新增写入面、不上传图表数据。
 - **OpenCode Skills 只读面板（v0.7.0+）**：仅读取 skill 目录和配置进行分析展示，不做任何写入操作。权限可视化基于全局配置文件只读解析，不修改 `permission.skill` 规则。
 - 配置和快照仅写入本地 `Application Support` 目录
-- 语言设置、总览计价偏好和 Provider 计费方案选择只写入本地 `config/app-preferences.json`，不接触源数据
+- 语言设置、总览计价偏好、Provider 计费方案选择和余额监控配置只写入本地 `config/app-preferences.json`，不接触源数据
 - 总览页的实际 token 只是从已有来源数据派生的展示值（按 `input + output + reasoning` 计算），不会回写数据库、session 文件或网络
 - 本地化资源只读加载，不会向网络或外部服务传输文案
 - 内置计费文档只从 app bundle 资源读取，不开放任意本地文件路径，也不联网更新价格
 - 不收集、不上传任何使用数据
 - 余额监控功能（v0.1.2+）默认关闭 (`balanceEnabled=false`)，维持纯本地承诺。开启后通过 HTTPS 直接调用各 Provider 官方 API 端点（api.opencode.ai、chatgpt.com 等）获取实时余额；API key 从本地 auth.json 临时读取至内存，30 秒后清除，不持久化到磁盘或日志；所有网络请求使用 ephemeral URLSession，不经过第三方服务器；余额快照仅驻留内存，不写入任何本地文件
-- OpenCode Go 配额监控的 authCookie 凭证使用 macOS Keychain (`Security.framework`) 加密存储（`kSecClassGenericPassword` + `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`），不写入明文 JSON 配置文件。workspaceID 为非敏感标识符，仍可在 `AppPreferences` 中保留一份兼容副本，并在用户保存时同步写入 Keychain 供运行时读取
+- OpenCode Go 配额监控的 authCookie 凭证使用 macOS Keychain (`Security.framework`) 加密存储（`kSecClassGenericPassword` + `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`），不写入明文 JSON 配置文件。workspaceID 为非敏感标识符，仍可在 `AppPreferences` 中保留一份兼容副本，并在用户保存时同步写入 Keychain 供运行时读取；仅当用户在设置中显式开启“允许从环境变量读取凭证”后，运行时才允许读取 `OPENCODE_GO_WORKSPACE_ID` / `OPENCODE_GO_AUTH_COOKIE`
 - 浏览器凭证自动导入功能（v0.5.1+）仅读取 Edge / Chrome / Brave / Arc 中 `opencode.ai` 域名的 Cookie 和浏览记录；解密操作通过 Chromium 标准 AES-128-CBC + PBKDF2-SHA1 链路在本地完成，用户需在弹窗中明确确认后才执行；解密的 Cookie 只驻留一次 API 调用的内存生命周期，不写入日志、文件或 UserDefaults；浏览器数据库以 `SQLITE_OPEN_READONLY` + 临时文件副本方式访问，操作完成后自动清理
 - 版本更新检查功能（v0.5.0+）仅向 GitHub 公开 API (`api.github.com/repos/blackkcold/Token-Cost-App-OC-Codex/releases/latest`) 发起匿名 GET 请求获取最新 Release 元数据，不携带认证凭据、不收集不上传任何用户数据；下载的 `.zip` 文件经大小与 Content-Length 交叉校验后存放于本地 `Application Support` 沙箱内的 `updates/` 目录，不解压后自动运行；检查频率缓存为每 24 小时一次（启动自动），用户可通过工具栏按钮手动触发即时检查（忽略 24h 缓存），防止 API 限流
 - 更新包完整性校验（v0.6.0+）：ditto 解压后的 `.app` bundle 通过 `codesign --verify` 验证签名完整性，防止中间人篡改

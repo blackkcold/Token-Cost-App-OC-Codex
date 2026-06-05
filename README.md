@@ -13,7 +13,7 @@
 
 A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
 
-> **Latest**: [v0.8.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.8.0) — unified trend charts and responsive usage heatmap
+> **Latest**: [v0.8.1](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.8.1) — multi-provider balance monitoring, responsive settings layout, and dock-aware desktop behavior
 
 ### Why Token Cost App?
 
@@ -32,7 +32,9 @@ AI coding tools charge by token — but most developers have no idea what they'r
 - **Bilingual UI** — Switch between Chinese and English; terminology stays consistent
 - **Multi-Theme** — Bay Blue, Forest Green, Twilight Orange, Aurora Purple
 - **CNY/USD Toggle** — All prices dynamically switch with currency; custom monthly fees auto-convert
-- **Balance Monitoring** — Real-time balance queries for OpenCode Go / Codex / OpenCode Zen with gradient bar visualization
+- **Balance Monitoring** — Real-time balance queries for OpenCode Go / Codex / OpenCode Zen / DeepSeek, with multi-window quota and balance-entry visualization
+- **Responsive Settings Panel** — Module-based collapsible settings with adaptive horizontal layout for faster desktop scanning
+- **Desktop-Friendly Window Behavior** — Closing the main window hides the Dock icon while keeping the MenuBar workflow active
 - **Update Checker** — Silent check on launch + manual trigger; auto-downloads updates
 - **Offline & Local** — Runs entirely on your machine; update checks only anonymously pull GitHub's public Release API
 - **Read-Only Safe** — Never modifies your source data
@@ -115,7 +117,7 @@ MIT License — see [LICENSE](LICENSE)
 
 一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
 
-> **最新版本**: [v0.8.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.8.0) — 趋势图统一、响应式用量热力图
+> **最新版本**: [v0.8.1](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.8.1) — 多 Provider 余额监控、响应式设置页和更顺手的桌面窗口行为
 
 ### 为什么需要它？
 
@@ -134,7 +136,9 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 - **中英双语** — 界面可在中文 / 英语之间切换，术语保持一致
 - **多主题** — 海湾蓝、森林绿、暮光橙、极光紫 4 种主题色
 - **人民币/美元计价切换** — 所有价格展示随币种动态切换，自定义月费自动换算
-- **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen 余额实时查询，梯度色条可视化
+- **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek 余额实时查询，并展示多窗口配额与余额条目
+- **响应式设置页** — 模块化折叠设置面板，短控件采用横向自适应布局，桌面端浏览更高效
+- **桌面窗口行为优化** — 关闭主窗口后自动隐藏 Dock 图标，保留 MenuBar 工作流
 - **版本更新检查** — 启动时静默检查 + 手动触发，自动下载更新包
 - **本地离线** — 纯本地运行；版本更新检查仅匿名拉取 GitHub 公开 Release API，不上传数据
 - **只读安全** — 源数据只读访问，不修改任何源数据
