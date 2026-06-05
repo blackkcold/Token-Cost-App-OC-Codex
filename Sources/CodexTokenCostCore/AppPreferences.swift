@@ -51,6 +51,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var opencodeGoWorkspaceID: String?
     public var theme: TokenCostThemeChoice
     public var displayCurrency: DisplayCurrency
+    public var balanceConfig: BalanceConfiguration?
     public var skillsPanel: SkillsPanelPreferences
 
     public init(
@@ -61,7 +62,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         opencodeGoWorkspaceID: String? = nil,
         theme: TokenCostThemeChoice = .ocean,
         displayCurrency: DisplayCurrency = .usd,
-        skillsPanel: SkillsPanelPreferences = SkillsPanelPreferences()
+        skillsPanel: SkillsPanelPreferences = SkillsPanelPreferences(),
+        balanceConfig: BalanceConfiguration? = nil
     ) {
         self.language = language
         self.billingSelectionsByProvider = billingSelectionsByProvider
@@ -71,6 +73,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.theme = theme
         self.displayCurrency = displayCurrency
         self.skillsPanel = skillsPanel
+        self.balanceConfig = balanceConfig
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -81,6 +84,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case opencodeGoWorkspaceID = "opencode_go_workspace_id"
         case theme
         case displayCurrency
+        case balanceConfig = "balance_config"
         case skillsPanel
     }
 
@@ -92,6 +96,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case opencodeGoWorkspaceID = "opencodeGoWorkspaceId"
         case theme
         case displayCurrency
+        case balanceConfig
         case skillsPanel
     }
 
@@ -128,6 +133,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.theme = try container.decodeIfPresent(TokenCostThemeChoice.self, forKey: .theme) ?? .ocean
         self.displayCurrency = try container.decodeIfPresent(DisplayCurrency.self, forKey: .displayCurrency) ?? .usd
         self.skillsPanel = try container.decodeIfPresent(SkillsPanelPreferences.self, forKey: .skillsPanel) ?? SkillsPanelPreferences()
+        self.balanceConfig = try container.decodeIfPresent(BalanceConfiguration.self, forKey: .balanceConfig)
+            ?? legacyContainer?.decodeIfPresent(BalanceConfiguration.self, forKey: .balanceConfig)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -140,6 +147,14 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(theme, forKey: .theme)
         try container.encode(displayCurrency, forKey: .displayCurrency)
         try container.encode(skillsPanel, forKey: .skillsPanel)
+        try container.encodeIfPresent(balanceConfig, forKey: .balanceConfig)
+    }
+
+    /// Returns a copy of preferences with the given balanceConfig applied.
+    public func with(balanceConfig: BalanceConfiguration?) -> AppPreferences {
+        var copy = self
+        copy.balanceConfig = balanceConfig
+        return copy
     }
 }
 

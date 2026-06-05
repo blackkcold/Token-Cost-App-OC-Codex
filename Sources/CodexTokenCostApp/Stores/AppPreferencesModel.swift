@@ -9,13 +9,15 @@ final class AppPreferencesModel: ObservableObject {
 
     private let store: AppPreferencesStore
 
-    init() {
-        self.store = AppPreferencesStore(runtimeRoot: CodexAppPaths.runtimeRoot)
+    init(runtimeRoot: URL = CodexAppPaths.runtimeRoot) {
+        self.store = AppPreferencesStore(runtimeRoot: runtimeRoot)
         let loaded = store.load()
         self.preferences = loaded.preferences
         self.loadWarningMessage = loaded.errorMessage
         AppLocalization.setLanguage(loaded.preferences.language)
-        try? CodexAppPaths.ensureRuntimeDirectories()
+        if runtimeRoot == CodexAppPaths.runtimeRoot {
+            try? CodexAppPaths.ensureRuntimeDirectories()
+        }
     }
 
     func migrateThemeFromSettingsIfNeeded(_ legacyTheme: TokenCostThemeChoice) {
@@ -181,12 +183,16 @@ final class AppPreferencesModel: ObservableObject {
                 }
                 let wid = newValue.isEmpty ? nil : newValue
                 if let wid {
-                    SecureCredentialStore.saveWorkspaceID(wid)
+                    SecureCredentialStore.shared.saveWorkspaceID(wid)
                 } else {
-                    SecureCredentialStore.deleteWorkspaceID()
+                    SecureCredentialStore.shared.deleteWorkspaceID()
                 }
             }
         )
+    }
+
+    var effectiveBalanceConfiguration: BalanceConfiguration {
+        preferences.balanceConfig ?? BalanceConfiguration()
     }
 
     func updatePreferences(_ mutate: (inout AppPreferences) -> Void) {
@@ -197,7 +203,13 @@ final class AppPreferencesModel: ObservableObject {
         persistPreferences()
     }
 
-    func persistPreferences() {
+    func updateBalanceConfiguration(_ mutate: (inout BalanceConfiguration) -> Void) {
+        updatePreferences { prefs in
+            var config = prefs.balanceConfig ?? BalanceConfiguration()
+            mutate(&config)
+            prefs.balanceConfig = config
+        }
+    }
 
     func updateSkillsPanel(showSource: Bool? = nil, showState: Bool? = nil, showTags: Bool? = nil, previewLength: Int? = nil) {
         updatePreferences { prefs in
@@ -207,6 +219,8 @@ final class AppPreferencesModel: ObservableObject {
             if let v = previewLength { prefs.skillsPanel.previewLength = v }
         }
     }
+
+    func persistPreferences() {
         do {
             try store.save(preferences)
             loadWarningMessage = nil

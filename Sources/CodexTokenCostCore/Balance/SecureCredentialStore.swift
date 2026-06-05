@@ -1,110 +1,155 @@
 import Foundation
 import Security
 
-public enum SecureCredentialStore {
-    private static let service = "com.yanghaoran.CodexTokenCost.opencode-go"
-    private static let workspaceIDAccount = "workspace-id"
-    private static let authCookieAccount = "auth-cookie"
+/// Thread-safe credential store for OpenCode Go workspace ID and auth cookie.
+///
+/// Credentials are cached in memory with NSLock protection.
+/// Keychain access is direct (no UserDefaults guard); env fallback is gated
+/// behind an explicit opt-in flag (Phase 0 guard, Phase 4 unified control).
+public final class SecureCredentialStore: @unchecked Sendable {
+    public static let shared = SecureCredentialStore()
 
-    private nonisolated(unsafe) static var cachedWorkspaceID: String?
-    private nonisolated(unsafe) static var cachedAuthCookie: String?
-    private nonisolated(unsafe) static var cacheValid = false
+    private let service = "com.yanghaoran.CodexTokenCost.opencode-go"
+    private let workspaceIDAccount = "workspace-id"
+    private let authCookieAccount = "auth-cookie"
 
-    private static func invalidateCache() {
-        cachedWorkspaceID = nil
-        cachedAuthCookie = nil
-        cacheValid = false
+    private let lock = NSLock()
+    private var cachedWorkspaceID: String?
+    private var cachedAuthCookie: String?
+    private var cacheValid = false
+    private var migrationCompleted = false
+
+    private init() {
+        performOneTimeMigration()
     }
 
-    public static func saveWorkspaceID(_ id: String) {
-        save(account: workspaceIDAccount, value: id, service: service)
-        UserDefaults.standard.set(id, forKey: workspaceIDDefaultsKey(service: service))
-        invalidateCache()
-    }
-    static func saveWorkspaceID(_ id: String, service: String) {
-        save(account: workspaceIDAccount, value: id, service: service)
-    }
+    // MARK: - Public API
 
-    public static func getWorkspaceID() -> String? {
-        if let workspaceID = UserDefaults.standard.string(forKey: workspaceIDDefaultsKey(service: service)),
-           !workspaceID.isEmpty {
-            return workspaceID
+    public func saveWorkspaceID(_ id: String) {
+        save(account: workspaceIDAccount, value: id)
+        lock.withLock {
+            cachedWorkspaceID = id
+            cacheValid = true
         }
-        return read(account: workspaceIDAccount, service: service)
-    }
-    static func getWorkspaceID(service: String) -> String? {
-        read(account: workspaceIDAccount, service: service)
     }
 
-    public static func saveAuthCookie(_ cookie: String) {
-        save(account: authCookieAccount, value: cookie, service: service)
-        invalidateCache()
-    }
-    static func saveAuthCookie(_ cookie: String, service: String) {
-        save(account: authCookieAccount, value: cookie, service: service)
+    public func getWorkspaceID() -> String? {
+        read(account: workspaceIDAccount)
     }
 
-    public static func getAuthCookie() -> String? {
-        read(account: authCookieAccount, service: service)
-    }
-    static func getAuthCookie(service: String) -> String? {
-        read(account: authCookieAccount, service: service)
+    public func saveAuthCookie(_ cookie: String) {
+        save(account: authCookieAccount, value: cookie)
+        lock.withLock {
+            cachedAuthCookie = cookie
+            cacheValid = true
+        }
     }
 
-    public static func discoverCredentials() -> (workspaceID: String?, cookie: String?) {
-        if cacheValid {
-            return (cachedWorkspaceID, cachedAuthCookie)
+    public func getAuthCookie() -> String? {
+        read(account: authCookieAccount)
+    }
+
+    public func discoverCredentials(allowEnvironment: Bool = false) -> (workspaceID: String?, cookie: String?) {
+        lock.lock()
+        if cacheValid, let id = cachedWorkspaceID, let cookie = cachedAuthCookie {
+            lock.unlock()
+            return (id, cookie)
+        }
+        lock.unlock()
+
+        let (id, cookie) = batchReadCredentials()
+        if let id, let cookie {
+            return cacheAndReturn(workspaceID: id, cookie: cookie)
         }
 
-        if let id = getWorkspaceID(), let cookie = getAuthCookie() {
-            return cache(workspaceID: id, cookie: cookie)
-        }
-
-        let env = ProcessInfo.processInfo.environment
-        if let id = env["OPENCODE_GO_WORKSPACE_ID"], let cookie = env["OPENCODE_GO_AUTH_COOKIE"] {
-            return cache(workspaceID: id, cookie: cookie)
+        if allowEnvironment,
+           let environmentCredentials = Self.credentialsFromEnvironment(ProcessInfo.processInfo.environment) {
+            return cacheAndReturn(
+                workspaceID: environmentCredentials.workspaceID,
+                cookie: environmentCredentials.cookie
+            )
         }
 
         if let imported = readOpenCodeBarConfig() {
-            return cache(workspaceID: imported.0, cookie: imported.1)
+            return cacheAndReturn(workspaceID: imported.0, cookie: imported.1)
         }
 
         return (nil, nil)
     }
 
-    private static func cache(workspaceID: String, cookie: String) -> (workspaceID: String?, cookie: String?) {
-        cachedWorkspaceID = workspaceID
-        cachedAuthCookie = cookie
-        cacheValid = true
-        return (workspaceID, cookie)
+    public func deleteWorkspaceID() {
+        delete(account: workspaceIDAccount)
+        lock.withLock { invalidateCache() }
     }
 
-    public static func deleteWorkspaceID() {
-        delete(account: workspaceIDAccount, service: service)
-        UserDefaults.standard.removeObject(forKey: workspaceIDDefaultsKey(service: service))
-        invalidateCache()
-    }
-    static func deleteWorkspaceID(service: String) {
-        delete(account: workspaceIDAccount, service: service)
-    }
-
-    static func deleteAll() {
+    public func deleteAll() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrSynchronizable as String: false
         ]
         SecItemDelete(query as CFDictionary)
-        setSavedCredential(false, account: workspaceIDAccount, service: service)
-        setSavedCredential(false, account: authCookieAccount, service: service)
-        UserDefaults.standard.removeObject(forKey: workspaceIDDefaultsKey(service: service))
-        invalidateCache()
+
+        lock.withLock {
+            invalidateCache()
+            migrationCompleted = false
+            // Clear migration flag so credentials can be re-imported.
+            UserDefaults.standard.removeObject(forKey: migrationCompletedKey)
+        }
     }
 
-    private static func save(account: String, value: String, service: String) {
+    // MARK: - Internal (service-scoped variants for tests)
+
+    func saveWorkspaceID(_ id: String, service: String) {
+        save(account: workspaceIDAccount, value: id, service: service)
+    }
+
+    func getWorkspaceID(service: String) -> String? {
+        read(account: workspaceIDAccount, service: service)
+    }
+
+    func saveAuthCookie(_ cookie: String, service: String) {
+        save(account: authCookieAccount, value: cookie, service: service)
+    }
+
+    func getAuthCookie(service: String) -> String? {
+        read(account: authCookieAccount, service: service)
+    }
+
+    func deleteWorkspaceID(service: String) {
+        delete(account: workspaceIDAccount, service: service)
+    }
+
+    func discoverCredentialsForTesting(
+        allowEnvironment: Bool,
+        service: String,
+        environment: [String: String],
+        includeImportedConfig: Bool = false
+    ) -> (workspaceID: String?, cookie: String?) {
+        let (id, cookie) = batchReadCredentials(service: service)
+        if let id, let cookie {
+            return (id, cookie)
+        }
+
+        if allowEnvironment,
+           let environmentCredentials = Self.credentialsFromEnvironment(environment) {
+            return (environmentCredentials.workspaceID, environmentCredentials.cookie)
+        }
+
+        if includeImportedConfig, let imported = readOpenCodeBarConfig() {
+            return imported
+        }
+
+        return (nil, nil)
+    }
+
+    // MARK: - Private: Keychain CRUD (no UserDefaults guard)
+
+    private func save(account: String, value: String, service: String? = nil) {
+        let svc = service ?? self.service
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: svc,
             kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: false
         ]
@@ -115,15 +160,12 @@ public enum SecureCredentialStore {
         ]
 
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if updateStatus == errSecSuccess {
-            setSavedCredential(true, account: account, service: service)
-            return
-        }
+        if updateStatus == errSecSuccess { return }
 
         if updateStatus != errSecItemNotFound {
-            #if DEBUG
+#if DEBUG
             print("[SecureCredentialStore] Warning: failed to update keychain item for '\(account)': status \(updateStatus)")
-            #endif
+#endif
             return
         }
 
@@ -132,55 +174,126 @@ public enum SecureCredentialStore {
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
 
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        if addStatus == errSecSuccess {
-            setSavedCredential(true, account: account, service: service)
-        } else {
-            #if DEBUG
+        if addStatus != errSecSuccess {
+#if DEBUG
             print("[SecureCredentialStore] Warning: failed to add keychain item for '\(account)': status \(addStatus)")
-            #endif
+#endif
         }
     }
 
-    private static func delete(account: String, service: String) {
+    private func delete(account: String, service: String? = nil) {
+        let svc = service ?? self.service
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: svc,
             kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: false
         ]
         let status = SecItemDelete(query as CFDictionary)
-        if status == errSecSuccess || status == errSecItemNotFound {
-            setSavedCredential(false, account: account, service: service)
-        } else {
-            #if DEBUG
+        if status != errSecSuccess && status != errSecItemNotFound {
+#if DEBUG
             print("[SecureCredentialStore] Warning: failed to delete keychain item for '\(account)': status \(status)")
-            #endif
+#endif
         }
     }
 
-    private static func read(account: String, service: String) -> String? {
-        guard hasSavedCredential(account: account, service: service) else {
-            return nil
-        }
+    /// Reads both workspaceID and authCookie in a single Keychain query.
+    /// Uses kSecMatchLimitAll to avoid multiple SecItemCopyMatching calls.
+    private func batchReadCredentials(service: String? = nil) -> (workspaceID: String?, authCookie: String?) {
+        let svc = service ?? self.service
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: svc,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnAttributes as String: true,
+            kSecReturnData as String: true,
+            kSecAttrSynchronizable as String: false,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip
+        ]
 
-        let query = readQuery(account: account, service: service)
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        if status == errSecItemNotFound {
-            setSavedCredential(false, account: account, service: service)
+        guard status == errSecSuccess,
+              let items = result as? [[String: Any]]
+        else {
+            if status == errSecInteractionNotAllowed {
+#if DEBUG
+                print("[SecureCredentialStore] Keychain access denied (locked) during batch read")
+#endif
+            }
+            return (nil, nil)
+        }
+
+        var workspaceID: String? = nil
+        var authCookie: String? = nil
+
+        for item in items {
+            guard let account = item[kSecAttrAccount as String] as? String,
+                  let data = item[kSecValueData as String] as? Data,
+                  let value = String(data: data, encoding: .utf8)
+            else { continue }
+
+            switch account {
+            case workspaceIDAccount:
+                workspaceID = value
+            case authCookieAccount:
+                authCookie = value
+            default:
+                break
+            }
+        }
+
+        return (workspaceID, authCookie)
+    }
+
+    /// Reads a credential directly from the Keychain (no UserDefaults guard).
+    private func read(account: String, service: String? = nil) -> String? {
+        let svc = service ?? self.service
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: svc,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecAttrSynchronizable as String: false,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        switch status {
+        case errSecSuccess:
+            break
+        case errSecItemNotFound:
+            return nil
+        case errSecInteractionNotAllowed:
+            // Keychain is locked (e.g. device locked, user not logged in).
+#if DEBUG
+            print("[SecureCredentialStore] Keychain access denied (locked) for '\(account)'")
+#endif
+            return nil
+        case errSecMissingEntitlement:
+            // Compile-time / provisioning error — crash to surface the bug.
+            fatalError("[SecureCredentialStore] Missing Keychain entitlement for '\(account)'. Check code signing and entitlements.")
+        default:
+#if DEBUG
+            print("[SecureCredentialStore] Unexpected Keychain error for '\(account)': status \(status)")
+#endif
             return nil
         }
 
-        guard status == errSecSuccess,
-              let data = result as? Data,
+        guard let data = result as? Data,
               let string = String(data: data, encoding: .utf8)
         else { return nil }
 
         return string
     }
 
-    static func readQuery(account: String, service: String) -> [String: Any] {
+    // MARK: - Internal query builder (for tests)
+
+    func readQuery(account: String, service: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -192,28 +305,57 @@ public enum SecureCredentialStore {
         ]
     }
 
-    private static func hasSavedCredential(account: String, service: String) -> Bool {
-        UserDefaults.standard.bool(forKey: savedCredentialDefaultsKey(account: account, service: service))
-    }
+    // MARK: - Cache
 
-    private static func setSavedCredential(_ saved: Bool, account: String, service: String) {
-        let key = savedCredentialDefaultsKey(account: account, service: service)
-        if saved {
-            UserDefaults.standard.set(true, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
+    private func cacheAndReturn(workspaceID: String, cookie: String) -> (String?, String?) {
+        lock.withLock {
+            cachedWorkspaceID = workspaceID
+            cachedAuthCookie = cookie
+            cacheValid = true
         }
+        return (workspaceID, cookie)
     }
 
-    private static func savedCredentialDefaultsKey(account: String, service: String) -> String {
-        "SecureCredentialStore.saved.\(service).\(account)"
+    private func invalidateCache() {
+        cachedWorkspaceID = nil
+        cachedAuthCookie = nil
+        cacheValid = false
     }
 
-    private static func workspaceIDDefaultsKey(service: String) -> String {
-        "SecureCredentialStore.workspaceID.\(service)"
+    // MARK: - One-time Keychain Migration (EF-3)
+
+    private var migrationCompletedKey: String {
+        "SecureCredentialStore.migrationCompleted_v2"
     }
 
-    private static func readOpenCodeBarConfig() -> (String, String)? {
+    private func performOneTimeMigration() {
+        guard !UserDefaults.standard.bool(forKey: migrationCompletedKey) else { return }
+
+        // Read directly from Keychain in one batch call.
+        let (id, cookie) = batchReadCredentials()
+        if let id, let cookie {
+            lock.withLock {
+                cachedWorkspaceID = id
+                cachedAuthCookie = cookie
+                cacheValid = true
+            }
+        }
+
+        // Clean up old UserDefaults keys from previous version.
+        let oldSavedKey = (service, workspaceIDAccount)
+        let oldCookieKey = (service, authCookieAccount)
+
+        UserDefaults.standard.removeObject(forKey: "SecureCredentialStore.saved.\(oldSavedKey.0).\(oldSavedKey.1)")
+        UserDefaults.standard.removeObject(forKey: "SecureCredentialStore.saved.\(oldCookieKey.0).\(oldCookieKey.1)")
+        UserDefaults.standard.removeObject(forKey: "SecureCredentialStore.workspaceID.\(service)")
+
+        UserDefaults.standard.set(true, forKey: migrationCompletedKey)
+        lock.withLock { migrationCompleted = true }
+    }
+
+    // MARK: - Legacy config import
+
+    private func readOpenCodeBarConfig() -> (String, String)? {
         let configURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/opencode-bar/opencode-go.json")
         guard let data = try? Data(contentsOf: configURL),
@@ -229,5 +371,13 @@ public enum SecureCredentialStore {
 
         guard let id, let cookie else { return nil }
         return (id, cookie)
+    }
+
+    private static func credentialsFromEnvironment(_ environment: [String: String]) -> (workspaceID: String, cookie: String)? {
+        guard let workspaceID = environment["OPENCODE_GO_WORKSPACE_ID"],
+              let cookie = environment["OPENCODE_GO_AUTH_COOKIE"] else {
+            return nil
+        }
+        return (workspaceID, cookie)
     }
 }

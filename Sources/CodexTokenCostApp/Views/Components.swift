@@ -157,6 +157,231 @@ struct TokenSectionCard<Content: View>: View {
     }
 }
 
+struct TokenCollapsibleSectionCard<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let trailing: AnyView?
+    let palette: TokenCostPalette
+    @Binding var isExpanded: Bool
+    let content: Content
+
+    init(
+        title: String,
+        subtitle: String,
+        trailing: AnyView? = nil,
+        isExpanded: Binding<Bool>,
+        palette: TokenCostPalette,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = trailing
+        self.palette = palette
+        self._isExpanded = isExpanded
+        self.content = content()
+    }
+
+    var body: some View {
+        TokenSectionCard(
+            title: title,
+            subtitle: subtitle,
+            trailing: AnyView(
+                HStack(spacing: 8) {
+                    if let trailing {
+                        trailing
+                    }
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        Label(
+                            isExpanded ? AppLocalization.text("common.collapse") : AppLocalization.text("common.showMore"),
+                            systemImage: isExpanded ? "chevron.up" : "chevron.down"
+                        )
+                        .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(palette.accent)
+                }
+            ),
+            palette: palette
+        ) {
+            if isExpanded {
+                content
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isExpanded)
+    }
+}
+
+struct SettingsControlGrid<Content: View>: View {
+    let minimumWidth: CGFloat
+    let spacing: CGFloat
+    let content: Content
+
+    init(
+        minimumWidth: CGFloat = 280,
+        spacing: CGFloat = 12,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.minimumWidth = minimumWidth
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: minimumWidth), spacing: spacing, alignment: .top)],
+            alignment: .leading,
+            spacing: spacing
+        ) {
+            content
+        }
+    }
+}
+
+struct SettingsActionWrap<Content: View>: View {
+    let minimumWidth: CGFloat
+    let spacing: CGFloat
+    let content: Content
+
+    init(
+        minimumWidth: CGFloat = 170,
+        spacing: CGFloat = 12,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.minimumWidth = minimumWidth
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: minimumWidth), spacing: spacing, alignment: .top)],
+            alignment: .leading,
+            spacing: spacing
+        ) {
+            content
+        }
+    }
+}
+
+struct SettingsControlTile<Content: View>: View {
+    let title: String?
+    let palette: TokenCostPalette
+    let minHeight: CGFloat
+    let content: Content
+
+    init(
+        title: String? = nil,
+        palette: TokenCostPalette,
+        minHeight: CGFloat = 58,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.palette = palette
+        self.minHeight = minHeight
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: title == nil ? 0 : 8) {
+            if let title {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.subtitle)
+            }
+
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .controlSize(.small)
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(palette.trackBackground.opacity(0.82))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(palette.cardStroke.opacity(0.65), lineWidth: 1)
+        )
+    }
+}
+
+struct SettingsFieldGroup<Content: View>: View {
+    let title: String?
+    let palette: TokenCostPalette
+    let spacing: CGFloat
+    let content: Content
+
+    init(
+        title: String? = nil,
+        palette: TokenCostPalette,
+        spacing: CGFloat = 10,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.palette = palette
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            if let title {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.subtitle)
+            }
+
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct SettingsInlineControlRow<Control: View>: View {
+    let title: String
+    let palette: TokenCostPalette
+    let control: Control
+
+    init(
+        title: String,
+        palette: TokenCostPalette,
+        @ViewBuilder control: () -> Control
+    ) {
+        self.title = title
+        self.palette = palette
+        self.control = control()
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(palette.title)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                control
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(palette.title)
+                control
+            }
+        }
+    }
+}
+
 struct DistributionRow: View {
     let title: String
     let value: Double

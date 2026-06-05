@@ -3,18 +3,23 @@ import Combine
 
 @MainActor
 public final class BalanceManager: ObservableObject {
-    private let checkers: [BalanceChecker]
+    @Published public var configuration: BalanceConfiguration {
+        didSet { rebuildCheckers() }
+    }
     @Published public private(set) var snapshots: [BalanceSnapshot] = []
     @Published public private(set) var lastRefreshTime: Date?
     @Published public private(set) var isRefreshing: Bool = false
     private var consecutiveFailures: Int = 0
+    private var checkers: [BalanceChecker] = []
 
-    public init(checkers: [BalanceChecker] = [
-        OpenCodeGoBalanceChecker(),
-        CodexBalanceChecker(),
-        OpenCodeZenBalanceChecker()
-    ]) {
-        self.checkers = checkers
+    public init(configuration: BalanceConfiguration = BalanceConfiguration()) {
+        self.configuration = configuration
+        rebuildCheckers()
+    }
+
+    /// Hot-update configuration at runtime (e.g. user toggles DeepSeek).
+    public func updateConfiguration(_ new: BalanceConfiguration) {
+        configuration = new
     }
 
     public func refresh() async {
@@ -58,7 +63,7 @@ public final class BalanceManager: ObservableObject {
             return (snapshots, succeeded)
         }
 
-        snapshots = results
+        snapshots = results.sorted { $0.provider.sortOrder < $1.provider.sortOrder }
         lastRefreshTime = now
 
         if anySucceeded {
@@ -72,7 +77,6 @@ public final class BalanceManager: ObservableObject {
 
     /// Test-only: fetch a snapshot for a single provider bypassing
     /// refresh backoff, concurrency guard, and global state.
-    /// Uses the provided checker and auth token directly.
     public func testSnapshot(for checker: BalanceChecker, authToken: String) async -> BalanceSnapshot {
         do {
             return try await checker.fetch(authToken: authToken)
@@ -87,8 +91,31 @@ public final class BalanceManager: ObservableObject {
         return elapsed >= Double(intervalMinutes * 60)
     }
 
+    var activeProviderKinds: [BalanceProviderKind] {
+        checkers
+            .map(\.providerKind)
+            .sorted { $0.sortOrder < $1.sortOrder }
+    }
+
     private func backoffSeconds() -> UInt64 {
         let seconds = min(60 * pow(2.0, Double(consecutiveFailures)), 30 * 60)
         return UInt64(seconds)
+    }
+
+    private func rebuildCheckers() {
+        let enabled = Set(configuration.enabledBalanceProviders)
+        checkers = enabled.compactMap { kind -> BalanceChecker? in
+            switch kind {
+            case .opencodeGo:
+                return OpenCodeGoBalanceChecker(
+                    allowEnvironmentCredentials: configuration.allowEnvironmentCredentials
+                )
+            case .codex: return CodexBalanceChecker()
+            case .opencodeZen: return OpenCodeZenBalanceChecker()
+            case .deepseek: return DeepSeekBalanceChecker()
+            }
+        }
+        // Remove snapshots for disabled providers.
+        snapshots = snapshots.filter { enabled.contains($0.provider) }
     }
 }

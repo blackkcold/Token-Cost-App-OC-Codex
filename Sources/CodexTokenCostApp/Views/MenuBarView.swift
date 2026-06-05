@@ -55,6 +55,7 @@ struct MenuBarView: View {
             .disabled(openCodeModel.isBootstrapping || openCodeModel.isRefreshing || codexModel.isBootstrapping || codexModel.isRefreshing)
 
             Button {
+                NSApp.setActivationPolicy(.regular)
                 openSettings()
             } label: {
                 Label(AppLocalization.text("menu.openSettings"), systemImage: "gearshape")
@@ -246,9 +247,14 @@ struct MenuBarView: View {
     }
 
     private func activateMainWindow() {
-        NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.title.contains("Token Cost") || $0.identifier?.rawValue == "main" }) {
-            window.makeKeyAndOrderFront(nil)
+        NSApp.setActivationPolicy(.regular)
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                NotificationCenter.default.post(name: .openMainWindow, object: nil)
+            }
         }
     }
 
@@ -271,7 +277,24 @@ struct MenuBarView: View {
                             .foregroundStyle(palette.title)
                     }
 
-                    if snapshot.primaryWindowUsagePercent != nil {
+                    if let windows = snapshot.quotaWindows, !windows.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(windows) { w in
+                                miniBar(label: w.label, pct: w.usedRatio ?? 0)
+                            }
+                        }
+                    } else if let entries = snapshot.valueEntries, !entries.isEmpty {
+                        ForEach(entries) { entry in
+                            HStack(spacing: 4) {
+                                Text(entry.currencyCode ?? "")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(palette.accent)
+                                Text(String(format: "%.2f", entry.amount))
+                                    .font(.caption2)
+                                    .foregroundStyle(palette.title)
+                            }
+                        }
+                    } else if snapshot.primaryWindowUsagePercent != nil {
                         HStack(spacing: 4) {
                             if let pct = snapshot.primaryWindowUsagePercent {
                                 miniBar(label: snapshot.primaryWindowLabel, pct: pct)
