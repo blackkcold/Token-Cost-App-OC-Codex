@@ -424,3 +424,93 @@
 "tab.skills.tooltip" = "管理 OpenCode Skills";
 "skills.action.refresh" = "刷新 Skills";
 "skills.action.refresh.tooltip" = "重新扫描 skill 目录和配置文件";
+
+/* Developer Mode v1 */
+"settings.developerMode.title" = "开发者模式";
+"settings.developerMode.subtitle" = "高级分析与调试功能";
+"settings.developerMode.description" = "启用后可访问任务分类、存储优化、本地治理等只读分析功能。所有数据仅在本地处理。";
+"settings.developerMode.enableToggle" = "启用开发者模式";
+"settings.developerMode.detail.title" = "开发者功能";
+"settings.developerMode.detail.subtitle" = "独立控制各子功能";
+"settings.developerMode.taskClassification" = "任务分类";
+"settings.developerMode.optimize" = "存储优化";
+"settings.developerMode.localGovernance" = "本地治理";
+"settings.developerMode.multiCurrency" = "多货币";
+"settings.developerMode.modelCompare" = "模型对比";
+"settings.developerMode.aiAnalysisDisabled" = "AI 分析功能暂未开放";
+"settings.action.resetDeveloperMode" = "仅重置开发者模式";
+
+/* Developer Mode — Optimize v1 scanner */
+"developerMode.optimize.findings" = "优化建议";
+"developerMode.optimize.scan" = "扫描优化";
+"developerMode.optimize.staleSnapshot.title" = "检测到过期快照";
+"developerMode.optimize.staleSnapshot.detail" = "来源「%@」有 %d 个超过 30 天的快照，占用磁盘空间且已无参考价值。";
+"developerMode.optimize.staleSnapshot.suggestion" = "使用清理按钮移除过期快照，或在设置中减少快照保留数量。";
+"developerMode.optimize.excessBackup.title" = "备份文件过多";
+"developerMode.optimize.excessBackup.detail" = "目录「%@」包含 %d 个备份文件，共 %d MB。建议清理旧备份。";
+"developerMode.optimize.excessBackup.suggestion" = "删除 30 天以前的备份，或在设置中降低备份频率。";
+"developerMode.optimize.largeSession.title" = "Session 目录过大";
+"developerMode.optimize.largeSession.detail" = "Session 目录大小为 %d MB，过大的目录会拖慢扫描速度。";
+"developerMode.optimize.largeSession.suggestion" = "归档或删除旧的 Codex session 以释放磁盘空间。";
+"developerMode.optimize.configFrag.title" = "配置文件碎片化";
+"developerMode.optimize.configFrag.detail" = "发现 %d 个 OpenCode .bak 备份文件。过多备份文件可能意味着配置漂移。";
+"developerMode.optimize.configFrag.suggestion" = "检查并合并 .bak 文件，仅保留最近几个。";
+"developerMode.optimize.staleLatest.title" = "最新快照已过期";
+"developerMode.optimize.staleLatest.detail" = "latest 目录中有 %d 个文件超过 7 天未更新，仪表盘可能显示过期数据。";
+"developerMode.optimize.staleLatest.suggestion" = "手动触发刷新，或检查后台 helper 进程是否正常运行。";
+
+/* Developer Mode - Phase 2 */
+"developerMode.classification.reasoning" = "推理占比高";
+"developerMode.classification.cacheHeavy" = "缓存重型";
+"developerMode.classification.longOutput" = "输出为主";
+"developerMode.classification.highFrequency" = "高频短对话";
+"developerMode.classification.highCost" = "高成本";
+"developerMode.classification.unclassified" = "未分类";
+"settings.developerMode.governance.title" = "本地治理";
+"settings.developerMode.governance.subtitle" = "运行时配置概览";
+"settings.developerMode.governance.configDir" = "配置目录";
+"settings.developerMode.governance.skillsDir" = "Skills 目录";
+"settings.developerMode.governance.sessionDir" = "Session 目录";
+"developerMode.governance.notAvailable" = "不可用";
+"developerMode.governance.fileSummary" = "%d 个文件，共 %d KB";
+"developerMode.governance.skillCount" = "%d 个 skill 目录";
+"developerMode.governance.sessionSummary" = "%d 个 session，共 %d MB";
+"developerMode.modelCompare.disclaimer" = "* 按 provider 有效成本按 token 比例分摊的估算值";
+
+/* Developer Mode - Phase 4 (AI Analysis - disabled in v1) */
+"developerMode.aiAnalysis.disabled" = "AI 分析功能暂未开放";
+"developerMode.aiAnalysis.consentTitle" = "AI 分析数据使用说明";
+"developerMode.aiAnalysis.consentBody" = "启用后，应用将向指定 AI 端点发送匿名化的使用数据摘要，用于生成优化建议。不会发送任何凭证、文件内容或个人身份信息。";
+
+/* Developer Mode - Access Policy */
+"developerMode.access.denied" = "访问被拒绝：路径不在允许范围内";
+"developerMode.access.blocked" = "访问被拒绝：路径在禁止列表中";
+
+/* Developer Mode - Doc */
+"developerMode.doc.title" = "开发者模式说明";
+"developerMode.doc.overviewTitle" = "概览";
+"developerMode.doc.overviewBody" = "开发者模式是一组本地、只读、确定性、可解释的分析工具。启用后可访问任务分类、存储优化、本地治理等功能。所有数据仅在本地处理，不会上传到任何服务器。";
+"developerMode.doc.principleLocal" = "本地";
+"developerMode.doc.principleReadonly" = "只读";
+"developerMode.doc.principleDeterministic" = "确定性";
+"developerMode.doc.principleExplainable" = "可解释";
+"developerMode.doc.featuresTitle" = "功能说明";
+"developerMode.doc.taskClassificationDesc" = "对 token 使用数据进行分类：推理占比高、缓存重型、输出为主、高频短对话、高成本。在 OpenCode 详情页的模型对比区域展示。";
+"developerMode.doc.optimizeDesc" = "扫描 5 类问题：过期快照、过多备份、大 Session 目录、配置碎片化、过期最新快照。在本地治理面板中展示扫描结果。";
+"developerMode.doc.localGovernanceDesc" = "显示 OpenCode 配置目录、Skills 目录、Session 目录的文件数量和访问状态。帮助了解运行时配置概况。";
+"developerMode.doc.modelCompareDesc" = "在 OpenCode 详情页的模型对比区域底部显示成本分摊免责声明，提示估算值的计算方式。";
+"developerMode.doc.multiCurrencyDesc" = "在设置页中启用人民币/美元切换功能。所有价格展示随币种动态切换。";
+"developerMode.doc.aiAnalysisDesc" = "发送匿名化数据到 AI 端点获取优化建议。当前版本暂未开放。";
+"developerMode.doc.comingSoon" = "即将推出";
+"developerMode.doc.usageTitle" = "使用方法";
+"developerMode.doc.usageStep1Title" = "开启开发者模式";
+"developerMode.doc.usageStep1Detail" = "在设置页的开发者模式 Tab 中，打开「启用开发者模式」主开关。";
+"developerMode.doc.usageStep2Title" = "启用子功能";
+"developerMode.doc.usageStep2Detail" = "主开关开启后，可独立控制各子功能的开关。按需启用即可。";
+"developerMode.doc.usageStep3Title" = "查看功能";
+"developerMode.doc.usageStep3Detail" = "任务分类和模型对比在 OpenCode 详情页展示；存储优化和本地治理在设置页开发者模式 Tab 的治理面板中展示。";
+"developerMode.doc.securityTitle" = "安全边界";
+"developerMode.doc.securityLocal" = "所有数据仅在本地处理，不依赖网络";
+"developerMode.doc.securityReadonly" = "只读访问，不修改任何源数据";
+"developerMode.doc.securityNoNetwork" = "不新增自动或隐式网络调用";
+"developerMode.doc.securityNoCredentials" = "不访问凭证文件或敏感信息";

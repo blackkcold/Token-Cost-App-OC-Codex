@@ -9,17 +9,8 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var isPricingDocPresented = false
-    @State private var isAppPreferencesExpanded = true
-    @State private var isBillingExpanded = false
-    @State private var isBalanceExpanded = false
-    @State private var isOpenCodeExpanded = false
-    @State private var isOpenCodeScanRootsExpanded = false
-    @State private var isOpenCodeManualDatabaseExpanded = false
-    @State private var isCodexExpanded = false
-    @State private var isCodexRootsExpanded = false
-    @State private var isCodexManualExpanded = false
-    @State private var isSkillsExpanded = false
-    @State private var isSafetyExpanded = true
+    @State private var isDeveloperDocPresented = false
+    @State private var selectedSection: SettingsSection = .overview
 
     @State private var scanRootsPageIndex = 0
     @State private var manualDatabasePageIndex = 0
@@ -43,28 +34,95 @@ struct SettingsView: View {
         TokenCostPalette(theme: appPreferencesModel.preferences.theme)
     }
 
+    private enum SettingsSection: String, CaseIterable, Identifiable {
+        case overview
+        case preferences
+        case billing
+        case balance
+        case opencode
+        case codex
+        case skills
+        case security
+        case developer
+
+        var id: String { rawValue }
+    }
+
     var body: some View {
         ZStack {
             palette.pageBackground
                 .ignoresSafeArea()
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    settingsHeader
-                    if !warningMessages.isEmpty {
-                        settingsWarningSection
-                    }
-                    appPreferencesSection
-                    billingPlanSection
-                    balanceMonitorSection
-                    openCodeModuleSection
-                    codexModuleSection
-                    skillsPanelSection
-                    safetySection
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            NavigationSplitView {
+                settingsSidebar
+            } detail: {
+                settingsDetail
             }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: 900, minHeight: 720)
+        .sheet(isPresented: $isPricingDocPresented) {
+            PricingDocView(palette: palette)
+        }
+        .sheet(isPresented: $isDeveloperDocPresented) {
+            DeveloperModeDocView(palette: palette)
+        }
+    }
+
+    private var settingsSidebar: some View {
+        List(selection: $selectedSection) {
+            ForEach(SettingsSection.allCases) { section in
+                SettingsSidebarRow(
+                    title: title(for: section),
+                    subtitle: subtitle(for: section),
+                    iconName: iconName(for: section),
+                    badge: badge(for: section),
+                    badgeTint: badgeTint(for: section),
+                    palette: palette
+                )
+                .tag(section)
+            }
+        }
+        .listStyle(.sidebar)
+        .navigationTitle(AppLocalization.text("settings.title"))
+        .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
+    }
+
+    private var settingsDetail: some View {
+        ScrollView {
+            Group {
+                if #available(macOS 26, *) {
+                    GlassEffectContainer(spacing: 18) {
+                        settingsDetailStack
+                    }
+                } else {
+                    settingsDetailStack
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .alert(AppLocalization.text("settings.balance.networkAlertTitle"), isPresented: $showBalanceNetworkAlert) {
+            Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {
+                appPreferencesModel.balanceEnabledBinding.wrappedValue = false
+            }
+            Button(AppLocalization.text("settings.balance.confirmEnable")) {
+                appPreferencesModel.balanceEnabledBinding.wrappedValue = true
+                Task { await balanceManager.refresh() }
+            }
+        } message: {
+            Text(AppLocalization.text("settings.balance.networkAlertMessage"))
+        }
+        .alert(goTestResultAlertTitle, isPresented: $showGoTestResultAlert) {
+            Button(AppLocalization.text("settings.action.close"), role: .cancel) { }
+        } message: {
+            Text(goTestResultAlertMessage)
+        }
+        .alert(AppLocalization.text("settings.opencodeGo.import.confirmTitle"), isPresented: $showBrowserImportAlert) {
+            Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {}
+            Button(AppLocalization.text("settings.action.continueImport")) { Task { await importFromBrowser() } }
+        } message: {
+            Text(AppLocalization.text("settings.opencodeGo.import.confirmMessage"))
         }
     }
 
@@ -82,20 +140,32 @@ struct SettingsView: View {
         return messages
     }
 
-    private var settingsWarningSection: some View {
-        TokenSectionCard(
+    @ViewBuilder
+    private var settingsDetailStack: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if !warningMessages.isEmpty {
+                settingsWarningBanner
+            }
+
+            selectedSectionContent
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var settingsWarningBanner: some View {
+        SettingsSurfaceCard(
             title: AppLocalization.text("settings.warning.title"),
             subtitle: AppLocalization.text("settings.warning.subtitle"),
-            trailing: nil,
+            role: .warning,
             palette: palette
         ) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(warningMessages.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .top, spacing: 8) {
+                    HStack(alignment: .top, spacing: 10) {
                         Text(item.title)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.orange)
-                            .frame(width: 64, alignment: .leading)
+                            .frame(width: 110, alignment: .leading)
 
                         Text(item.message)
                             .font(.caption)
@@ -107,28 +177,232 @@ struct SettingsView: View {
         }
     }
 
-    private var settingsHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(AppLocalization.text("settings.title"))
-                .font(.largeTitle.weight(.semibold))
-                .foregroundStyle(palette.title)
-
-            Text(AppLocalization.text("settings.subtitle"))
-                .font(.callout)
-                .foregroundStyle(palette.subtitle)
+    @ViewBuilder
+    private var selectedSectionContent: some View {
+        switch selectedSection {
+        case .overview:
+            overviewSection
+        case .preferences:
+            preferencesSection
+        case .billing:
+            billingSection
+        case .balance:
+            balanceSection
+        case .opencode:
+            openCodeSection
+        case .codex:
+            codexSettingsSection
+        case .skills:
+            skillsSection
+        case .security:
+            securitySection
+        case .developer:
+            developerSection
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var appPreferencesSection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.appPreferences.title"),
-            subtitle: AppLocalization.text("settings.appPreferences.subtitle"),
-            isExpanded: $isAppPreferencesExpanded,
+    private var overviewSection: some View {
+        SettingsSurfaceCard(
+            title: AppLocalization.text("overview.settings.title"),
+            subtitle: AppLocalization.text("overview.settings.subtitle"),
+            trailing: AnyView(
+                Button {
+                    openCodeModel.rescanSources()
+                    codexModel.refresh()
+                    Task { await balanceManager.refresh() }
+                } label: {
+                    Label(AppLocalization.text("tab.action.refreshAll"), systemImage: "arrow.clockwise")
+                }
+                .settingsGlassButtonStyle(prominent: true)
+                .controlSize(.small)
+            ),
             palette: palette
         ) {
-            VStack(alignment: .leading, spacing: 14) {
-                SettingsControlGrid(minimumWidth: 260) {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 220), spacing: 12, alignment: .top)],
+                alignment: .leading,
+                spacing: 12
+            ) {
+                SettingsSummaryCard(
+                    title: AppLocalization.text("settings.appPreferences.title"),
+                    value: "\(appPreferencesModel.preferences.theme.displayName) · \(appPreferencesModel.preferences.language.displayName) · \(appPreferencesModel.preferences.displayCurrency.displayName)",
+                    subtitle: AppLocalization.text("settings.appPreferences.subtitle"),
+                    systemImage: "slider.horizontal.3",
+                    tint: palette.accent,
+                    palette: palette
+                )
+
+                SettingsSummaryCard(
+                    title: AppLocalization.text("settings.opencode.title"),
+                    value: "\(openCodeModel.settings.scanRoots.count + openCodeModel.settings.manualDatabasePaths.count)",
+                    subtitle: "\(openCodeModel.settings.scanRoots.count) roots · \(openCodeModel.settings.manualDatabasePaths.count) files",
+                    systemImage: "externaldrive",
+                    tint: palette.accentSecondary,
+                    palette: palette
+                )
+
+                SettingsSummaryCard(
+                    title: AppLocalization.text("settings.codex.title"),
+                    value: "\(codexModel.settings.sourceRoots.count + codexModel.settings.manualSourcePaths.count)",
+                    subtitle: "\(codexModel.settings.sourceRoots.count) roots · \(codexModel.settings.manualSourcePaths.count) files",
+                    systemImage: "terminal",
+                    tint: .green,
+                    palette: palette
+                )
+
+                SettingsSummaryCard(
+                    title: AppLocalization.text("settings.balance.title"),
+                    value: appPreferencesModel.preferences.balanceEnabled ? AppLocalization.text("common.ready") : AppLocalization.text("common.unavailable"),
+                    subtitle: "\(effectiveBalanceConfiguration.enabledBalanceProviders.count) providers · \(appPreferencesModel.preferences.balanceRefreshMinutes) min refresh",
+                    systemImage: "chart.bar.xaxis",
+                    tint: appPreferencesModel.preferences.balanceEnabled ? .green : .orange,
+                    palette: palette
+                )
+
+                SettingsSummaryCard(
+                    title: AppLocalization.text("settings.developerMode.title"),
+                    value: appPreferencesModel.preferences.developerMode.isEnabled ? AppLocalization.text("common.ready") : AppLocalization.text("common.unavailable"),
+                    subtitle: AppLocalization.text("settings.developerMode.subtitle"),
+                    systemImage: "wrench.and.screwdriver",
+                    tint: appPreferencesModel.preferences.developerMode.isEnabled ? palette.accent : palette.subtitle,
+                    palette: palette
+                )
+            }
+        }
+    }
+
+    private func title(for section: SettingsSection) -> String {
+        switch section {
+        case .overview:
+            return AppLocalization.text("overview.settings.title")
+        case .preferences:
+            return AppLocalization.text("settings.appPreferences.title")
+        case .billing:
+            return AppLocalization.text("settings.billing.title")
+        case .balance:
+            return AppLocalization.text("settings.balance.title")
+        case .opencode:
+            return AppLocalization.text("settings.opencode.title")
+        case .codex:
+            return AppLocalization.text("settings.codex.title")
+        case .skills:
+            return AppLocalization.text("settings.skills.title")
+        case .security:
+            return AppLocalization.text("settings.security.title")
+        case .developer:
+            return AppLocalization.text("settings.developerMode.title")
+        }
+    }
+
+    private func subtitle(for section: SettingsSection) -> String {
+        switch section {
+        case .overview:
+            return AppLocalization.text("overview.settings.subtitle")
+        case .preferences:
+            return AppLocalization.text("settings.appPreferences.subtitle")
+        case .billing:
+            return AppLocalization.text("settings.billing.subtitle")
+        case .balance:
+            return AppLocalization.text("settings.balance.subtitle")
+        case .opencode:
+            return AppLocalization.text("settings.opencode.subtitle")
+        case .codex:
+            return AppLocalization.text("settings.codex.subtitle")
+        case .skills:
+            return AppLocalization.text("settings.skills.subtitle")
+        case .security:
+            return AppLocalization.text("settings.security.subtitle")
+        case .developer:
+            return AppLocalization.text("settings.developerMode.subtitle")
+        }
+    }
+
+    private func iconName(for section: SettingsSection) -> String {
+        switch section {
+        case .overview:
+            return "square.grid.2x2"
+        case .preferences:
+            return "slider.horizontal.3"
+        case .billing:
+            return "creditcard"
+        case .balance:
+            return "chart.bar.xaxis"
+        case .opencode:
+            return "externaldrive"
+        case .codex:
+            return "terminal"
+        case .skills:
+            return "gearshape.2"
+        case .security:
+            return "lock.shield"
+        case .developer:
+            return "wrench.and.screwdriver"
+        }
+    }
+
+    private func badge(for section: SettingsSection) -> String? {
+        switch section {
+        case .overview:
+            return warningMessages.isEmpty ? nil : "\(warningMessages.count)"
+        case .preferences:
+            return appPreferencesModel.preferences.theme.displayName
+        case .billing:
+            return "\(billingProviderCount)"
+        case .balance:
+            return appPreferencesModel.preferences.balanceEnabled ? AppLocalization.text("common.ready") : AppLocalization.text("common.unavailable")
+        case .opencode:
+            return "\(openCodeModel.settings.scanRoots.count + openCodeModel.settings.manualDatabasePaths.count)"
+        case .codex:
+            return "\(codexModel.settings.sourceRoots.count + codexModel.settings.manualSourcePaths.count)"
+        case .skills:
+            return "\(appPreferencesModel.preferences.skillsPanel.previewLength)"
+        case .security:
+            return nil
+        case .developer:
+            return appPreferencesModel.preferences.developerMode.isEnabled ? AppLocalization.text("common.ready") : AppLocalization.text("common.unavailable")
+        }
+    }
+
+    private func badgeTint(for section: SettingsSection) -> Color {
+        switch section {
+        case .overview:
+            return warningMessages.isEmpty ? palette.accent : .orange
+        case .preferences:
+            return palette.accent
+        case .billing:
+            return palette.accentSecondary
+        case .balance:
+            return appPreferencesModel.preferences.balanceEnabled ? .green : .orange
+        case .opencode:
+            return palette.accent
+        case .codex:
+            return palette.accentSecondary
+        case .skills:
+            return palette.accent
+        case .security:
+            return .red
+        case .developer:
+            return appPreferencesModel.preferences.developerMode.isEnabled ? palette.accent : palette.subtitle
+        }
+    }
+
+    private var billingProviderCount: Int {
+        BillingProvider.allCases.filter {
+            !BillingPlanCatalog.subscriptionPresets(for: $0).isEmpty
+        }.count
+    }
+
+    // MARK: - Sections
+
+    private var preferencesSection: some View {
+        SettingsSurfaceCard(
+            title: AppLocalization.text("settings.appPreferences.title"),
+            subtitle: AppLocalization.text("settings.appPreferences.subtitle"),
+            role: .primary,
+            palette: palette
+        ) {
+            VStack(alignment: .leading, spacing: 18) {
+                SettingsControlGrid(minimumWidth: 250) {
                     SettingsControlTile(
                         title: AppLocalization.text("settings.language"),
                         palette: palette,
@@ -158,13 +432,24 @@ struct SettingsView: View {
                     }
                 }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
-                    ForEach(TokenCostThemeChoice.allCases, id: \.self) { choice in
-                        ThemeChoiceCard(
-                            choice: choice,
-                            isSelected: appPreferencesModel.preferences.theme == choice
-                        ) {
-                            appPreferencesModel.themeBinding.wrappedValue = choice
+                SettingsFieldGroup(
+                    title: AppLocalization.text("settings.theme.title"),
+                    palette: palette,
+                    spacing: 10
+                ) {
+                    Text(AppLocalization.text("settings.theme.subtitle"))
+                        .font(.caption)
+                        .foregroundStyle(palette.subtitle)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
+                        ForEach(TokenCostThemeChoice.allCases, id: \.self) { choice in
+                            ThemeChoiceCard(
+                                choice: choice,
+                                isSelected: appPreferencesModel.preferences.theme == choice
+                            ) {
+                                appPreferencesModel.themeBinding.wrappedValue = choice
+                            }
                         }
                     }
                 }
@@ -172,24 +457,24 @@ struct SettingsView: View {
         }
     }
 
-    private var billingPlanSection: some View {
-        TokenCollapsibleSectionCard(
+    private var billingSection: some View {
+        SettingsSurfaceCard(
             title: AppLocalization.text("settings.billing.title"),
             subtitle: AppLocalization.text("settings.billing.subtitle"),
             trailing: AnyView(
                 Button {
                     isPricingDocPresented = true
                 } label: {
-                    Image(systemName: "doc.text")
+                    Label(AppLocalization.text("settings.billing.pricingDoc"), systemImage: "doc.text")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(palette.accent)
+                .settingsGlassButtonStyle()
+                .controlSize(.small)
             ),
-            isExpanded: $isBillingExpanded,
+            role: .secondary,
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12, alignment: .top)], spacing: 12) {
                     ForEach(BillingProvider.allCases.filter {
                         !BillingPlanCatalog.subscriptionPresets(for: $0).isEmpty
                     }) { provider in
@@ -204,299 +489,39 @@ struct SettingsView: View {
                 Text(AppLocalization.text("settings.billing.customCostHint"))
                     .font(.caption)
                     .foregroundStyle(palette.subtitle)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Text(AppLocalization.text("settings.billing.apiOnlyProviders"))
                     .font(.caption)
                     .foregroundStyle(palette.subtitle)
-            }
-        }
-        .sheet(isPresented: $isPricingDocPresented) {
-            PricingDocView(palette: palette)
-        }
-    }
-
-    private var codexHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(AppLocalization.text("settings.codex.body"))
-                .font(.callout)
-                .foregroundStyle(palette.subtitle)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var openCodeModuleSection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.opencode.title"),
-            subtitle: AppLocalization.text("settings.opencode.subtitle"),
-            isExpanded: $isOpenCodeExpanded,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 12) {
-                sourceSection
-                scanRootsSection
-                manualDatabaseSection
-            }
-        }
-    }
-
-    private var codexModuleSection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.codex.title"),
-            subtitle: AppLocalization.text("settings.codex.subtitle"),
-            isExpanded: $isCodexExpanded,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 12) {
-                codexHeader
-                codexDiscoverySection
-                codexSection
-                codexRootsSection
-                codexManualSection
-            }
-        }
-    }
-
-    private var codexDiscoverySection: some View {
-        TokenSectionCard(
-            title: AppLocalization.text("settings.codex.discovery.title"),
-            subtitle: codexModel.shouldPromptForSourceConfirmation ? AppLocalization.text("settings.codex.discovery.prompt") : AppLocalization.text("settings.codex.discovery.ready"),
-            trailing: nil,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(AppLocalization.text("settings.codex.discovery.body"))
-                    .font(.callout)
-                    .foregroundStyle(palette.subtitle)
                     .fixedSize(horizontal: false, vertical: true)
-
-                if codexModel.discoverySources.isEmpty {
-                    emptySettingsState(AppLocalization.text("settings.codex.discovery.empty"))
-                } else {
-                    let bounds = paginationBounds(
-                        itemCount: codexModel.discoverySources.count,
-                        pageIndex: codexDiscoveryPageIndex,
-                        pageSize: listPageSize
-                    )
-                    let visibleSources = Array(codexModel.discoverySources[bounds.startIndex..<bounds.endIndex])
-
-                    VStack(spacing: 8) {
-                        ForEach(visibleSources) { source in
-                            CodexDiscoveryRow(source: source, palette: palette)
-                        }
-                    }
-
-                    if codexModel.discoverySources.count > listPageSize {
-                        PaginationControls(
-                            pageIndex: $codexDiscoveryPageIndex,
-                            itemCount: codexModel.discoverySources.count,
-                            pageSize: listPageSize,
-                            palette: palette,
-                            title: AppLocalization.text("settings.pagination.discoverySources")
-                        )
-                    }
-                }
-
-                SettingsActionWrap {
-                    Button {
-                        codexModel.refresh()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.rescan"), systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button {
-                        codexModel.addSourceRoot()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.selectDirectory"), systemImage: "folder.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button {
-                        codexModel.addSourceFile()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.selectFile"), systemImage: "doc.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button {
-                        dismiss()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.close"), systemImage: "xmark")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
             }
         }
     }
 
-    private var sourceSection: some View {
-        TokenSectionCard(
-            title: AppLocalization.text("settings.source.title"),
-            subtitle: AppLocalization.text("settings.source.subtitle"),
-            trailing: nil,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                SettingsControlGrid {
-                    SettingsControlTile(palette: palette, minHeight: 54) {
-                        Toggle(AppLocalization.text("settings.source.autoRescan"), isOn: binding(\.autoRescan))
-                    }
-
-                    SettingsControlTile(palette: palette, minHeight: 54) {
-                        Toggle(AppLocalization.text("settings.source.showZeroUsageProvider"), isOn: binding(\.showZeroUsageXiaomiProvider))
-                    }
-
-                    SettingsControlTile(palette: palette, minHeight: 62) {
-                        Stepper(value: binding(\.maxScanDepth), in: 1...8) {
-                            Text(AppLocalization.format("settings.source.scanDepth", openCodeModel.settings.maxScanDepth))
-                        }
-                    }
-
-                    SettingsControlTile(palette: palette, minHeight: 62) {
-                        Stepper(value: binding(\.snapshotRetentionCount), in: 1...20) {
-                            Text(AppLocalization.format("settings.source.snapshotRetention", openCodeModel.settings.snapshotRetentionCount))
-                        }
-                    }
-                }
-
-                SettingsActionWrap {
+    private var balanceSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsSurfaceCard(
+                title: AppLocalization.text("settings.balance.title"),
+                subtitle: AppLocalization.text("settings.balance.subtitle"),
+                trailing: AnyView(
                     Button {
-                        openCodeModel.addScanRoot()
+                        Task { await balanceManager.refresh() }
                     } label: {
-                        Label(AppLocalization.text("settings.action.addInstallDirectory"), systemImage: "folder.badge.plus")
+                        Label(AppLocalization.text("settings.balance.refreshNow"), systemImage: "arrow.clockwise")
                     }
-                    .buttonStyle(.bordered)
+                    .settingsGlassButtonStyle()
                     .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button {
-                        openCodeModel.addDatabaseFile()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.addDatabaseFile"), systemImage: "externaldrive.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button {
-                        openCodeModel.rescanSources()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.rescan"), systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-    }
-
-    private var scanRootsSection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.scanRoots.title"),
-            subtitle: AppLocalization.text("settings.scanRoots.subtitle"),
-            isExpanded: $isOpenCodeScanRootsExpanded,
-            palette: palette
-        ) {
-            if openCodeModel.settings.scanRoots.isEmpty {
-                emptySettingsState(AppLocalization.text("settings.empty.scanRoots"))
-            } else {
-                let bounds = paginationBounds(
-                    itemCount: openCodeModel.settings.scanRoots.count,
-                    pageIndex: scanRootsPageIndex,
-                    pageSize: listPageSize
-                )
-                let visibleRoots = Array(openCodeModel.settings.scanRoots[bounds.startIndex..<bounds.endIndex])
-
-                VStack(spacing: 8) {
-                    ForEach(Array(visibleRoots.enumerated()), id: \.offset) { offset, path in
-                        let index = bounds.startIndex + offset
-                        SettingsPathRow(
-                            path: path,
-                            palette: palette
-                        ) {
-                            openCodeModel.removeScanRoot(at: IndexSet(integer: index))
+                ),
+                role: .primary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 14) {
+                    SettingsControlGrid {
+                        SettingsControlTile(palette: palette, minHeight: 54) {
+                            Toggle(AppLocalization.text("settings.balance.enable"), isOn: balanceEnabledBinding)
                         }
-                    }
-                }
 
-                if openCodeModel.settings.scanRoots.count > listPageSize {
-                    PaginationControls(
-                        pageIndex: $scanRootsPageIndex,
-                        itemCount: openCodeModel.settings.scanRoots.count,
-                        pageSize: listPageSize,
-                        palette: palette,
-                        title: AppLocalization.text("settings.pagination.installRoots")
-                    )
-                }
-            }
-        }
-    }
-
-    private var manualDatabaseSection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.manualDatabase.title"),
-            subtitle: AppLocalization.text("settings.manualDatabase.subtitle"),
-            isExpanded: $isOpenCodeManualDatabaseExpanded,
-            palette: palette
-        ) {
-            if openCodeModel.settings.manualDatabasePaths.isEmpty {
-                emptySettingsState(AppLocalization.text("settings.empty.manualDatabase"))
-            } else {
-                let bounds = paginationBounds(
-                    itemCount: openCodeModel.settings.manualDatabasePaths.count,
-                    pageIndex: manualDatabasePageIndex,
-                    pageSize: listPageSize
-                )
-                let visiblePaths = Array(openCodeModel.settings.manualDatabasePaths[bounds.startIndex..<bounds.endIndex])
-
-                VStack(spacing: 8) {
-                    ForEach(Array(visiblePaths.enumerated()), id: \.offset) { offset, path in
-                        let index = bounds.startIndex + offset
-                        SettingsPathRow(
-                            path: path,
-                            palette: palette
-                        ) {
-                            openCodeModel.removeDatabasePath(at: IndexSet(integer: index))
-                        }
-                    }
-                }
-
-                if openCodeModel.settings.manualDatabasePaths.count > listPageSize {
-                    PaginationControls(
-                        pageIndex: $manualDatabasePageIndex,
-                        itemCount: openCodeModel.settings.manualDatabasePaths.count,
-                        pageSize: listPageSize,
-                        palette: palette,
-                        title: AppLocalization.text("settings.pagination.manualDatabase")
-                    )
-                }
-            }
-        }
-    }
-
-    private var balanceMonitorSection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.balance.title"),
-            subtitle: AppLocalization.text("settings.balance.subtitle"),
-            isExpanded: $isBalanceExpanded,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                SettingsControlGrid {
-                    SettingsControlTile(palette: palette, minHeight: 54) {
-                        Toggle(AppLocalization.text("settings.balance.enable"), isOn: balanceEnabledBinding)
-                    }
-
-                    if appPreferencesModel.preferences.balanceEnabled {
                         SettingsControlTile(palette: palette, minHeight: 74) {
                             SettingsInlineControlRow(
                                 title: AppLocalization.text("settings.balance.refreshInterval"),
@@ -523,7 +548,7 @@ struct SettingsView: View {
                                     } label: {
                                         Label(AppLocalization.text("settings.balance.refreshNow"), systemImage: "arrow.clockwise")
                                     }
-                                    .buttonStyle(.bordered)
+                                    .settingsGlassButtonStyle()
                                     .controlSize(.small)
                                     .disabled(balanceManager.isRefreshing)
 
@@ -537,50 +562,55 @@ struct SettingsView: View {
                                         "settings.balance.lastRefreshAt",
                                         TokenCostFormatters.localDateTime(ISO8601DateFormatter().string(from: lastRefresh))
                                     ))
-                                        .font(.caption2)
-                                        .foregroundStyle(palette.subtitle)
+                                    .font(.caption2)
+                                    .foregroundStyle(palette.subtitle)
                                 }
                             }
                         }
                     }
-                }
 
-                if appPreferencesModel.preferences.balanceEnabled {
-                    Text(AppLocalization.text("settings.balance.networkNotice"))
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(AppLocalization.text("settings.balance.providerToggles"))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(palette.subtitle)
-
-                        SettingsControlGrid {
-                            ForEach(modelSelectableProviders, id: \.self) { provider in
-                                SettingsControlTile(palette: palette, minHeight: 54) {
-                                    Toggle(isOn: providerBinding(for: provider)) {
-                                        Text(provider.displayName)
-                                            .font(.caption)
-                                    }
-                                    .toggleStyle(.switch)
-                                }
-                            }
-
-                            SettingsControlTile(palette: palette, minHeight: 54) {
-                                Toggle(AppLocalization.text("settings.balance.allowEnvironmentCredentials"), isOn: envCredentialsBinding)
-                                    .font(.caption)
-                            }
-                        }
+                    if appPreferencesModel.preferences.balanceEnabled {
+                        Text(AppLocalization.text("settings.balance.networkNotice"))
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            }
 
-                Divider()
-
-                SettingsFieldGroup(
-                    title: AppLocalization.text("settings.opencodeGo.credentials.title"),
-                    palette: palette,
-                    spacing: 12
+            if appPreferencesModel.preferences.balanceEnabled {
+                SettingsSurfaceCard(
+                    title: AppLocalization.text("settings.balance.providerToggles"),
+                    subtitle: AppLocalization.text("settings.balance.allowEnvironmentCredentials"),
+                    role: .secondary,
+                    palette: palette
                 ) {
+                    SettingsControlGrid {
+                        ForEach(modelSelectableProviders, id: \.self) { provider in
+                            SettingsControlTile(palette: palette, minHeight: 54) {
+                                Toggle(isOn: providerBinding(for: provider)) {
+                                    Text(provider.displayName)
+                                        .font(.caption)
+                                }
+                                .toggleStyle(.switch)
+                            }
+                        }
+
+                        SettingsControlTile(palette: palette, minHeight: 54) {
+                            Toggle(AppLocalization.text("settings.balance.allowEnvironmentCredentials"), isOn: envCredentialsBinding)
+                                .font(.caption)
+                        }
+                    }
+                }
+            }
+
+            SettingsSurfaceCard(
+                title: AppLocalization.text("settings.opencodeGo.credentials.title"),
+                subtitle: AppLocalization.text("settings.opencodeGo.credentials.hint"),
+                role: .secondary,
+                palette: palette
+            ) {
+                SettingsFieldGroup(palette: palette, spacing: 12) {
                     TextField(AppLocalization.text("settings.opencodeGo.credentials.workspaceID"), text: appPreferencesModel.opencodeGoWorkspaceIDBinding)
                         .textFieldStyle(.roundedBorder)
                         .font(.caption)
@@ -615,10 +645,6 @@ struct SettingsView: View {
                             .foregroundStyle(.green)
                     }
 
-                    Text(AppLocalization.text("settings.opencodeGo.credentials.hint"))
-                        .font(.caption2)
-                        .foregroundStyle(palette.subtitle)
-
                     browserImportButton
 
                     if isImportingFromBrowser {
@@ -640,27 +666,637 @@ struct SettingsView: View {
                 }
             }
         }
-        .alert(AppLocalization.text("settings.balance.networkAlertTitle"), isPresented: $showBalanceNetworkAlert) {
-            Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {
-                appPreferencesModel.balanceEnabledBinding.wrappedValue = false
+    }
+
+    private var openCodeSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsSurfaceCard(
+                title: AppLocalization.text("settings.source.title"),
+                subtitle: AppLocalization.text("settings.source.subtitle"),
+                role: .primary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 14) {
+                    SettingsControlGrid {
+                        SettingsControlTile(palette: palette, minHeight: 54) {
+                            Toggle(AppLocalization.text("settings.source.autoRescan"), isOn: binding(\.autoRescan))
+                        }
+
+                        SettingsControlTile(palette: palette, minHeight: 54) {
+                            Toggle(AppLocalization.text("settings.source.showZeroUsageProvider"), isOn: binding(\.showZeroUsageXiaomiProvider))
+                        }
+
+                        SettingsControlTile(palette: palette, minHeight: 62) {
+                            Stepper(value: binding(\.maxScanDepth), in: 1...8) {
+                                Text(AppLocalization.format("settings.source.scanDepth", openCodeModel.settings.maxScanDepth))
+                            }
+                        }
+
+                        SettingsControlTile(palette: palette, minHeight: 62) {
+                            Stepper(value: binding(\.snapshotRetentionCount), in: 1...20) {
+                                Text(AppLocalization.format("settings.source.snapshotRetention", openCodeModel.settings.snapshotRetentionCount))
+                            }
+                        }
+                    }
+
+                    SettingsActionWrap {
+                        Button {
+                            openCodeModel.addScanRoot()
+                        } label: {
+                            Label(AppLocalization.text("settings.action.addInstallDirectory"), systemImage: "folder.badge.plus")
+                        }
+                        .settingsGlassButtonStyle()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            openCodeModel.addDatabaseFile()
+                        } label: {
+                            Label(AppLocalization.text("settings.action.addDatabaseFile"), systemImage: "doc.badge.plus")
+                        }
+                        .settingsGlassButtonStyle()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            openCodeModel.rescanSources()
+                        } label: {
+                            Label(AppLocalization.text("settings.action.rescan"), systemImage: "arrow.clockwise")
+                        }
+                        .settingsGlassButtonStyle()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
-            Button(AppLocalization.text("settings.balance.confirmEnable")) {
-                appPreferencesModel.balanceEnabledBinding.wrappedValue = true
-                Task { await balanceManager.refresh() }
+
+            SettingsSurfaceCard(
+                title: AppLocalization.text("settings.opencode.title"),
+                subtitle: AppLocalization.text("settings.opencode.subtitle"),
+                role: .secondary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 16) {
+                    pagedPathListSection(
+                        title: AppLocalization.text("settings.scanRoots.title"),
+                        subtitle: AppLocalization.text("settings.scanRoots.subtitle"),
+                        paths: openCodeModel.settings.scanRoots,
+                        pageIndex: $scanRootsPageIndex,
+                        emptyMessage: AppLocalization.text("settings.empty.scanRoots"),
+                        paginationTitle: AppLocalization.text("settings.pagination.installRoots"),
+                        systemImage: "folder"
+                    ) { index in
+                        openCodeModel.removeScanRoot(at: IndexSet(integer: index))
+                    }
+
+                    Divider()
+
+                    pagedPathListSection(
+                        title: AppLocalization.text("settings.manualDatabase.title"),
+                        subtitle: AppLocalization.text("settings.manualDatabase.subtitle"),
+                        paths: openCodeModel.settings.manualDatabasePaths,
+                        pageIndex: $manualDatabasePageIndex,
+                        emptyMessage: AppLocalization.text("settings.empty.manualDatabase"),
+                        paginationTitle: AppLocalization.text("settings.pagination.manualDatabase"),
+                        systemImage: "doc"
+                    ) { index in
+                        openCodeModel.removeDatabasePath(at: IndexSet(integer: index))
+                    }
+                }
             }
-        } message: {
-            Text(AppLocalization.text("settings.balance.networkAlertMessage"))
         }
-        .alert(goTestResultAlertTitle, isPresented: $showGoTestResultAlert) {
-            Button(AppLocalization.text("settings.action.close"), role: .cancel) { }
-        } message: {
-            Text(goTestResultAlertMessage)
+    }
+
+    private var codexSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsSurfaceCard(
+                title: AppLocalization.text("settings.codex.sources.title"),
+                subtitle: AppLocalization.text("settings.codex.sources.subtitle"),
+                role: .primary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(AppLocalization.text("settings.codex.body"))
+                        .font(.callout)
+                        .foregroundStyle(palette.subtitle)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    SettingsControlGrid {
+                        SettingsControlTile(palette: palette, minHeight: 54) {
+                            Toggle(AppLocalization.text("settings.codex.autoRescan"), isOn: codexBinding(\.autoRescan))
+                        }
+
+                        SettingsControlTile(palette: palette, minHeight: 62) {
+                            Stepper(value: codexBinding(\.snapshotRetentionCount), in: 1...20) {
+                                Text(AppLocalization.format("settings.codex.snapshotRetention", codexModel.settings.snapshotRetentionCount))
+                            }
+                        }
+                    }
+
+                    SettingsActionWrap {
+                        Button {
+                            codexModel.addSourceRoot()
+                        } label: {
+                            Label(AppLocalization.text("settings.action.addSessionDirectory"), systemImage: "folder.badge.plus")
+                        }
+                        .settingsGlassButtonStyle()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            codexModel.addSourceFile()
+                        } label: {
+                            Label(AppLocalization.text("settings.action.addSessionFile"), systemImage: "doc.badge.plus")
+                        }
+                        .settingsGlassButtonStyle()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            codexModel.refresh()
+                        } label: {
+                            Label(AppLocalization.text("settings.action.refreshCodex"), systemImage: "arrow.clockwise")
+                        }
+                        .settingsGlassButtonStyle()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button(role: .destructive) {
+                            codexModel.resetSettingsToDefaults()
+                        } label: {
+                            Label(AppLocalization.text("settings.action.restoreCodexDefaults"), systemImage: "arrow.counterclockwise")
+                        }
+                        .settingsGlassButtonStyle(prominent: true)
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+
+            SettingsSurfaceCard(
+                title: AppLocalization.text("settings.codex.discovery.title"),
+                subtitle: codexModel.shouldPromptForSourceConfirmation ? AppLocalization.text("settings.codex.discovery.prompt") : AppLocalization.text("settings.codex.discovery.ready"),
+                role: .secondary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(AppLocalization.text("settings.codex.discovery.body"))
+                        .font(.callout)
+                        .foregroundStyle(palette.subtitle)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if codexModel.discoverySources.isEmpty {
+                        emptySettingsState(AppLocalization.text("settings.codex.discovery.empty"))
+                    } else {
+                        let bounds = paginationBounds(
+                            itemCount: codexModel.discoverySources.count,
+                            pageIndex: codexDiscoveryPageIndex,
+                            pageSize: listPageSize
+                        )
+                        let visibleSources = Array(codexModel.discoverySources[bounds.startIndex..<bounds.endIndex])
+
+                        VStack(spacing: 8) {
+                            ForEach(visibleSources) { source in
+                                CodexDiscoveryRow(source: source, palette: palette)
+                            }
+                        }
+
+                        if codexModel.discoverySources.count > listPageSize {
+                            PaginationControls(
+                                pageIndex: $codexDiscoveryPageIndex,
+                                itemCount: codexModel.discoverySources.count,
+                                pageSize: listPageSize,
+                                palette: palette,
+                                title: AppLocalization.text("settings.pagination.discoverySources")
+                            )
+                        }
+                    }
+
+                    Divider()
+
+                    pagedPathListSection(
+                        title: AppLocalization.text("settings.codex.roots.title"),
+                        subtitle: codexModel.sourceRootsDescription,
+                        paths: codexModel.settings.sourceRoots,
+                        pageIndex: $codexRootsPageIndex,
+                        emptyMessage: AppLocalization.text("settings.empty.codexRoots"),
+                        paginationTitle: AppLocalization.text("settings.pagination.codexRoots"),
+                        systemImage: "folder"
+                    ) { index in
+                        codexModel.removeSourceRoot(at: IndexSet(integer: index))
+                    }
+
+                    Divider()
+
+                    pagedPathListSection(
+                        title: AppLocalization.text("settings.codex.manual.title"),
+                        subtitle: codexModel.manualSourcePathsDescription,
+                        paths: codexModel.settings.manualSourcePaths,
+                        pageIndex: $codexManualPageIndex,
+                        emptyMessage: AppLocalization.text("settings.empty.codexManual"),
+                        paginationTitle: AppLocalization.text("settings.pagination.codexManual"),
+                        systemImage: "doc"
+                    ) { index in
+                        codexModel.removeSourcePath(at: IndexSet(integer: index))
+                    }
+
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button {
+                            dismiss()
+                        } label: {
+                            Label(AppLocalization.text("settings.action.close"), systemImage: "xmark")
+                        }
+                        .settingsGlassButtonStyle()
+                        .controlSize(.small)
+                    }
+                }
+            }
         }
-        .alert(AppLocalization.text("settings.opencodeGo.import.confirmTitle"), isPresented: $showBrowserImportAlert) {
-            Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {}
-            Button(AppLocalization.text("settings.action.continueImport")) { Task { await importFromBrowser() } }
-        } message: {
-            Text(AppLocalization.text("settings.opencodeGo.import.confirmMessage"))
+    }
+
+    private var skillsSection: some View {
+        SettingsSurfaceCard(
+            title: AppLocalization.text("settings.skills.title"),
+            subtitle: AppLocalization.text("settings.skills.subtitle"),
+            role: .secondary,
+            palette: palette
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                SettingsControlGrid(minimumWidth: 240) {
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.skills.showSourceBadges"), isOn: skillsShowSourceBinding)
+                    }
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.skills.showStateIndicators"), isOn: skillsShowStateBinding)
+                    }
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle(AppLocalization.text("settings.skills.showTagBadges"), isOn: skillsShowTagsBinding)
+                    }
+                }
+
+                SettingsControlTile(palette: palette, minHeight: 72) {
+                    SettingsInlineControlRow(
+                        title: AppLocalization.text("settings.skills.previewLength"),
+                        palette: palette
+                    ) {
+                        Picker("", selection: skillsPreviewLengthBinding) {
+                            Text("200").tag(200)
+                            Text("300").tag(300)
+                            Text("500").tag(500)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 220)
+                    }
+                }
+            }
+        }
+    }
+
+    private var securitySection: some View {
+        SettingsSurfaceCard(
+            title: AppLocalization.text("settings.security.title"),
+            subtitle: AppLocalization.text("settings.security.subtitle"),
+            role: .warning,
+            palette: palette
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(AppLocalization.text("settings.security.body"))
+                    .font(.caption)
+                    .foregroundStyle(palette.subtitle)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Spacer(minLength: 0)
+
+                    Button(role: .destructive) {
+                        openCodeModel.resetSettingsToDefaults()
+                    } label: {
+                        Label(AppLocalization.text("settings.action.restoreDefaults"), systemImage: "arrow.counterclockwise")
+                    }
+                    .settingsGlassButtonStyle(prominent: true)
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    // MARK: - Developer Section
+
+    private var developerSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsSurfaceCard(
+                title: AppLocalization.text("settings.developerMode.title"),
+                subtitle: AppLocalization.text("settings.developerMode.subtitle"),
+                trailing: AnyView(
+                    Button {
+                        isDeveloperDocPresented = true
+                    } label: {
+                        Image(systemName: "doc.text")
+                    }
+                    .settingsGlassButtonStyle()
+                    .controlSize(.small)
+                    .help(AppLocalization.text("developerMode.doc.title"))
+                ),
+                role: .primary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 14) {
+                    SettingsControlGrid(minimumWidth: 240) {
+                        SettingsControlTile(palette: palette, minHeight: 54) {
+                            Toggle(AppLocalization.text("settings.developerMode.enableToggle"), isOn: appPreferencesModel.developerModeIsEnabledBinding)
+                        }
+                    }
+
+                    if appPreferencesModel.preferences.developerMode.isEnabled {
+                        Divider()
+
+                        SettingsControlGrid(minimumWidth: 240) {
+                            SettingsControlTile(palette: palette, minHeight: 54) {
+                                Toggle(AppLocalization.text("settings.developerMode.taskClassification"), isOn: developerBinding(\.taskClassificationEnabled))
+                            }
+
+                            SettingsControlTile(palette: palette, minHeight: 54) {
+                                Toggle(AppLocalization.text("settings.developerMode.optimize"), isOn: developerBinding(\.optimizeEnabled))
+                            }
+
+                            SettingsControlTile(palette: palette, minHeight: 54) {
+                                Toggle(AppLocalization.text("settings.developerMode.localGovernance"), isOn: developerBinding(\.localGovernanceEnabled))
+                            }
+
+                            SettingsControlTile(palette: palette, minHeight: 54) {
+                                Toggle(AppLocalization.text("settings.developerMode.multiCurrency"), isOn: developerBinding(\.multiCurrencyEnabled))
+                            }
+
+                            SettingsControlTile(palette: palette, minHeight: 54) {
+                                Toggle(AppLocalization.text("settings.developerMode.modelCompare"), isOn: developerBinding(\.modelCompareEnabled))
+                            }
+
+                            SettingsControlTile(palette: palette, minHeight: 54) {
+                                Toggle(AppLocalization.text("settings.developerMode.aiAnalysisDisabled"), isOn: developerBinding(\.aiAnalysisEnabled))
+                                    .disabled(true)
+                            }
+                        }
+
+                        Text(AppLocalization.text("developerMode.aiAnalysis.disabled"))
+                            .font(.caption2)
+                            .foregroundStyle(palette.subtitle)
+                    }
+                }
+            }
+
+            if appPreferencesModel.preferences.developerMode.isEnabled
+                && appPreferencesModel.preferences.developerMode.localGovernanceEnabled {
+                governancePanel
+            }
+
+            if appPreferencesModel.preferences.developerMode.isEnabled {
+                SettingsActionWrap(minimumWidth: 170, spacing: 10) {
+                    Button {
+                        appPreferencesModel.updatePreferences { prefs in
+                            prefs.developerMode.localGovernanceEnabled = true
+                            prefs.developerMode.optimizeEnabled = true
+                        }
+                    } label: {
+                        Label(AppLocalization.text("developerMode.optimize.scan"), systemImage: "magnifyingglass")
+                    }
+                    .settingsGlassButtonStyle()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button(role: .destructive) {
+                        appPreferencesModel.updatePreferences { prefs in
+                            prefs.developerMode = DeveloperModePreferences()
+                        }
+                    } label: {
+                        Label(AppLocalization.text("settings.action.resetDeveloperMode"), systemImage: "arrow.counterclockwise")
+                    }
+                    .settingsGlassButtonStyle()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var governancePanel: some View {
+        let configDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/opencode")
+        let skillsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/opencode/skills")
+        let sessionsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/sessions")
+
+        let configCount = directoryItemCount(at: configDir)
+        let skillsCount = directoryItemCount(at: skillsDir)
+        let sessionsCount = directoryItemCount(at: sessionsDir)
+
+        let configStatus = DeveloperFileAccessPolicy.isAccessible(configDir.path)
+        let skillsStatus = DeveloperFileAccessPolicy.isAccessible(skillsDir.path)
+        let sessionsStatus = DeveloperFileAccessPolicy.isAccessible(sessionsDir.path)
+
+        return SettingsSurfaceCard(
+            title: AppLocalization.text("settings.developerMode.governance.title"),
+            subtitle: AppLocalization.text("settings.developerMode.governance.subtitle"),
+            role: .secondary,
+            palette: palette
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 200), spacing: 12, alignment: .top)],
+                    alignment: .leading,
+                    spacing: 12
+                ) {
+                    governanceDirectoryCard(
+                        title: AppLocalization.text("settings.developerMode.governance.configDir"),
+                        path: configDir.path,
+                        itemCount: configCount,
+                        isAccessible: configStatus,
+                        systemImage: "gearshape.2"
+                    )
+
+                    governanceDirectoryCard(
+                        title: AppLocalization.text("settings.developerMode.governance.skillsDir"),
+                        path: skillsDir.path,
+                        itemCount: skillsCount,
+                        isAccessible: skillsStatus,
+                        systemImage: "sparkles"
+                    )
+
+                    governanceDirectoryCard(
+                        title: AppLocalization.text("settings.developerMode.governance.sessionDir"),
+                        path: sessionsDir.path,
+                        itemCount: sessionsCount,
+                        isAccessible: sessionsStatus,
+                        systemImage: "terminal"
+                    )
+                }
+
+                if appPreferencesModel.preferences.developerMode.optimizeEnabled {
+                    let findings = OptimizeScanner.scan()
+                    if !findings.isEmpty {
+                        Divider()
+
+                        SettingsFieldGroup(
+                            title: AppLocalization.text("developerMode.optimize.findings"),
+                            palette: palette,
+                            spacing: 8
+                        ) {
+                            ForEach(Array(findings.prefix(10))) { finding in
+                                optimizeFindingRow(finding)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func governanceDirectoryCard(
+        title: String,
+        path: String,
+        itemCount: Int,
+        isAccessible: Bool,
+        systemImage: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(isAccessible ? palette.accent : .orange)
+
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.title)
+
+                Spacer(minLength: 0)
+
+                Circle()
+                    .fill(isAccessible ? .green : .orange)
+                    .frame(width: 8, height: 8)
+            }
+
+            Text(path)
+                .font(.caption2)
+                .foregroundStyle(palette.subtitle)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            HStack(spacing: 12) {
+                Label(
+                    AppLocalization.format("developerMode.governance.fileSummary", itemCount),
+                    systemImage: "doc"
+                )
+                .font(.caption2)
+                .foregroundStyle(palette.subtitle)
+
+                Label(
+                    isAccessible ? AppLocalization.text("common.ready") : AppLocalization.text("common.unavailable"),
+                    systemImage: isAccessible ? "checkmark.shield" : "xmark.shield"
+                )
+                .font(.caption2)
+                .foregroundStyle(isAccessible ? .green : .orange)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsInsetSurface(
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous),
+            palette: palette
+        )
+    }
+
+    private func optimizeFindingRow(_ finding: DeveloperFinding) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+
+                Text(finding.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.title)
+            }
+
+            Text(finding.detail)
+                .font(.caption2)
+                .foregroundStyle(palette.subtitle)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(finding.suggestion)
+                .font(.caption2)
+                .foregroundStyle(palette.accent)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsInsetSurface(
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous),
+            palette: palette,
+            stroke: .orange.opacity(0.22)
+        )
+    }
+
+    private func directoryItemCount(at url: URL) -> Int {
+        guard let contents = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) else {
+            return 0
+        }
+        return contents.count
+    }
+
+    // MARK: - Helpers
+
+    private func pagedPathListSection(
+        title: String,
+        subtitle: String,
+        paths: [String],
+        pageIndex: Binding<Int>,
+        emptyMessage: String,
+        paginationTitle: String,
+        systemImage: String,
+        onDelete: @escaping (Int) -> Void
+    ) -> some View {
+        SettingsFieldGroup(title: title, palette: palette, spacing: 8) {
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(palette.subtitle)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if paths.isEmpty {
+                emptySettingsState(emptyMessage)
+            } else {
+                let bounds = paginationBounds(
+                    itemCount: paths.count,
+                    pageIndex: pageIndex.wrappedValue,
+                    pageSize: listPageSize
+                )
+                let visiblePaths = Array(paths[bounds.startIndex..<bounds.endIndex])
+
+                VStack(spacing: 8) {
+                    ForEach(Array(visiblePaths.enumerated()), id: \.offset) { offset, path in
+                        let index = bounds.startIndex + offset
+                        SettingsPathRow(
+                            path: path,
+                            systemImage: systemImage,
+                            palette: palette
+                        ) {
+                            onDelete(index)
+                        }
+                    }
+                }
+
+                if paths.count > listPageSize {
+                    PaginationControls(
+                        pageIndex: pageIndex,
+                        itemCount: paths.count,
+                        pageSize: listPageSize,
+                        palette: palette,
+                        title: paginationTitle
+                    )
+                }
+            }
         }
     }
 
@@ -803,7 +1439,7 @@ struct SettingsView: View {
                 goCookieSaved = true
             }
         }
-        .buttonStyle(.borderedProminent)
+        .settingsGlassButtonStyle(prominent: true)
         .controlSize(.small)
     }
 
@@ -811,7 +1447,7 @@ struct SettingsView: View {
         Button(AppLocalization.text("settings.action.testConnection")) {
             testGoConnection()
         }
-        .buttonStyle(.bordered)
+        .settingsGlassButtonStyle()
         .controlSize(.small)
         .disabled(isTestingGoConnection)
     }
@@ -827,7 +1463,7 @@ struct SettingsView: View {
             showBrowserImportAlert = true
         }
         .disabled(isImportingFromBrowser)
-        .buttonStyle(.bordered)
+        .settingsGlassButtonStyle()
         .controlSize(.small)
     }
 
@@ -867,229 +1503,7 @@ struct SettingsView: View {
         )
     }
 
-    private var codexSection: some View {
-        TokenSectionCard(
-            title: AppLocalization.text("settings.codex.sources.title"),
-            subtitle: AppLocalization.text("settings.codex.sources.subtitle"),
-            trailing: nil,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 14) {
-                SettingsControlGrid {
-                    SettingsControlTile(palette: palette, minHeight: 54) {
-                        Toggle(AppLocalization.text("settings.codex.autoRescan"), isOn: codexBinding(\.autoRescan))
-                    }
-
-                    SettingsControlTile(palette: palette, minHeight: 62) {
-                        Stepper(value: codexBinding(\.snapshotRetentionCount), in: 1...20) {
-                            Text(AppLocalization.format("settings.codex.snapshotRetention", codexModel.settings.snapshotRetentionCount))
-                        }
-                    }
-                }
-
-                SettingsActionWrap {
-                    Button {
-                        codexModel.addSourceRoot()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.addSessionDirectory"), systemImage: "folder.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button {
-                        codexModel.addSourceFile()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.addSessionFile"), systemImage: "doc.badge.plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button {
-                        codexModel.refresh()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.refreshCodex"), systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button(role: .destructive) {
-                        codexModel.resetSettingsToDefaults()
-                    } label: {
-                        Label(AppLocalization.text("settings.action.restoreCodexDefaults"), systemImage: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-    }
-
-    private var codexRootsSection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.codex.roots.title"),
-            subtitle: codexModel.sourceRootsDescription,
-            isExpanded: $isCodexRootsExpanded,
-            palette: palette
-        ) {
-            if codexModel.settings.sourceRoots.isEmpty {
-                emptySettingsState(AppLocalization.text("settings.empty.codexRoots"))
-            } else {
-                let bounds = paginationBounds(
-                    itemCount: codexModel.settings.sourceRoots.count,
-                    pageIndex: codexRootsPageIndex,
-                    pageSize: listPageSize
-                )
-                let visibleRoots = Array(codexModel.settings.sourceRoots[bounds.startIndex..<bounds.endIndex])
-
-                VStack(spacing: 8) {
-                    ForEach(Array(visibleRoots.enumerated()), id: \.offset) { offset, path in
-                        let index = bounds.startIndex + offset
-                        SettingsPathRow(
-                            path: path,
-                            palette: palette
-                        ) {
-                            codexModel.removeSourceRoot(at: IndexSet(integer: index))
-                        }
-                    }
-                }
-
-                if codexModel.settings.sourceRoots.count > listPageSize {
-                    PaginationControls(
-                        pageIndex: $codexRootsPageIndex,
-                        itemCount: codexModel.settings.sourceRoots.count,
-                        pageSize: listPageSize,
-                        palette: palette,
-                        title: AppLocalization.text("settings.pagination.codexRoots")
-                    )
-                }
-            }
-        }
-    }
-
-    private var codexManualSection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.codex.manual.title"),
-            subtitle: codexModel.manualSourcePathsDescription,
-            isExpanded: $isCodexManualExpanded,
-            palette: palette
-        ) {
-            if codexModel.settings.manualSourcePaths.isEmpty {
-                emptySettingsState(AppLocalization.text("settings.empty.codexManual"))
-            } else {
-                let bounds = paginationBounds(
-                    itemCount: codexModel.settings.manualSourcePaths.count,
-                    pageIndex: codexManualPageIndex,
-                    pageSize: listPageSize
-                )
-                let visiblePaths = Array(codexModel.settings.manualSourcePaths[bounds.startIndex..<bounds.endIndex])
-
-                VStack(spacing: 8) {
-                    ForEach(Array(visiblePaths.enumerated()), id: \.offset) { offset, path in
-                        let index = bounds.startIndex + offset
-                        SettingsPathRow(
-                            path: path,
-                            palette: palette
-                        ) {
-                            codexModel.removeSourcePath(at: IndexSet(integer: index))
-                        }
-                    }
-                }
-
-                if codexModel.settings.manualSourcePaths.count > listPageSize {
-                    PaginationControls(
-                        pageIndex: $codexManualPageIndex,
-                        itemCount: codexModel.settings.manualSourcePaths.count,
-                        pageSize: listPageSize,
-                        palette: palette,
-                        title: AppLocalization.text("settings.pagination.codexManual")
-                    )
-                }
-            }
-        }
-    }
-
-    private var skillsPanelSection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.skills.title"),
-            subtitle: AppLocalization.text("settings.skills.subtitle"),
-            isExpanded: $isSkillsExpanded,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 12) {
-                SettingsControlGrid(minimumWidth: 240) {
-                    SettingsControlTile(palette: palette, minHeight: 54) {
-                        Toggle(AppLocalization.text("settings.skills.showSourceBadges"), isOn: skillsShowSourceBinding)
-                    }
-
-                    SettingsControlTile(palette: palette, minHeight: 54) {
-                        Toggle(AppLocalization.text("settings.skills.showStateIndicators"), isOn: skillsShowStateBinding)
-                    }
-
-                    SettingsControlTile(palette: palette, minHeight: 54) {
-                        Toggle(AppLocalization.text("settings.skills.showTagBadges"), isOn: skillsShowTagsBinding)
-                    }
-                }
-
-                SettingsControlTile(palette: palette, minHeight: 72) {
-                    SettingsInlineControlRow(
-                        title: AppLocalization.text("settings.skills.previewLength"),
-                        palette: palette
-                    ) {
-                        Picker("", selection: skillsPreviewLengthBinding) {
-                            Text("200").tag(200)
-                            Text("300").tag(300)
-                            Text("500").tag(500)
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .frame(maxWidth: 220)
-                    }
-                }
-            }
-        }
-    }
-
-    private var safetySection: some View {
-        TokenCollapsibleSectionCard(
-            title: AppLocalization.text("settings.security.title"),
-            subtitle: AppLocalization.text("settings.security.subtitle"),
-            isExpanded: $isSafetyExpanded,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(AppLocalization.text("settings.security.body"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Button(role: .destructive) {
-                    openCodeModel.resetSettingsToDefaults()
-                } label: {
-                    Label(AppLocalization.text("settings.action.restoreDefaults"), systemImage: "arrow.counterclockwise")
-                }
-            }
-        }
-    }
-
-    private func paginationBounds(itemCount: Int, pageIndex: Int, pageSize: Int) -> (startIndex: Int, endIndex: Int) {
-        guard itemCount > 0 else {
-            return (0, 0)
-        }
-        let pageCount = max((itemCount + pageSize - 1) / pageSize, 1)
-        let clampedPage = min(max(pageIndex, 0), pageCount - 1)
-        let startIndex = clampedPage * pageSize
-        let endIndex = min(startIndex + pageSize, itemCount)
-        return (startIndex, endIndex)
-    }
-
-    private func emptySettingsState(_ title: String) -> some View {
-        Text(title)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
-    }
+    // MARK: - Bindings
 
     private func binding<Value>(_ keyPath: WritableKeyPath<TokenCostSettings, Value>) -> Binding<Value> {
         Binding(
@@ -1112,7 +1526,30 @@ struct SettingsView: View {
             }
         )
     }
+
+    private func developerBinding(_ keyPath: WritableKeyPath<DeveloperModePreferences, Bool>) -> Binding<Bool> {
+        appPreferencesModel.developerModeToggleBinding(for: keyPath)
+    }
+
+    private func paginationBounds(itemCount: Int, pageIndex: Int, pageSize: Int) -> (startIndex: Int, endIndex: Int) {
+        guard itemCount > 0 else {
+            return (0, 0)
+        }
+        let pageCount = max((itemCount + pageSize - 1) / pageSize, 1)
+        let clampedPage = min(max(pageIndex, 0), pageCount - 1)
+        let startIndex = clampedPage * pageSize
+        let endIndex = min(startIndex + pageSize, itemCount)
+        return (startIndex, endIndex)
+    }
+
+    private func emptySettingsState(_ title: String) -> some View {
+        Text(title)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+    }
 }
+
+// MARK: - Private Subviews
 
 private struct BillingProviderPlanCard: View {
     let provider: BillingProvider
@@ -1133,6 +1570,17 @@ private struct BillingProviderPlanCard: View {
 
     private var hasSubscriptionPresets: Bool {
         !BillingPlanCatalog.subscriptionPresets(for: provider).isEmpty
+    }
+
+    private var formattedPrice: String {
+        guard resolvedPlan.isSubscribed else {
+            return resolvedPlan.priceDescription
+        }
+        guard let monthlyUSD = resolvedPlan.monthlyUSD, monthlyUSD > 0 else {
+            return resolvedPlan.priceDescription
+        }
+        let dc = appPreferencesModel.preferences.displayCurrency
+        return TokenCostFormatters.currency(monthlyUSD, displayCurrency: dc) + AppLocalization.text("unit.perMonth")
     }
 
     var body: some View {
@@ -1173,7 +1621,7 @@ private struct BillingProviderPlanCard: View {
                     }
                 }
 
-                Text(resolvedPlan.priceDescription)
+                Text(formattedPrice)
                     .font(.caption)
                     .foregroundStyle(palette.title)
 
@@ -1184,7 +1632,7 @@ private struct BillingProviderPlanCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                Text(resolvedPlan.priceDescription)
+                Text(formattedPrice)
                     .font(.caption)
                     .foregroundStyle(palette.subtitle)
             }
@@ -1204,12 +1652,13 @@ private struct BillingProviderPlanCard: View {
 
 private struct SettingsPathRow: View {
     let path: String
+    var systemImage: String = "folder"
     let palette: TokenCostPalette
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "folder")
+            Image(systemName: systemImage)
                 .foregroundStyle(palette.accent)
 
             Text(path)
@@ -1228,10 +1677,9 @@ private struct SettingsPathRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(palette.cardStroke.opacity(0.65), lineWidth: 1)
+        .settingsInsetSurface(
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous),
+            palette: palette
         )
     }
 }
@@ -1282,11 +1730,11 @@ private struct CodexDiscoveryRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(palette.cardFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(palette.cardStroke.opacity(0.65), lineWidth: 1)
+        .settingsInsetSurface(
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous),
+            palette: palette
         )
+        .shadow(color: palette.cardShadow, radius: 8, x: 0, y: 4)
     }
 }
 
@@ -1338,16 +1786,64 @@ private struct ThemeChoiceCard: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(.regularMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(isSelected ? palette.accent : palette.cardStroke, lineWidth: isSelected ? 2 : 1)
-                    )
-                    .shadow(color: palette.cardShadow, radius: 10, x: 0, y: 6)
+            .settingsInsetSurface(
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous),
+                palette: palette,
+                stroke: isSelected ? palette.accent : palette.cardStroke,
+                lineWidth: isSelected ? 1.6 : 0.9
             )
+            .shadow(color: palette.cardShadow, radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct SettingsSidebarRow: View {
+    let title: String
+    let subtitle: String
+    let iconName: String
+    let badge: String?
+    let badgeTint: Color
+    let palette: TokenCostPalette
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(palette.accent)
+                .frame(width: 32, height: 32)
+                .settingsInsetSurface(
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous),
+                    palette: palette
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(palette.title)
+                    .lineLimit(1)
+
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(palette.subtitle)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            if let badge {
+                Text(badge)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(badgeTint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(badgeTint.opacity(0.12), in: Capsule())
+                    .overlay(
+                        Capsule().strokeBorder(badgeTint.opacity(0.22), lineWidth: 0.8)
+                    )
+            }
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }

@@ -53,6 +53,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var displayCurrency: DisplayCurrency
     public var balanceConfig: BalanceConfiguration?
     public var skillsPanel: SkillsPanelPreferences
+    public var developerMode: DeveloperModePreferences
 
     public init(
         language: AppDisplayLanguage = .zhHans,
@@ -63,6 +64,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         theme: TokenCostThemeChoice = .ocean,
         displayCurrency: DisplayCurrency = .usd,
         skillsPanel: SkillsPanelPreferences = SkillsPanelPreferences(),
+        developerMode: DeveloperModePreferences = DeveloperModePreferences(),
         balanceConfig: BalanceConfiguration? = nil
     ) {
         self.language = language
@@ -73,6 +75,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.theme = theme
         self.displayCurrency = displayCurrency
         self.skillsPanel = skillsPanel
+        self.developerMode = developerMode
         self.balanceConfig = balanceConfig
     }
 
@@ -86,6 +89,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case displayCurrency
         case balanceConfig = "balance_config"
         case skillsPanel
+        case developerMode
     }
 
     private enum DecodingKeys: String, CodingKey {
@@ -98,6 +102,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case displayCurrency
         case balanceConfig
         case skillsPanel
+        case developerMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -133,6 +138,9 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.theme = try container.decodeIfPresent(TokenCostThemeChoice.self, forKey: .theme) ?? .ocean
         self.displayCurrency = try container.decodeIfPresent(DisplayCurrency.self, forKey: .displayCurrency) ?? .usd
         self.skillsPanel = try container.decodeIfPresent(SkillsPanelPreferences.self, forKey: .skillsPanel) ?? SkillsPanelPreferences()
+        self.developerMode = try container.decodeIfPresent(DeveloperModePreferences.self, forKey: .developerMode)
+            ?? legacyContainer?.decodeIfPresent(DeveloperModePreferences.self, forKey: .developerMode)
+            ?? DeveloperModePreferences()
         self.balanceConfig = try container.decodeIfPresent(BalanceConfiguration.self, forKey: .balanceConfig)
             ?? legacyContainer?.decodeIfPresent(BalanceConfiguration.self, forKey: .balanceConfig)
     }
@@ -147,6 +155,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(theme, forKey: .theme)
         try container.encode(displayCurrency, forKey: .displayCurrency)
         try container.encode(skillsPanel, forKey: .skillsPanel)
+        try container.encode(developerMode, forKey: .developerMode)
         try container.encodeIfPresent(balanceConfig, forKey: .balanceConfig)
     }
 

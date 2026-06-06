@@ -424,3 +424,93 @@
 "tab.skills.tooltip" = "Manage OpenCode Skills";
 "skills.action.refresh" = "Refresh Skills";
 "skills.action.refresh.tooltip" = "Rescan skill directories and config files";
+
+/* Developer Mode v1 */
+"settings.developerMode.title" = "Developer Mode";
+"settings.developerMode.subtitle" = "Advanced analysis & debugging";
+"settings.developerMode.description" = "Enable read-only analysis features including task classification, storage optimization, and local governance. All data stays local.";
+"settings.developerMode.enableToggle" = "Enable Developer Mode";
+"settings.developerMode.detail.title" = "Developer Features";
+"settings.developerMode.detail.subtitle" = "Independent control for each sub-feature";
+"settings.developerMode.taskClassification" = "Task Classification";
+"settings.developerMode.optimize" = "Storage Optimization";
+"settings.developerMode.localGovernance" = "Local Governance";
+"settings.developerMode.multiCurrency" = "Multi-Currency";
+"settings.developerMode.modelCompare" = "Model Compare";
+"settings.developerMode.aiAnalysisDisabled" = "AI analysis is not yet available";
+"settings.action.resetDeveloperMode" = "Reset Developer Mode Only";
+
+/* Developer Mode — Optimize v1 scanner */
+"developerMode.optimize.findings" = "Optimization Findings";
+"developerMode.optimize.scan" = "Scan & Optimize";
+"developerMode.optimize.staleSnapshot.title" = "Stale Snapshots Detected";
+"developerMode.optimize.staleSnapshot.detail" = "Source '%@' has %d snapshots older than 30 days. These consume disk space and are no longer relevant.";
+"developerMode.optimize.staleSnapshot.suggestion" = "Use the Clean Up button to remove outdated snapshots, or reduce the retention count in Settings.";
+"developerMode.optimize.excessBackup.title" = "Excess Backup Files";
+"developerMode.optimize.excessBackup.detail" = "Directory '%@' contains %d backup files totaling %d MB. Consider pruning old backups.";
+"developerMode.optimize.excessBackup.suggestion" = "Remove backups older than 30 days or reduce the backup frequency in Settings.";
+"developerMode.optimize.largeSession.title" = "Large Session Directory";
+"developerMode.optimize.largeSession.detail" = "Session directory is %d MB. Large session directories can slow down scanning.";
+"developerMode.optimize.largeSession.suggestion" = "Archive or delete old Codex sessions to reduce disk usage.";
+"developerMode.optimize.configFrag.title" = "Config Fragmentation";
+"developerMode.optimize.configFrag.detail" = "Found %d OpenCode .bak backup files. Too many backup files can indicate config drift.";
+"developerMode.optimize.configFrag.suggestion" = "Review and consolidate .bak files, keeping only the most recent few.";
+"developerMode.optimize.staleLatest.title" = "Stale Latest Snapshot";
+"developerMode.optimize.staleLatest.detail" = "%d files in the latest snapshot are older than 7 days. The dashboard may show outdated data.";
+"developerMode.optimize.staleLatest.suggestion" = "Trigger a manual refresh or check if the background helper is running.";
+
+/* Developer Mode - Phase 2 */
+"developerMode.classification.reasoning" = "High Reasoning";
+"developerMode.classification.cacheHeavy" = "Cache Heavy";
+"developerMode.classification.longOutput" = "Output Dominant";
+"developerMode.classification.highFrequency" = "High Frequency";
+"developerMode.classification.highCost" = "High Cost";
+"developerMode.classification.unclassified" = "Unclassified";
+"settings.developerMode.governance.title" = "Local Governance";
+"settings.developerMode.governance.subtitle" = "Runtime config overview";
+"settings.developerMode.governance.configDir" = "Config Directory";
+"settings.developerMode.governance.skillsDir" = "Skills Directory";
+"settings.developerMode.governance.sessionDir" = "Session Directory";
+"developerMode.governance.notAvailable" = "Not available";
+"developerMode.governance.fileSummary" = "%d files, %d KB total";
+"developerMode.governance.skillCount" = "%d skill directories";
+"developerMode.governance.sessionSummary" = "%d sessions, %d MB total";
+"developerMode.modelCompare.disclaimer" = "* Estimated cost allocated by provider effective cost proportional to token usage";
+
+/* Developer Mode - Phase 4 (AI Analysis - disabled in v1) */
+"developerMode.aiAnalysis.disabled" = "AI analysis is not yet available";
+"developerMode.aiAnalysis.consentTitle" = "AI Analysis Data Usage";
+"developerMode.aiAnalysis.consentBody" = "When enabled, the app sends anonymized usage summaries to a designated AI endpoint for optimization suggestions. No credentials, file contents, or personally identifiable information is transmitted.";
+
+/* Developer Mode - Access Policy */
+"developerMode.access.denied" = "Access denied: path not in allowed list";
+"developerMode.access.blocked" = "Access denied: path is in blocklist";
+
+/* Developer Mode - Doc */
+"developerMode.doc.title" = "Developer Mode Guide";
+"developerMode.doc.overviewTitle" = "Overview";
+"developerMode.doc.overviewBody" = "Developer Mode is a set of local, read-only, deterministic, and explainable analysis tools. When enabled, it provides access to task classification, storage optimization, local governance, and more. All data is processed locally and never uploaded to any server.";
+"developerMode.doc.principleLocal" = "Local";
+"developerMode.doc.principleReadonly" = "Read-Only";
+"developerMode.doc.principleDeterministic" = "Deterministic";
+"developerMode.doc.principleExplainable" = "Explainable";
+"developerMode.doc.featuresTitle" = "Features";
+"developerMode.doc.taskClassificationDesc" = "Classifies token usage data into categories: high reasoning, cache heavy, output dominant, high frequency, and high cost. Displayed in the model comparison section of the OpenCode detail page.";
+"developerMode.doc.optimizeDesc" = "Scans for 5 types of issues: stale snapshots, excess backups, large session directories, config fragmentation, and stale latest snapshots. Results are shown in the local governance panel.";
+"developerMode.doc.localGovernanceDesc" = "Displays file counts and access status for OpenCode config directory, Skills directory, and Session directory. Helps understand runtime configuration overview.";
+"developerMode.doc.modelCompareDesc" = "Shows a cost allocation disclaimer at the bottom of the model comparison section in the OpenCode detail page, indicating how estimated values are calculated.";
+"developerMode.doc.multiCurrencyDesc" = "Enables CNY/USD currency toggle in settings. All price displays switch dynamically with the selected currency.";
+"developerMode.doc.aiAnalysisDesc" = "Sends anonymized data to an AI endpoint for optimization suggestions. Not yet available in this version.";
+"developerMode.doc.comingSoon" = "Coming Soon";
+"developerMode.doc.usageTitle" = "How to Use";
+"developerMode.doc.usageStep1Title" = "Enable Developer Mode";
+"developerMode.doc.usageStep1Detail" = "In the Developer Mode tab of Settings, turn on the \"Enable Developer Mode\" main toggle.";
+"developerMode.doc.usageStep2Title" = "Enable Sub-Features";
+"developerMode.doc.usageStep2Detail" = "Once the main toggle is on, you can independently control each sub-feature. Enable as needed.";
+"developerMode.doc.usageStep3Title" = "View Features";
+"developerMode.doc.usageStep3Detail" = "Task classification and model compare are shown in the OpenCode detail page. Storage optimization and local governance are shown in the governance panel of the Developer Mode tab in Settings.";
+"developerMode.doc.securityTitle" = "Security Boundaries";
+"developerMode.doc.securityLocal" = "All data processed locally, no network dependency";
+"developerMode.doc.securityReadonly" = "Read-only access, no source data modification";
+"developerMode.doc.securityNoNetwork" = "No new automatic or implicit network calls";
+"developerMode.doc.securityNoCredentials" = "No access to credential files or sensitive information";

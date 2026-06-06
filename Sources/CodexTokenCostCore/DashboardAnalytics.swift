@@ -784,8 +784,8 @@ public struct TokenCostDashboardAnalytics: Sendable {
     /// does not provide a value for a given provider key. User billing plan selections
     /// (via AppPreferences.billingOverridesByProviderKey()) always take precedence.
     static let legacyFallbackMonthlyCosts: [String: Double] = [
-        "minimax-cn-coding-plan": 98 / BillingPlanCatalog.exchangeRateUSDToCNY,
-        "xiaomi-token-plan-cn": 34.9 / BillingPlanCatalog.exchangeRateUSDToCNY,
+        "minimax-cn-coding-plan": TokenCostCurrencyService.convert(98, from: .cny, to: .usd),
+        "xiaomi-token-plan-cn": TokenCostCurrencyService.convert(34.9, from: .cny, to: .usd),
         "openai": 19.99
     ]
 
