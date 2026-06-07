@@ -11,8 +11,16 @@ struct TokenCostPalette {
     let backgroundWashTop: Color
     let backgroundWashBottom: Color
     let cardFill: Material
+    let surfaceFill: Material
+    let surfaceSecondaryFill: Material
+    let surfaceSolidFill: Color
+    let surfaceSecondarySolidFill: Color
     let cardStroke: Color
+    let surfaceStroke: Color
+    let surfaceInnerStroke: Color
+    let surfaceAccessibleStroke: Color
     let cardShadow: Color
+    let surfaceShadow: Color
     let trackBackground: Color
     let title: Color
     let subtitle: Color
@@ -27,40 +35,48 @@ struct TokenCostPalette {
             accent = Color(red: 0.18, green: 0.52, blue: 0.98)
             accentSecondary = Color(red: 0.16, green: 0.78, blue: 0.88)
             accentSoft = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.10)
-            backgroundWashTop = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.16)
-            backgroundWashBottom = Color(red: 0.16, green: 0.78, blue: 0.88).opacity(0.12)
-            cardStroke = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.18)
+            backgroundWashTop = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.11)
+            backgroundWashBottom = Color(red: 0.16, green: 0.78, blue: 0.88).opacity(0.08)
+            cardStroke = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.14)
             chipBackground = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.14)
         case .forest:
             accent = Color(red: 0.14, green: 0.69, blue: 0.47)
             accentSecondary = Color(red: 0.39, green: 0.81, blue: 0.56)
             accentSoft = Color(red: 0.14, green: 0.69, blue: 0.47).opacity(0.10)
-            backgroundWashTop = Color(red: 0.14, green: 0.69, blue: 0.47).opacity(0.14)
-            backgroundWashBottom = Color(red: 0.39, green: 0.81, blue: 0.56).opacity(0.10)
-            cardStroke = Color(red: 0.14, green: 0.69, blue: 0.47).opacity(0.18)
+            backgroundWashTop = Color(red: 0.14, green: 0.69, blue: 0.47).opacity(0.10)
+            backgroundWashBottom = Color(red: 0.39, green: 0.81, blue: 0.56).opacity(0.08)
+            cardStroke = Color(red: 0.14, green: 0.69, blue: 0.47).opacity(0.14)
             chipBackground = Color(red: 0.14, green: 0.69, blue: 0.47).opacity(0.14)
         case .sunset:
             accent = Color(red: 0.95, green: 0.46, blue: 0.18)
             accentSecondary = Color(red: 0.97, green: 0.68, blue: 0.18)
             accentSoft = Color(red: 0.95, green: 0.46, blue: 0.18).opacity(0.10)
-            backgroundWashTop = Color(red: 0.95, green: 0.46, blue: 0.18).opacity(0.15)
-            backgroundWashBottom = Color(red: 0.97, green: 0.68, blue: 0.18).opacity(0.10)
-            cardStroke = Color(red: 0.95, green: 0.46, blue: 0.18).opacity(0.18)
+            backgroundWashTop = Color(red: 0.95, green: 0.46, blue: 0.18).opacity(0.11)
+            backgroundWashBottom = Color(red: 0.97, green: 0.68, blue: 0.18).opacity(0.08)
+            cardStroke = Color(red: 0.95, green: 0.46, blue: 0.18).opacity(0.14)
             chipBackground = Color(red: 0.95, green: 0.46, blue: 0.18).opacity(0.14)
         case .violet:
             accent = Color(red: 0.62, green: 0.37, blue: 0.96)
             accentSecondary = Color(red: 0.91, green: 0.39, blue: 0.88)
             accentSoft = Color(red: 0.62, green: 0.37, blue: 0.96).opacity(0.10)
-            backgroundWashTop = Color(red: 0.62, green: 0.37, blue: 0.96).opacity(0.15)
-            backgroundWashBottom = Color(red: 0.91, green: 0.39, blue: 0.88).opacity(0.10)
-            cardStroke = Color(red: 0.62, green: 0.37, blue: 0.96).opacity(0.18)
+            backgroundWashTop = Color(red: 0.62, green: 0.37, blue: 0.96).opacity(0.11)
+            backgroundWashBottom = Color(red: 0.91, green: 0.39, blue: 0.88).opacity(0.08)
+            cardStroke = Color(red: 0.62, green: 0.37, blue: 0.96).opacity(0.14)
             chipBackground = Color(red: 0.62, green: 0.37, blue: 0.96).opacity(0.14)
         }
 
         backgroundBase = Color(nsColor: .windowBackgroundColor)
         cardFill = .regularMaterial
-        cardShadow = Color.black.opacity(0.10)
-        trackBackground = Color.primary.opacity(0.08)
+        surfaceFill = .regularMaterial
+        surfaceSecondaryFill = .ultraThinMaterial
+        surfaceSolidFill = Color(nsColor: .controlBackgroundColor).opacity(0.98)
+        surfaceSecondarySolidFill = Color(nsColor: .windowBackgroundColor).opacity(0.96)
+        surfaceStroke = cardStroke.opacity(0.64)
+        surfaceInnerStroke = cardStroke.opacity(0.38)
+        surfaceAccessibleStroke = Color.primary.opacity(0.18)
+        cardShadow = Color.black.opacity(0.07)
+        surfaceShadow = Color.black.opacity(0.05)
+        trackBackground = Color.primary.opacity(0.06)
         title = Color.primary
         subtitle = Color.secondary
         chipText = accent

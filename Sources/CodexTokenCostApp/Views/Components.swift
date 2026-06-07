@@ -301,13 +301,9 @@ struct SettingsControlTile<Content: View>: View {
         .controlSize(.small)
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(palette.trackBackground.opacity(0.82))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(palette.cardStroke.opacity(0.65), lineWidth: 1)
+        .settingsInsetSurface(
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+            palette: palette
         )
     }
 }
@@ -379,6 +375,256 @@ struct SettingsInlineControlRow<Control: View>: View {
                 control
             }
         }
+    }
+}
+
+enum SettingsSurfaceRole {
+    case primary
+    case secondary
+    case warning
+}
+
+struct SettingsSurfaceCard<Content: View>: View {
+    let title: String?
+    let subtitle: String?
+    let trailing: AnyView?
+    let palette: TokenCostPalette
+    let role: SettingsSurfaceRole
+    let content: Content
+
+    init(
+        title: String? = nil,
+        subtitle: String? = nil,
+        trailing: AnyView? = nil,
+        role: SettingsSurfaceRole = .primary,
+        palette: TokenCostPalette,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = trailing
+        self.role = role
+        self.palette = palette
+        self.content = content()
+    }
+
+    var body: some View {
+        let isPrimary = role == .primary
+        let cornerRadius: CGFloat = isPrimary ? 28 : 22
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let contentPadding: CGFloat = isPrimary ? 20 : 16
+        let shadow = role == .warning ? Color.black.opacity(0.08) : palette.surfaceShadow
+        let stroke = role == .warning ? Color.orange.opacity(0.22) : palette.surfaceStroke
+        let glassTint: Color? = role == .warning ? Color.orange.opacity(0.14) : nil
+
+        VStack(alignment: .leading, spacing: title == nil ? 12 : 16) {
+            if let title {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(palette.title)
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(palette.subtitle)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+
+                    trailing
+                }
+            }
+
+            content
+        }
+        .padding(contentPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(SettingsSurfaceBackgroundModifier(
+            shape: shape,
+            palette: palette,
+            stroke: stroke,
+            shadow: shadow,
+            glassTint: glassTint,
+            role: role
+        ))
+    }
+}
+
+private struct SettingsSurfaceBackgroundModifier: ViewModifier {
+    let shape: RoundedRectangle
+    let palette: TokenCostPalette
+    let stroke: Color
+    let shadow: Color
+    let glassTint: Color?
+    let role: SettingsSurfaceRole
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    private var usesSolidFallback: Bool {
+        reduceTransparency || colorSchemeContrast == .increased
+    }
+
+    func body(content: Content) -> some View {
+        if usesSolidFallback {
+            let fill = role == .secondary ? palette.surfaceSecondarySolidFill : palette.surfaceSolidFill
+            let accessibleStroke = role == .warning ? Color.orange.opacity(0.58) : palette.surfaceAccessibleStroke
+            content
+                .background(shape.fill(fill))
+                .overlay(
+                    shape.strokeBorder(accessibleStroke, lineWidth: role == .primary ? 1.2 : 1)
+                )
+                .shadow(color: shadow.opacity(0.55), radius: role == .primary ? 8 : 5, x: 0, y: role == .primary ? 5 : 3)
+        } else if #available(macOS 26, *) {
+            let glass: Glass = glassTint.map { .regular.tint($0) } ?? .regular
+            content
+                .glassEffect(glass, in: shape)
+                .overlay(
+                    shape.strokeBorder(stroke.opacity(role == .secondary ? 0.32 : 0.46), lineWidth: role == .primary ? 0.8 : 0.7)
+                )
+        } else {
+            content
+                .background(
+                    shape.fill(role == .secondary ? palette.surfaceSecondaryFill : palette.surfaceFill)
+                )
+                .overlay(
+                    shape.strokeBorder(stroke.opacity(role == .secondary ? 0.72 : 1.0), lineWidth: role == .primary ? 1 : 0.8)
+                )
+                .shadow(color: shadow, radius: role == .primary ? 14 : 10, x: 0, y: role == .primary ? 8 : 6)
+        }
+    }
+}
+
+struct SettingsInsetSurfaceBackgroundModifier<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let palette: TokenCostPalette
+    let stroke: Color?
+    let lineWidth: CGFloat
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    private var usesSolidFallback: Bool {
+        reduceTransparency || colorSchemeContrast == .increased
+    }
+
+    func body(content: Content) -> some View {
+        if usesSolidFallback {
+            content
+                .background(shape.fill(palette.surfaceSecondarySolidFill))
+                .overlay(
+                    shape.strokeBorder(stroke ?? palette.surfaceAccessibleStroke, lineWidth: max(lineWidth, 1))
+                )
+        } else {
+            content
+                .background(shape.fill(palette.surfaceSecondaryFill))
+                .overlay(
+                    shape.strokeBorder(stroke ?? palette.surfaceInnerStroke, lineWidth: lineWidth)
+                )
+        }
+    }
+}
+
+private struct SettingsGlassButtonStyleModifier: ViewModifier {
+    let prominent: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    private var usesSolidFallback: Bool {
+        reduceTransparency || colorSchemeContrast == .increased
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *), !usesSolidFallback {
+            if prominent {
+                content.buttonStyle(.glassProminent)
+            } else {
+                content.buttonStyle(.glass)
+            }
+        } else if prominent {
+            content.buttonStyle(.borderedProminent)
+        } else {
+            content.buttonStyle(.bordered)
+        }
+    }
+}
+
+struct SettingsSummaryCard: View {
+    let title: String
+    let value: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+    let palette: TokenCostPalette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tint)
+
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.subtitle)
+
+                Spacer(minLength: 0)
+            }
+
+            Text(value)
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .foregroundStyle(palette.title)
+                .lineLimit(2)
+                .minimumScaleFactor(0.76)
+
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(palette.subtitle)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 124, alignment: .leading)
+        .settingsInsetSurface(
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous),
+            palette: palette
+        )
+    }
+}
+
+struct SettingsInfoChip: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let tint: Color
+    let palette: TokenCostPalette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tint)
+
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.subtitle)
+            }
+
+            Text(value)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(palette.title)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsInsetSurface(
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+            palette: palette
+        )
     }
 }
 
@@ -512,7 +758,7 @@ struct PaginationControls: View {
             } label: {
                 Label(AppLocalization.text("pagination.previous"), systemImage: "chevron.left")
             }
-            .buttonStyle(.bordered)
+            .settingsGlassButtonStyle()
             .controlSize(.small)
             .disabled(clampedPageIndex == 0)
 
@@ -521,9 +767,29 @@ struct PaginationControls: View {
             } label: {
                 Label(AppLocalization.text("pagination.next"), systemImage: "chevron.right")
             }
-            .buttonStyle(.bordered)
+            .settingsGlassButtonStyle()
             .controlSize(.small)
             .disabled(clampedPageIndex >= pageCount - 1)
         }
+    }
+}
+
+extension View {
+    func settingsInsetSurface<S: InsettableShape>(
+        in shape: S,
+        palette: TokenCostPalette,
+        stroke: Color? = nil,
+        lineWidth: CGFloat = 0.8
+    ) -> some View {
+        modifier(SettingsInsetSurfaceBackgroundModifier(
+            shape: shape,
+            palette: palette,
+            stroke: stroke,
+            lineWidth: lineWidth
+        ))
+    }
+
+    func settingsGlassButtonStyle(prominent: Bool = false) -> some View {
+        modifier(SettingsGlassButtonStyleModifier(prominent: prominent))
     }
 }

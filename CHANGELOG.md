@@ -13,9 +13,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **模型对比排行成本分配偏差**：`buildModelComparisonRows()` 从 Provider 总成本按 token 比例分配改为各模型独立计算 `apiCost()`，消除同一 Provider 内不同单价的模型（V4 Flash vs V4 Pro）之间的成本均摊偏差（`DashboardAnalytics.swift`）
 - **Provider 成本优先使用 app 定价目录**：`providerEffectiveCosts()`、`combinedMonthlyCost()`、`openCodeOverviewCost()` 三处统一将 `syntheticApiCost` 优先级提到 `rawCost` 之前，避免 OpenCode 写入的过时 `$.cost` 污染排名和总览月费（`DashboardAnalytics.swift`、`BillingPlanCatalog.swift`）
 
+## [v0.8.5] - 2026-06-07
+
+### Added
+
+- **开发者模式 v1**：新增开发者模式系统，包含 1 个主开关 + 6 个子功能开关（任务分类、存储优化、本地治理、多货币、模型对比、AI 分析）；所有开关通过 `AppPreferences` JSON 持久化，默认关闭（`DeveloperModePreferences.swift`、`AppPreferences.swift`、`AppPreferencesModel.swift`）
+- **任务分类引擎**：6 条启发式规则（推理占比高 >20%、缓存重型 >30%、输出为主 >2x、高频短对话 >20 条、高成本 >$5、未分类），对 `DashboardPayload.RawRow` 进行分类，结果在 OpenCode 详情页模型对比区域展示（`TaskClassification.swift`、`DetailView.swift`）
+- **存储优化扫描器**：5 种只读元数据扫描 — 过期快照（>30 天）、过多备份（>20 文件或 >10MB）、大 Session 目录（>500MB）、配置碎片化（.bak 文件 >5）、过期最新快照（>7 天）；结果在设置页开发者模式 Tab 的治理面板中展示（`OptimizeScanner.swift`、`SettingsView.swift`）
+- **本地治理面板**：显示 OpenCode 配置目录、Skills 目录、Session 目录的文件数量和访问状态，基于 `DeveloperFileAccessPolicy` 允许列表/禁止列表门控（`DeveloperFileAccessPolicy.swift`、`SettingsView.swift`）
+- **集中化货币转换服务**：抽取 `TokenCostCurrencyService` 替代散落的 `$ → ¥` 转换逻辑，所有价格展示统一经过此服务（`TokenCostCurrencyService.swift`、`DashboardAnalytics.swift`）
+- **开发者模式说明文档弹窗**：参考 `PricingDocView` 模式，新增 `DeveloperModeDocView` 弹窗，包含概览（四大原则）、功能说明（6 个子功能）、使用方法（3 步指引）、安全边界（4 条保证）；设置页开发者模式 Tab 右上角 `doc.text` 图标按钮触发（`DeveloperModeDocView.swift`、`SettingsView.swift`）
+- **模型对比免责声明**：当 `modelCompareEnabled` 开启时，OpenCode 详情页模型对比区域底部显示成本分摊估算说明（`DetailView.swift`）
+- **开发者模式测试覆盖**：新增 4 个测试文件覆盖 `DeveloperModePreferences`、`DeveloperFileAccessPolicy`、`OptimizeScanner`、`TaskClassification`（`Tests/CodexTokenCostCoreTests/`）
+- **开发者模式文档**：新增治理规范、灰度功能执行方案、发布模型与边界记录 3 份文档（`docs/`）
+- **开发者模式安全脚本**：新增 banned symbols 检查脚本和 allowlist 配置（`script/check_developer_mode_banned_symbols.sh`）
+
+### Security
+
+- **开发者模式四原则**：所有开发者模式功能严格遵循「本地、只读、确定性、可解释」原则；`DeveloperFileAccessPolicy` 实现允许列表/禁止列表门控，禁止访问凭证文件（`~/.codex/auth.json`、`~/.ssh/` 等）；不新增网络调用，不修改源数据（`DeveloperFileAccessPolicy.swift`、`SECURITY.md`）
+
 ## [Unreleased]
 
-> 当前下一版目标为 `v0.8.3`，以下为相对 `v0.8.2` 的累计变更。
+> 当前下一版目标为 `v0.8.6`，以下为相对 `v0.8.5` 的累计变更。
 
 ### Added
 

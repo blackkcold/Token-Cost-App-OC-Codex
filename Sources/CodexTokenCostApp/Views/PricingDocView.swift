@@ -8,14 +8,31 @@ struct PricingDocView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
-                        renderSection(section)
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+                            renderSection(section)
+                        }
                     }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Divider()
+
+                HStack {
+                    Spacer()
+                    Button(AppLocalization.text("settings.action.close")) {
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(palette.cardFill)
             }
             .navigationTitle(Text(verbatim: "\u{1F4C4} \(AppLocalization.text("settings.billing.pricingDoc"))"))
             .toolbar {
@@ -29,7 +46,8 @@ struct PricingDocView: View {
                 loadAndParseMarkdown()
             }
         }
-        .frame(minWidth: 520, minHeight: 460)
+
+        .frame(minWidth: 780, minHeight: 560)
     }
 
     @ViewBuilder

@@ -12,5 +12,9 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Check Developer Mode Banned Symbols
+        run: bash script/check_developer_mode_banned_symbols.sh
       - name: Build
         run: swift build
+      - name: Test
+        run: swift test

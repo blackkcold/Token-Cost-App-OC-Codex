@@ -109,21 +109,14 @@ final class AppPreferencesModel: ObservableObject {
             get: {
                 let selection = self.preferences.billingSelection(for: provider)
                 let usdCost = selection.customMonthlyUSD ?? BillingPlanCatalog.resolve(provider: provider, selection: selection).monthlyUSD ?? 1
-                if self.preferences.displayCurrency == .cny {
-                    return usdCost * BillingPlanCatalog.exchangeRateUSDToCNY
-                }
-                return usdCost
+                return TokenCostCurrencyService.convert(usdCost, from: .usd, to: self.preferences.displayCurrency)
             },
             set: { newValue in
                 guard newValue.isFinite, newValue > 0 else { return }
                 self.updatePreferences { preferences in
                     var selection = preferences.billingSelection(for: provider)
                     selection.mode = .customMonthlyUSD
-                    if preferences.displayCurrency == .cny {
-                        selection.customMonthlyUSD = newValue / BillingPlanCatalog.exchangeRateUSDToCNY
-                    } else {
-                        selection.customMonthlyUSD = newValue
-                    }
+                    selection.customMonthlyUSD = TokenCostCurrencyService.convert(newValue, from: preferences.displayCurrency, to: .usd)
                     preferences.setBillingSelection(selection, for: provider)
                 }
             }
@@ -211,12 +204,13 @@ final class AppPreferencesModel: ObservableObject {
         }
     }
 
-    func updateSkillsPanel(showSource: Bool? = nil, showState: Bool? = nil, showTags: Bool? = nil, previewLength: Int? = nil) {
+    func updateSkillsPanel(showSource: Bool? = nil, showState: Bool? = nil, showTags: Bool? = nil, previewLength: Int? = nil, sortBy: String? = nil) {
         updatePreferences { prefs in
             if let v = showSource { prefs.skillsPanel.showSourceColumn = v }
             if let v = showState { prefs.skillsPanel.showStateColumn = v }
             if let v = showTags { prefs.skillsPanel.showTagsColumn = v }
             if let v = previewLength { prefs.skillsPanel.previewLength = v }
+            if let v = sortBy { prefs.skillsPanel.sortBy = v }
         }
     }
 
@@ -231,4 +225,27 @@ final class AppPreferencesModel: ObservableObject {
 #endif
         }
     }
+
+
+        var developerModeIsEnabledBinding: Binding<Bool> {
+            Binding(
+                get: { self.preferences.developerMode.isEnabled },
+                set: { newValue in
+                    self.updatePreferences { prefs in
+                        prefs.developerMode.isEnabled = newValue
+                    }
+                }
+            )
+        }
+
+        func developerModeToggleBinding(for keyPath: WritableKeyPath<DeveloperModePreferences, Bool>) -> Binding<Bool> {
+            Binding(
+                get: { self.preferences.developerMode[keyPath: keyPath] },
+                set: { newValue in
+                    self.updatePreferences { prefs in
+                        prefs.developerMode[keyPath: keyPath] = newValue
+                    }
+                }
+            )
+        }
 }

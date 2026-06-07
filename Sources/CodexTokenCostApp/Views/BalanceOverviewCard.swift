@@ -87,12 +87,12 @@ struct BalanceOverviewCard: View {
                     }
                 } else if showCostOnly {
                     if let cost = snapshot.totalCostUSD {
-                        Text("90天累计 $\(String(format: "%.2f", cost))")
+                        Text("90天累计 \(TokenCostFormatters.currency(cost))")
                             .font(.caption)
                             .foregroundStyle(palette.subtitle)
                     }
                     if let avg = snapshot.avgCostPerDayUSD {
-                        Text("日均 $\(String(format: "%.2f", avg))")
+                        Text("日均 \(TokenCostFormatters.currency(avg))")
                             .font(.caption2)
                             .foregroundStyle(palette.subtitle)
                     }

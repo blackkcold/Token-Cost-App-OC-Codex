@@ -50,3 +50,32 @@
 - Release 日志净化（v0.6.0+）：`UpdateChecker` 中所有文件路径/状态输出仅 DEBUG 构建可见
 - Keychain 静默读取（v0.6.0+）：`SecItemCopyMatching` 使用 `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，已有"Always Allow"授权静默返回，无授权不弹窗；`discoverCredentials()` 添加内存缓存避免同 session 重复 Keychain 访问；自动刷新链路只读凭证，不自动写入 Keychain，不触发浏览器 Cookie 导入
 - Keychain 设备锁定（v0.6.0+）：`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`，凭证不跨设备 iCloud 同步
+
+## 开发者模式安全边界（v0.9.0+）
+
+### 概述
+
+开发者模式（Developer Mode）是一个可选的高级功能集，默认完全关闭。启用后提供任务分类、存储优化、本地治理等只读分析能力。
+
+### 安全设计
+
+- **默认关闭**：`DeveloperModePreferences.isEnabled` 默认为 `false`，所有子功能同样默认关闭
+- **只读优先**：所有 v1 功能仅读取元数据（文件大小、数量、修改时间），不读取文件内容
+- **独立目录**：所有 Developer Mode 代码位于 `Sources/CodexTokenCostCore/DeveloperMode/` 和 `Sources/CodexTokenCostApp/DeveloperMode/`
+- **CI 禁止符号检查**：`script/check_developer_mode_banned_symbols.sh` 在 CI 中自动扫描 7 类 39 个禁止符号
+- **本地执行**：Phase 0-3 不新增任何网络请求，不启动外部进程
+- **凭证隔离**：Developer Mode 禁止访问 `SecureCredentialStore`、`auth.json`、Keychain
+- **文件访问策略**：`DeveloperFileAccessPolicy` 实现 allowlist/blocklist 路径控制
+- **持久化隔离**：Developer Mode 状态写入 `app-preferences.json`，与源数据完全分离
+
+### 文件访问控制
+
+| 路径 | 访问权限 | 说明 |
+|------|---------|------|
+| `~/Library/Application Support/com.yanghaoran.CodexTokenCost/config/*.json` | 元数据只读 | 文件大小、修改时间 |
+| `~/Library/Application Support/com.yanghaoran.CodexTokenCost/snapshots/*/*.json` | 元数据只读 | 每 source 快照数、最老时间 |
+| `~/.codex/sessions/**/*.jsonl` | 元数据只读 | 文件数量、总大小、最后修改时间 |
+| `~/.codex/auth.json` | **禁止** | 直接凭证文件 |
+| `~/.ssh/`, `~/.gnupg/`, `~/Library/Keychains/` | **禁止** | 高敏凭证区 |
+| 浏览器目录 | **禁止** | Cookie/History SQLite |
+| 云凭证目录 | **禁止** | AWS/Docker/K8s 等 |

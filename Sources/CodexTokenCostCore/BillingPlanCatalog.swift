@@ -375,10 +375,8 @@ public enum BillingPlanCatalog {
     }
 
     public static func formatCurrency(_ usdAmount: Double, displayCurrency: DisplayCurrency) -> String {
-        switch displayCurrency {
-        case .usd: return formatUSD(usdAmount)
-        case .cny:  return formatRMB(usdAmount * exchangeRateUSDToCNY)
-        }
+        let converted = TokenCostCurrencyService.convert(usdAmount, from: .usd, to: displayCurrency)
+        return TokenCostCurrencyService.format(converted, currency: displayCurrency)
     }
 
     private static func minimax(id: String, name: String, cny: Double, usage: String) -> BillingPlanPreset {

@@ -305,6 +305,12 @@ struct DetailView: View {
                             valueLabel: TokenCostFormatters.millionRate(row.tokensPerDollar)
                         )
                     }
+
+                    if appPreferencesModel.preferences.developerMode.modelCompareEnabled {
+                        Text(AppLocalization.text("developerMode.modelCompare.disclaimer"))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
         }
