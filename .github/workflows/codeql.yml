@@ -9,13 +9,13 @@ on:
 jobs:
   analyze:
     name: Analyze (Swift)
-    runs-on: macos-26
+    runs-on: macos-15
     permissions:
       security-events: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: github/codeql-action/init@v4
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
         with:
           languages: swift
-      - uses: github/codeql-action/autobuild@v4
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
