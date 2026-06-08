@@ -1,3 +1,8 @@
 # Developer Mode source files manifest
 # One file path per line (relative to repo root)
 # Used by check_developer_mode_banned_symbols.sh
+Sources/CodexTokenCostCore/DeveloperMode/AIAnalysisSchema.swift
+Sources/CodexTokenCostCore/DeveloperMode/DeveloperFileAccessPolicy.swift
+Sources/CodexTokenCostCore/DeveloperMode/DeveloperModePreferences.swift
+Sources/CodexTokenCostCore/DeveloperMode/OptimizeScanner.swift
+Sources/CodexTokenCostCore/DeveloperMode/TaskClassification.swift

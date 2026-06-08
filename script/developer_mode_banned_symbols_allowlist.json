@@ -1,1 +1,8 @@
-{"allowed": []}
+{"allowed": [
+  {"file": "Sources/CodexTokenCostCore/DeveloperMode/OptimizeScanner.swift", "line": 44, "symbol": "FileManager.default.contentsOfDirectory"},
+  {"file": "Sources/CodexTokenCostCore/DeveloperMode/OptimizeScanner.swift", "line": 53, "symbol": "FileManager.default.contentsOfDirectory"},
+  {"file": "Sources/CodexTokenCostCore/DeveloperMode/OptimizeScanner.swift", "line": 84, "symbol": "FileManager.default.contentsOfDirectory"},
+  {"file": "Sources/CodexTokenCostCore/DeveloperMode/OptimizeScanner.swift", "line": 109, "symbol": "FileManager.default.contentsOfDirectory"},
+  {"file": "Sources/CodexTokenCostCore/DeveloperMode/OptimizeScanner.swift", "line": 132, "symbol": "FileManager.default.contentsOfDirectory"},
+  {"file": "Sources/CodexTokenCostCore/DeveloperMode/OptimizeScanner.swift", "line": 151, "symbol": "FileManager.default.contentsOfDirectory"}
+]}
