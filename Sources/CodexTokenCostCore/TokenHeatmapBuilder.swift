@@ -46,14 +46,14 @@ public enum TokenHeatmapBuilder {
         // Find the max token count for intensity calculation
         let maxTokens = max(merged.values.max() ?? 1, 1)
 
-        // Compute the start date: 52 weeks before referenceDate, aligned to Monday
         let calendar = Self.calendar
-        // Find the Monday of the week containing referenceDate
         var components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: referenceDate)
         components.weekday = 2 // Monday
-        let mondayOfRefWeek = calendar.date(from: components)!
-        // Go back 52 weeks
-        let startDate = calendar.date(byAdding: .weekOfYear, value: -51, to: mondayOfRefWeek)!
+
+        guard let mondayOfRefWeek = calendar.date(from: components),
+              let startDate = calendar.date(byAdding: .weekOfYear, value: -51, to: mondayOfRefWeek) else {
+            return TokenHeatmapData(rows: (0..<7).map { _ in Array(repeating: nil, count: 52) }, cells: [])
+        }
 
         // Build grid: 7 rows (Mon=0 ... Sun=6), 52 columns
         var rows: [[TokenHeatmapCell?]] = (0..<7).map { _ in
@@ -62,9 +62,9 @@ public enum TokenHeatmapBuilder {
         var cells: [TokenHeatmapCell] = []
 
         for weekOffset in 0..<52 {
-            let weekStart = calendar.date(byAdding: .weekOfYear, value: weekOffset, to: startDate)!
+            guard let weekStart = calendar.date(byAdding: .weekOfYear, value: weekOffset, to: startDate) else { continue }
             for dayOffset in 0..<7 {
-                let cellDate = calendar.date(byAdding: .day, value: dayOffset, to: weekStart)!
+                guard let cellDate = calendar.date(byAdding: .day, value: dayOffset, to: weekStart) else { continue }
                 let dateString = dateFormatter.string(from: cellDate)
 
                 // Don't include future dates
@@ -92,7 +92,7 @@ public enum TokenHeatmapBuilder {
     private static var calendar: Calendar {
         var cal = Calendar(identifier: .gregorian)
         cal.locale = Locale(identifier: "en_US_POSIX")
-        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
         cal.firstWeekday = 2 // Monday
         return cal
     }
