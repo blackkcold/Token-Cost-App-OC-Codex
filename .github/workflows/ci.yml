@@ -9,9 +9,9 @@ on:
 jobs:
   build:
     name: Build
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
       - name: Check Developer Mode Banned Symbols
         run: bash script/check_developer_mode_banned_symbols.sh
       - name: Build
