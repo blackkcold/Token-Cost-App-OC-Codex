@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> 当前下一版目标为 `v0.8.6`，以下为相对 `v0.8.5` 的累计变更。
+> 当前下一版目标为 `v0.9.0`，以下为相对 `v0.8.5` 的累计变更。
 
 ### Added
 
