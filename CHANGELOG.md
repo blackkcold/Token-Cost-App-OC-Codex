@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+> 当前下一版目标为 `v0.9.0`，以下为相对 `v0.8.5` 的累计变更。
+
+### Added
+
+- **分层备份可配置内容层**：`BackupPreferences.enabledLayers` 控制 7 个备份层（globalEntry/globalMemory/commandsSnapshot/configSnapshot/skillsSnapshot/scripts/launchd）的启用状态，设置页提供 Toggle 列表选择（`BackupPreferences.swift`、`BackupService.swift`、`BackupSectionView.swift`、`AppPreferencesModel.swift`）
+- **Skills 面板完整中文本地化**：新增 47 个 `skills.*` 命名空间 key，覆盖标题、筛选器、分区、详情、权限、诊断等全部 UI 文本（`Resources/zh-Hans.lproj/Localizable.strings`、`Resources/en.lproj/Localizable.strings`、`OpenCodeSkillsPageView.swift`）
+
+### Fixed
+
+- **BAK 文件移除后选中状态未清除**：`performTrashUnmanagedBakFiles()` 删除文件后未清空 `selectedBakFiles` 集合，导致按钮计数与实际列表不同步（`AppPreferencesModel.swift`）
+- **完备性测验显示 50%**：`verifyCompleteness()` 的 `expectedFiles` 使用静态文件列表，即使源文件不存在也计入期望集合；修复为仅检查实际存在的源文件（`BackupService.swift`）
+
+### Changed
+
+- **设置页侧边栏排序优化**：数据源组（OpenCode/Codex/Skills）上移至全局偏好之后，计费/余额组下移，安全/开发者模式下沉至末尾（`SettingsView.swift`）
+- **Skills 页面 Liquid Glass UI 升级**：`TokenCostPalette` 实现 `Equatable` 支持主题切换时视图刷新；HSplitView 背景增加阴影层；侧边栏使用 `settingsInsetSurface()` 替换裸 Material（`ThemePalette.swift`、`OpenCodeSkillsPageView.swift`）
+
 ## [v0.8.2] - 2026-06-05
 
 ### Fixed
@@ -34,23 +53,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> 当前下一版目标为 `v0.8.6`，以下为相对 `v0.8.5` 的累计变更。
+> 当前下一版目标为 `v0.9.0`，以下为相对 `v0.8.5` 的累计变更。
 
 ### Added
 
-- 暂无
+- **备份管理功能**：新增「备份管理」设置 Tab，整合两大功能模块（`BackupPreferences.swift`、`BackupService.swift`、`BackupSectionView.swift`、`AppPreferencesModel.swift`）
+  - **配置文件备份**：支持分别备份 `opencode.json`、`oh-my-openagent.json` 等 OpenCode 配置文件到外部备份目录；检测并管理 `~/.config/opencode/` 下未纳入外部备份的 `.bak` 文件，通过废纸篓安全清理（需用户显式确认）
+  - **外部备份管理**：支持自定义备份目录（默认 `~/Documents/Opencode project/记忆备份/`）、自动备份（每小时/每天/每周）、自动清理（保留 N 份）、手动备份/清理按钮、备份文件列表浏览与逐条删除、备份内容概览（文件数/大小/最后备份时间）、完备性测验（应备份文件清单覆盖率）
+  - 备份操作通过 `SafeFileStore` 写入外部目录、通过 `FileManager.trashItem` 安全清理 `.bak` 文件；不新增网络调用
 
 ### Changed
 
-- 暂无
+- **Skills 页面简化**：移除 Skills Overview 中的「Backup Manager」只读卡片，备份管理功能已迁移至独立的设置 Tab（`OpenCodeSkillsPageView.swift`）
 
 ### Fixed
 
-- 暂无
+- **完备性测验显示全部为"未备份"**：`verifyCompleteness()` 此前只检查扁平文件（flat）备份记录，忽略分层目录（layered `backup-*` 目录）备份。现已改为同时扫描最新分层备份的 `config-snapshot/` 和 `global-entry/` 子目录，与扁平备份合并判断完备性（`BackupService.swift`）
+- **分层备份 config-snapshot 遗漏文件**：`backupConfigSnapshotLayer()` 此前只备份 `AGENTS.md`、`oh-my-openagent.json`、`opencode.json` 三个文件，现已改为备份 `allKnownConfigFiles` 中全部存在的配置文件，补齐 `opencode.jsonc`、`oh-my-openagent.jsonc`、`oh-my-opencode.json`、`oh-my-opencode.jsonc`、`openpets.md`
+- **openpets.md 未纳入备份配置清单**：`allKnownConfigFiles` 此前未包含 `openpets.md`，导致该文件既不参与完备性检查，也不在分层备份的 config-snapshot 中。现已补齐，并在 `configFileGroups` 的 `agents` 分组中展示
 
 ### Security
 
-- 暂无
+- **备份管理安全边界**：备份写入仅通过 `SafeFileStore` 操作外部备份目录；`.bak` 文件清理使用 `FileManager.trashItem` 移至废纸篓而非永久删除，每次清理需用户显式确认；源配置文件读取为只读操作，不修改 `~/.config/opencode/` 中任何原始文件；自动备份使用本地 Timer，不新增网络请求
 
 ## [v0.8.1] - 2026-06-05
 

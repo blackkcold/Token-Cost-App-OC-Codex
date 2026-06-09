@@ -31,7 +31,7 @@ struct OpenCodeSkillsPageView: View {
     private var scanningView: some View {
         VStack(spacing: 16) {
             ProgressView()
-            Text(verbatim: "Scanning OpenCode skills...")
+            Text(AppLocalization.text("skills.scanning"))
                 .foregroundStyle(.secondary)
         }
     }
@@ -47,7 +47,15 @@ struct OpenCodeSkillsPageView: View {
                 detailView(snapshot)
                     .frame(minWidth: 420)
             }
-            .background(.ultraThinMaterial)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(palette.surfaceFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(palette.surfaceStroke, lineWidth: 0.8)
+                    )
+                    .shadow(color: palette.surfaceShadow, radius: 10, x: 0, y: 6)
+            )
         }
     }
 
@@ -56,11 +64,11 @@ struct OpenCodeSkillsPageView: View {
             Image(systemName: "gearshape.2")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
-            Text(verbatim: "OpenCode not detected")
+            Text(AppLocalization.text("skills.notInstalled.title"))
                 .font(.title2)
-            Text(verbatim: "The ~/.config/opencode/ directory was not found.")
+            Text(AppLocalization.text("skills.notInstalled.body"))
                 .foregroundStyle(.secondary)
-            Text(verbatim: "Install OpenCode Desktop to use this panel.")
+            Text(AppLocalization.text("skills.notInstalled.hint"))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -74,22 +82,25 @@ struct OpenCodeSkillsPageView: View {
             Divider().opacity(0.3)
             skillSectionsView(snapshot)
         }
-        .background(.regularMaterial)
+        .settingsInsetSurface(
+            in: Rectangle(),
+            palette: palette
+        )
     }
 
     private func headerView(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(verbatim: "Skills")
+                Text(AppLocalization.text("skills.header.title"))
                     .font(.headline)
                 Spacer()
-                Text(verbatim: "Read-only")
+                Text(AppLocalization.text("skills.header.readOnly"))
                     .font(.caption2)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Capsule().fill(palette.accent.opacity(0.15)))
                     .foregroundStyle(palette.accent)
             }
-            Text(verbatim: "\(snapshot.discoveredSkills.count) global · \(snapshot.builtinSkills.count) built-in")
+            Text(AppLocalization.format("skills.header.summary", snapshot.discoveredSkills.count, snapshot.builtinSkills.count))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -101,7 +112,7 @@ struct OpenCodeSkillsPageView: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary).font(.caption)
-                TextField("Filter...", text: $searchText)
+                TextField(AppLocalization.text("skills.filter.placeholder"), text: $searchText)
                     .textFieldStyle(.plain).font(.caption)
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
@@ -114,7 +125,7 @@ struct OpenCodeSkillsPageView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
-                    filterChip("All", isActive: filterSourceKind == nil && filterState == nil && !filterOnlyIssues) {
+                    filterChip(AppLocalization.text("skills.filter.all"), isActive: filterSourceKind == nil && filterState == nil && !filterOnlyIssues) {
                         filterSourceKind = nil; filterState = nil; filterOnlyIssues = false
                     }
                     ForEach(OpenCodeSkillSourceKind.allCases, id: \.self) { kind in
@@ -124,14 +135,14 @@ struct OpenCodeSkillsPageView: View {
                         }
                     }
                     Menu {
-                        Button("Any state") { filterState = nil }
-                        Button("Valid only") { filterState = .valid }
-                        Button("Warning") { filterState = .warning }
-                        Button("Invalid / Error") { filterState = .invalid }
+                        Button(AppLocalization.text("skills.filter.anyState")) { filterState = nil }
+                        Button(AppLocalization.text("skills.filter.validOnly")) { filterState = .valid }
+                        Button(AppLocalization.text("skills.filter.warning")) { filterState = .warning }
+                        Button(AppLocalization.text("skills.filter.invalid")) { filterState = .invalid }
                     } label: {
-                        filterChip(filterState?.rawValue ?? "State", isActive: filterState != nil, isMenu: true) {}
+                        filterChip(filterState?.rawValue ?? AppLocalization.text("skills.filter.state"), isActive: filterState != nil, isMenu: true) {}
                     }
-                    filterChip("Issues", isActive: filterOnlyIssues) {
+                    filterChip(AppLocalization.text("skills.filter.issues"), isActive: filterOnlyIssues) {
                         filterOnlyIssues.toggle()
                     }
                 }
@@ -160,7 +171,7 @@ struct OpenCodeSkillsPageView: View {
 
         if grouped.isEmpty {
             VStack(spacing: 8) {
-                Text(verbatim: "No skills match filter").foregroundStyle(.secondary)
+                Text(AppLocalization.text("skills.filter.empty")).foregroundStyle(.secondary)
             }.frame(maxHeight: .infinity)
         } else {
             List {
@@ -256,12 +267,14 @@ struct OpenCodeSkillsPageView: View {
     private func overviewView(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text(verbatim: "Global Skills Baseline")
+                Text(AppLocalization.text("skills.overview.title"))
                     .font(.title2).padding(.bottom, 4)
 
                 configSummarySection(snapshot)
                 agentMatrixSection(snapshot)
-                warningsSection(snapshot)
+                desktopSkillLockSection(snapshot)
+                ohMyOpenAgentSection(snapshot)
+                diagnosticsSection(snapshot)
             }
             .padding(24)
         }
@@ -271,6 +284,18 @@ struct OpenCodeSkillsPageView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
+                    Button {
+                        selectedSkillID = nil
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text(AppLocalization.text("skills.detail.backToOverview"))
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(palette.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Back to skills overview")
                     statusDot(skill.manifest.state)
                     Text(verbatim: skill.name).font(.title3.weight(.semibold))
                     Spacer()
@@ -278,13 +303,13 @@ struct OpenCodeSkillsPageView: View {
                 }
 
                 if let desc = skill.manifest.description {
-                    detailCard(icon: "doc.text", title: "Description") {
+                    detailCard(icon: "doc.text", title: AppLocalization.text("skills.detail.description")) {
                         Text(verbatim: desc).font(.callout)
                     }
                 }
 
                 if !skill.manifest.extraFields.isEmpty {
-                    detailCard(icon: "tag", title: "Metadata") {
+                    detailCard(icon: "tag", title: AppLocalization.text("skills.detail.metadata")) {
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                             ForEach(Array(skill.manifest.extraFields.sorted(by: { $0.key < $1.key })), id: \.key) { key, value in
                                 VStack(alignment: .leading, spacing: 2) {
@@ -300,7 +325,7 @@ struct OpenCodeSkillsPageView: View {
                 }
 
                 if let body = skill.manifest.bodyContent {
-                    detailCard(icon: "book.pages", title: "Skill Content") {
+                    detailCard(icon: "book.pages", title: AppLocalization.text("skills.detail.skillContent")) {
                         let preview = bodyExpanded ? body : String(body.prefix(300))
                         let needsToggle = body.count > 300
                         Text(verbatim: preview)
@@ -309,7 +334,7 @@ struct OpenCodeSkillsPageView: View {
                             .foregroundStyle(.secondary)
                         if needsToggle {
                             Button { withAnimation { bodyExpanded.toggle() } } label: {
-                                Text(verbatim: bodyExpanded ? "Collapse" : "Expand all (\(body.count) chars)")
+                                Text(verbatim: bodyExpanded ? AppLocalization.text("common.collapse") : AppLocalization.format("skills.detail.expandAll", body.count))
                                     .font(.caption2)
                                     .foregroundStyle(palette.accent)
                             }
@@ -320,14 +345,14 @@ struct OpenCodeSkillsPageView: View {
                 }
 
                 if let license = skill.manifest.license {
-                    infoLine("License", license)
+                    infoLine(AppLocalization.text("skills.detail.license"), license)
                 }
                 if let compat = skill.manifest.compatibility {
-                    infoLine("Compatibility", compat)
+                    infoLine(AppLocalization.text("skills.detail.compatibility"), compat)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "Source").font(.caption2).foregroundStyle(.tertiary)
+                    Text(AppLocalization.text("skills.detail.source")).font(.caption2).foregroundStyle(.tertiary)
                     Text(verbatim: skill.displayPath).font(.caption2).monospaced().foregroundStyle(.tertiary)
                 }
 
@@ -335,15 +360,19 @@ struct OpenCodeSkillsPageView: View {
                     Text(verbatim: "→ \(target)").font(.caption2).foregroundStyle(.tertiary)
                 }
 
+                if let lockEntry = snapshot.desktopSkillLock.entries.first(where: { $0.name == skill.name }) {
+                    desktopSkillInstallCard(lockEntry)
+                }
+
                 if !skill.duplicatePaths.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(verbatim: "Duplicates").font(.caption).foregroundStyle(.orange)
+                        Text(AppLocalization.text("skills.detail.duplicates")).font(.caption).foregroundStyle(.orange)
                         ForEach(skill.duplicatePaths, id: \.self) { Text(verbatim: $0).font(.caption2).monospaced().foregroundStyle(.secondary) }
                     }
                 }
 
                 if !skill.manifest.issues.isEmpty {
-                    detailCard(icon: "exclamationmark.triangle", title: "Issues") {
+                    detailCard(icon: "exclamationmark.triangle", title: AppLocalization.text("skills.detail.issues")) {
                         ForEach(skill.manifest.issues) { issue in
                             HStack(spacing: 6) {
                                 Circle().fill(issue.severity == .error ? .red : issue.severity == .warning ? .yellow : .blue).frame(width: 6, height: 6)
@@ -354,7 +383,7 @@ struct OpenCodeSkillsPageView: View {
                 }
 
                 if !skill.manifest.unknownFieldKeys.isEmpty {
-                    Text(verbatim: "Unknown fields: \(skill.manifest.unknownFieldKeys.joined(separator: ", ")) (\(skill.manifest.unknownFieldKeys.count))")
+                    Text(AppLocalization.format("skills.detail.unknownFields", skill.manifest.unknownFieldKeys.joined(separator: ", "), skill.manifest.unknownFieldKeys.count))
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
 
@@ -378,7 +407,10 @@ struct OpenCodeSkillsPageView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.secondary.opacity(0.06)))
+        .settingsInsetSurface(
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous),
+            palette: palette
+        )
     }
 
     private func infoLine(_ label: String, _ value: String) -> some View {
@@ -392,7 +424,7 @@ struct OpenCodeSkillsPageView: View {
         detailCard(icon: "lock.shield", title: "Permission") {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Text(verbatim: "Resolved:").font(.caption)
+                    Text(AppLocalization.text("skills.permission.resolved")).font(.caption)
                     Text(verbatim: baseline.resolvedAction.rawValue).font(.caption.weight(.medium))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Capsule().fill(
@@ -416,7 +448,7 @@ struct OpenCodeSkillsPageView: View {
     }
 
     private func configSummarySection(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
-        detailCard(icon: "gearshape.2", title: "Config Layers") {
+        detailCard(icon: "gearshape.2", title: AppLocalization.text("skills.overview.configLayers")) {
             ForEach(snapshot.configLayers, id: \.name) { layer in
                 HStack(spacing: 6) {
                     Circle()
@@ -430,12 +462,25 @@ struct OpenCodeSkillsPageView: View {
                     }
                 }
             }
+            if !snapshot.skillsPathsEntries.isEmpty || !snapshot.skillsUrlsEntries.isEmpty {
+                Divider().opacity(0.3)
+                if !snapshot.skillsPathsEntries.isEmpty {
+                    Text(AppLocalization.format("skills.config.pathsEntries", snapshot.skillsPathsEntries.count)).font(.caption2).foregroundStyle(.secondary)
+                }
+                if !snapshot.skillsUrlsEntries.isEmpty {
+                    Text(AppLocalization.format("skills.config.urlsEntries", snapshot.skillsUrlsEntries.count)).font(.caption2).foregroundStyle(.orange)
+                }
+            }
         }
     }
 
+    private var agentCardColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 200), spacing: 6, alignment: .top)]
+    }
+
     private func agentMatrixSection(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
-        detailCard(icon: "cpu", title: "Agent Matrix") {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+        detailCard(icon: "cpu", title: AppLocalization.text("skills.overview.agentMatrix")) {
+            LazyVGrid(columns: agentCardColumns, alignment: .leading, spacing: 6) {
                 ForEach(snapshot.agentMatrix) { agent in
                     HStack(spacing: 6) {
                         Circle().fill(agent.skillToolAvailable ? .green : .red).frame(width: 7, height: 7)
@@ -445,6 +490,7 @@ struct OpenCodeSkillsPageView: View {
                         }
                         Spacer()
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(6)
                     .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
                 }
@@ -452,18 +498,166 @@ struct OpenCodeSkillsPageView: View {
         }
     }
 
-    private func warningsSection(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
-        if snapshot.scopeWarnings.isEmpty { return AnyView(EmptyView()) }
-        return AnyView(
-            detailCard(icon: "exclamationmark.triangle", title: "Warnings") {
-                ForEach(Array(snapshot.scopeWarnings.enumerated()), id: \.offset) { _, w in
+    @ViewBuilder
+    private func desktopSkillLockSection(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
+        if snapshot.desktopSkillLock.detected {
+            detailCard(icon: "shippingbox", title: AppLocalization.text("skills.overview.desktopSkillLock")) {
+                HStack(spacing: 8) {
+                    Circle().fill(snapshot.desktopSkillLock.parseError == nil ? .green : .red).frame(width: 8, height: 8)
+                    Text(AppLocalization.format("skills.desktopSkillLock.version", snapshot.desktopSkillLock.version.map(String.init) ?? "unknown"))
+                        .font(.caption)
+                    Text(AppLocalization.format("skills.desktopSkillLock.installedRecords", snapshot.desktopSkillLock.entries.count))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if let error = snapshot.desktopSkillLock.parseError {
+                    Text(verbatim: error).font(.caption2).foregroundStyle(.red)
+                }
+                ForEach(snapshot.desktopSkillLock.entries.prefix(6)) { entry in
+                    desktopSkillLockRow(entry)
+                }
+            }
+        }
+    }
+
+    private func desktopSkillInstallCard(_ entry: OpenCodeDesktopSkillLockEntry) -> some View {
+        detailCard(icon: "shippingbox", title: AppLocalization.text("skills.detail.installedSource")) {
+            VStack(alignment: .leading, spacing: 4) {
+                infoLine(AppLocalization.text("skills.detail.source"), entry.source ?? "unknown")
+                if let sourceType = entry.sourceType { infoLine(AppLocalization.text("skills.detail.sourceType"), sourceType) }
+                if let pluginName = entry.pluginName { infoLine(AppLocalization.text("skills.detail.plugin"), pluginName) }
+                if let updatedAt = entry.updatedAt {
                     HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle").font(.caption2).foregroundStyle(.yellow)
-                        Text(verbatim: w).font(.caption2).foregroundStyle(.secondary)
+                        Text(AppLocalization.text("skills.detail.updated")).font(.caption).foregroundStyle(.secondary)
+                        Text(updatedAt, style: .date).font(.caption)
                     }
                 }
             }
-        )
+        }
+    }
+
+    private func desktopSkillLockRow(_ entry: OpenCodeDesktopSkillLockEntry) -> some View {
+        HStack(spacing: 6) {
+            Text(verbatim: entry.name).font(.caption.weight(.medium))
+            if let sourceType = entry.sourceType {
+                Text(verbatim: sourceType).font(.caption2).foregroundStyle(.secondary)
+            }
+            if let source = entry.source {
+                Text(verbatim: source).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+            }
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func ohMyOpenAgentSection(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
+        if snapshot.ohMyOpenAgent.detected {
+            detailCard(icon: "point.3.connected.trianglepath.dotted", title: AppLocalization.text("skills.overview.omo")) {
+                if let error = snapshot.ohMyOpenAgent.parseError {
+                    Text(verbatim: error).font(.caption2).foregroundStyle(.red)
+                } else {
+                    Text(AppLocalization.format("skills.omo.agentsCategories", snapshot.ohMyOpenAgent.agentOverrides.count, snapshot.ohMyOpenAgent.categoryOverrides.count))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    LazyVGrid(columns: agentCardColumns, alignment: .leading, spacing: 6) {
+                        ForEach(snapshot.ohMyOpenAgent.agentOverrides.prefix(12)) { agent in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 4) {
+                                    Circle().fill(agent.disabled ? .red : .green).frame(width: 6, height: 6)
+                                    Text(verbatim: agent.name).font(.caption.weight(.medium)).lineLimit(1)
+                                }
+                                if let model = agent.model {
+                                    Text(verbatim: model).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                if !agent.skillNames.isEmpty {
+                                    Text(verbatim: "skills: \(agent.skillNames.joined(separator: ", "))").font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(6)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
+                        }
+                    }
+                    if !snapshot.ohMyOpenAgent.categoryOverrides.isEmpty {
+                        Text(verbatim: "Categories: \(snapshot.ohMyOpenAgent.categoryOverrides.map(\.name).joined(separator: ", "))")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(2)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func backupManagerSection(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
+        if !snapshot.backupFiles.isEmpty {
+            detailCard(icon: "clock.arrow.circlepath", title: AppLocalization.text("skills.overview.backupManager")) {
+                Text(AppLocalization.format("skills.backup.readOnlyComparison", snapshot.backupFiles.count))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(snapshot.backupFiles.prefix(8)) { file in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(verbatim: file.fileName).font(.caption.weight(.medium)).lineLimit(1)
+                            Text(verbatim: file.parseStatus).font(.caption2).foregroundStyle(.secondary)
+                            Spacer()
+                            if let modifiedAt = file.modifiedAt {
+                                Text(modifiedAt, style: .date).font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }
+                        Text(verbatim: "→ \(file.targetName): \(file.diffSummary)").font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                        if !file.changedKeySamples.isEmpty {
+                            Text(verbatim: file.changedKeySamples.joined(separator: ", "))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(6)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func diagnosticsSection(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
+        if !snapshot.diagnostics.isEmpty {
+            detailCard(icon: "exclamationmark.triangle", title: AppLocalization.text("skills.overview.diagnostics")) {
+                ForEach(snapshot.diagnostics) { diagnostic in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: diagnosticIcon(diagnostic.severity)).font(.caption2).foregroundStyle(diagnosticColor(diagnostic.severity))
+                            Text(verbatim: diagnostic.title).font(.caption.weight(.medium))
+                            Text(verbatim: diagnostic.severity.rawValue).font(.caption2).foregroundStyle(diagnosticColor(diagnostic.severity))
+                            Spacer()
+                        }
+                        Text(verbatim: diagnostic.message).font(.caption2).foregroundStyle(.secondary)
+                        Text(verbatim: "Impact: \(diagnostic.impact)").font(.caption2).foregroundStyle(.tertiary)
+                        Text(verbatim: "Suggestion: \(diagnostic.recommendation)").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(.secondary.opacity(0.05)))
+                }
+            }
+        }
+    }
+
+    private func diagnosticIcon(_ severity: OpenCodeSkillDiagnosticSeverity) -> String {
+        switch severity {
+        case .info: "info.circle"
+        case .warning: "exclamationmark.triangle"
+        case .error: "xmark.octagon"
+        }
+    }
+
+    private func diagnosticColor(_ severity: OpenCodeSkillDiagnosticSeverity) -> Color {
+        switch severity {
+        case .info: .blue
+        case .warning: .yellow
+        case .error: .red
+        }
     }
 
     private func extractPermissionFromLayers(_ layers: [OpenCodeConfigLayerSignal]) -> Any? {
@@ -488,13 +682,13 @@ struct OpenCodeSkillsPageView: View {
         var seenKinds: Set<OpenCodeSkillSourceKind> = []
 
         let kindOrder: [(OpenCodeSkillSourceKind, String, String)] = [
-            (.opencodePlural, "folder", "OpenCode Skills"),
-            (.opencodeSingular, "folder", "OpenCode Skill (Singular)"),
-            (.claude, "link", "Claude Skills"),
-            (.agents, "person.2", "Agents Skills"),
-            (.configSkillsPath, "tray", "Custom Path Skills"),
-            (.customConfigDir, "externaldrive", "Custom Config Dir"),
-            (.builtin, "cube", "Built-in Skills"),
+            (.opencodePlural, "folder", AppLocalization.text("skills.section.opencodePlural")),
+            (.opencodeSingular, "folder", AppLocalization.text("skills.section.opencodeSingular")),
+            (.claude, "link", AppLocalization.text("skills.section.claude")),
+            (.agents, "person.2", AppLocalization.text("skills.section.agents")),
+            (.configSkillsPath, "tray", AppLocalization.text("skills.section.configSkillsPath")),
+            (.customConfigDir, "externaldrive", AppLocalization.text("skills.section.customConfigDir")),
+            (.builtin, "cube", AppLocalization.text("skills.section.builtin")),
         ]
 
         for (kind, icon, title) in kindOrder {
@@ -506,7 +700,7 @@ struct OpenCodeSkillsPageView: View {
         }
 
         for skill in filtered where !seenKinds.contains(skill.sourceKind) {
-            groups.append(SkillGroup(kind: skill.sourceKind.rawValue, icon: "questionmark", title: "Other", skills: [skill]))
+            groups.append(SkillGroup(kind: skill.sourceKind.rawValue, icon: "questionmark", title: AppLocalization.text("skills.section.other"), skills: [skill]))
             seenKinds.insert(skill.sourceKind)
         }
 
@@ -516,7 +710,7 @@ struct OpenCodeSkillsPageView: View {
                 return b.name.lowercased().contains(searchText.lowercased())
             }
             if !buFiltered.isEmpty {
-                groups.append(SkillGroup(kind: "builtin", icon: "cube", title: "Built-in Skills", skills: buFiltered))
+                groups.append(SkillGroup(kind: "builtin", icon: "cube", title: AppLocalization.text("skills.section.builtin"), skills: buFiltered))
             }
         }
 
