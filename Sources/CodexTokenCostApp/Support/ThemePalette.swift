@@ -110,3 +110,28 @@ struct TokenCostPalette {
         }
     }
 }
+
+extension TokenCostPalette: Equatable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.theme == rhs.theme
+            && lhs.accent == rhs.accent
+            && lhs.accentSecondary == rhs.accentSecondary
+            && lhs.accentSoft == rhs.accentSoft
+            && lhs.backgroundBase == rhs.backgroundBase
+            && lhs.backgroundWashTop == rhs.backgroundWashTop
+            && lhs.backgroundWashBottom == rhs.backgroundWashBottom
+            && lhs.surfaceSolidFill == rhs.surfaceSolidFill
+            && lhs.surfaceSecondarySolidFill == rhs.surfaceSecondarySolidFill
+            && lhs.cardStroke == rhs.cardStroke
+            && lhs.surfaceStroke == rhs.surfaceStroke
+            && lhs.surfaceInnerStroke == rhs.surfaceInnerStroke
+            && lhs.surfaceAccessibleStroke == rhs.surfaceAccessibleStroke
+            && lhs.cardShadow == rhs.cardShadow
+            && lhs.surfaceShadow == rhs.surfaceShadow
+            && lhs.trackBackground == rhs.trackBackground
+            && lhs.title == rhs.title
+            && lhs.subtitle == rhs.subtitle
+            && lhs.chipText == rhs.chipText
+            && lhs.chipBackground == rhs.chipBackground
+    }
+}

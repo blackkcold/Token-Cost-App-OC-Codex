@@ -238,14 +238,311 @@ final class AppPreferencesModel: ObservableObject {
             )
         }
 
-        func developerModeToggleBinding(for keyPath: WritableKeyPath<DeveloperModePreferences, Bool>) -> Binding<Bool> {
-            Binding(
-                get: { self.preferences.developerMode[keyPath: keyPath] },
-                set: { newValue in
-                    self.updatePreferences { prefs in
-                        prefs.developerMode[keyPath: keyPath] = newValue
-                    }
+    func developerModeToggleBinding(for keyPath: WritableKeyPath<DeveloperModePreferences, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { self.preferences.developerMode[keyPath: keyPath] },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.developerMode[keyPath: keyPath] = newValue
                 }
-            )
+            }
+        )
+    }
+
+    let backupService = BackupService()
+
+    @Published var backupRecords: [BackupFileRecord] = []
+    @Published var backupOverview: BackupOverview?
+    @Published var backupCompleteness: BackupCompletenessReport?
+    @Published var unmanagedBakFiles: [BakFileInfo] = []
+    @Published var backupIsWorking = false
+    @Published var backupLastError: String?
+
+    @Published var configFileGroups: [ConfigFileGroup] = []
+    @Published var backupLayerResults: [BackupLayerResult] = []
+    @Published var selectedBakFiles: Set<String> = []
+    @Published var bakFileSortOrder: BakFileSortOrder = .newestFirst
+    @Published var showBakViewer = false
+
+    var backupDirectoryBinding: Binding<String> {
+        Binding(
+            get: { self.preferences.backup.backupDirectory },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.backup.backupDirectory = newValue
+                }
+            }
+        )
+    }
+
+    var autoBackupEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.backup.autoBackupEnabled },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.backup.autoBackupEnabled = newValue
+                }
+            }
+        )
+    }
+
+    var autoBackupIntervalBinding: Binding<BackupInterval> {
+        Binding(
+            get: { self.preferences.backup.autoBackupInterval },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.backup.autoBackupInterval = newValue
+                }
+            }
+        )
+    }
+
+    var autoCleanEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.backup.autoCleanEnabled },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.backup.autoCleanEnabled = newValue
+                }
+            }
+        )
+    }
+
+    var autoCleanKeepCountBinding: Binding<Int> {
+        Binding(
+            get: { self.preferences.backup.autoCleanKeepCount },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.backup.autoCleanKeepCount = max(1, min(newValue, 100))
+                }
+            }
+        )
+    }
+
+    func toggleBackupLayer(_ layer: BackupLayer) {
+        updatePreferences { prefs in
+            if prefs.backup.enabledLayers.contains(layer) {
+                prefs.backup.enabledLayers.remove(layer)
+            } else {
+                prefs.backup.enabledLayers.insert(layer)
+            }
         }
+    }
+
+    func performBackupConfig(_ fileName: String) {
+        backupIsWorking = true
+        backupLastError = nil
+        Task {
+            do {
+                let dir = preferences.backup.backupDirectory
+                let record = try backupService.backupConfigFile(fileName, to: dir)
+                await MainActor.run {
+                    updatePreferences { $0.backup.lastBackupDate = Date() }
+                    refreshBackupState()
+                }
+                _ = record
+            } catch {
+                await MainActor.run {
+                    backupLastError = error.localizedDescription
+                }
+            }
+            await MainActor.run { backupIsWorking = false }
+        }
+    }
+
+    func performBackupAll() {
+        backupIsWorking = true
+        backupLastError = nil
+        Task {
+            do {
+                let dir = preferences.backup.backupDirectory
+                let records = try backupService.backupAllConfigs(
+                    to: dir,
+                    showDeprecated: preferences.backup.showDeprecatedFiles
+                )
+                await MainActor.run {
+                    updatePreferences { $0.backup.lastBackupDate = Date() }
+                    if preferences.backup.autoCleanEnabled {
+                        _ = try? backupService.cleanOldBackups(
+                            in: dir,
+                            keep: preferences.backup.autoCleanKeepCount
+                        )
+                        updatePreferences { $0.backup.lastCleanDate = Date() }
+                    }
+                    refreshBackupState()
+                }
+                _ = records
+            } catch {
+                await MainActor.run {
+                    backupLastError = error.localizedDescription
+                }
+            }
+            await MainActor.run { backupIsWorking = false }
+        }
+    }
+
+    func performFullLayeredBackup() {
+        backupIsWorking = true
+        backupLastError = nil
+        backupLayerResults = []
+        Task {
+            do {
+                let dir = preferences.backup.backupDirectory
+                let result = try backupService.performFullLayeredBackup(
+                    to: dir, enabledLayers: preferences.backup.enabledLayers
+                )
+                await MainActor.run {
+                    updatePreferences { $0.backup.lastBackupDate = Date() }
+                    backupLayerResults = result.layers
+                    if preferences.backup.autoCleanEnabled {
+                        try? backupService.rotateFullBackups(
+                            in: dir, keep: preferences.backup.maxBackupCount
+                        )
+                        updatePreferences { $0.backup.lastCleanDate = Date() }
+                    }
+                    refreshBackupState()
+                }
+            } catch {
+                await MainActor.run {
+                    backupLastError = error.localizedDescription
+                }
+            }
+            await MainActor.run { backupIsWorking = false }
+        }
+    }
+
+    func performBackupConfigGroup(_ group: ConfigFileGroup) {
+        backupIsWorking = true
+        backupLastError = nil
+        Task {
+            let dir = preferences.backup.backupDirectory
+            for fileStatus in group.files where fileStatus.sourceExists {
+                do {
+                    _ = try backupService.backupConfigFile(fileStatus.fileName, to: dir)
+                } catch {
+                    await MainActor.run { backupLastError = error.localizedDescription }
+                }
+            }
+            await MainActor.run {
+                updatePreferences { $0.backup.lastBackupDate = Date() }
+                refreshBackupState()
+                backupIsWorking = false
+            }
+        }
+    }
+
+    func performCleanBackups() {
+        backupIsWorking = true
+        backupLastError = nil
+        Task {
+            do {
+                let dir = preferences.backup.backupDirectory
+                _ = try backupService.cleanOldBackups(
+                    in: dir,
+                    keep: preferences.backup.autoCleanKeepCount
+                )
+                await MainActor.run {
+                    updatePreferences { $0.backup.lastCleanDate = Date() }
+                    refreshBackupState()
+                }
+            } catch {
+                await MainActor.run {
+                    backupLastError = error.localizedDescription
+                }
+            }
+            await MainActor.run { backupIsWorking = false }
+        }
+    }
+
+    var showDeprecatedFilesBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.backup.showDeprecatedFiles },
+            set: { newValue in
+                self.updatePreferences { $0.backup.showDeprecatedFiles = newValue }
+                self.refreshConfigFileGroups()
+            }
+        )
+    }
+
+    var maxBackupCountBinding: Binding<Int> {
+        Binding(
+            get: { self.preferences.backup.maxBackupCount },
+            set: { newValue in
+                self.updatePreferences { $0.backup.maxBackupCount = max(1, min(newValue, 50)) }
+            }
+        )
+    }
+
+    func refreshConfigFileGroups() {
+        let latestLayered = backupRecords.first { $0.backupType == .layered }
+        configFileGroups = BackupService.configFileGroups(
+            showDeprecated: preferences.backup.showDeprecatedFiles,
+            backupRecords: backupRecords,
+            latestLayeredDir: latestLayered?.path
+        )
+    }
+
+    func toggleBakSelection(_ id: String) {
+        if selectedBakFiles.contains(id) {
+            selectedBakFiles.remove(id)
+        } else {
+            selectedBakFiles.insert(id)
+        }
+    }
+
+    func selectAllBakFiles() {
+        selectedBakFiles = Set(unmanagedBakFiles.map { $0.id })
+    }
+
+    func deselectAllBakFiles() {
+        selectedBakFiles.removeAll()
+    }
+
+    func sortBakFiles(_ order: BakFileSortOrder) {
+        bakFileSortOrder = order
+        unmanagedBakFiles = backupService.listUnmanagedBakFiles(sortOrder: order)
+    }
+
+    func trashSelectedBakFiles() {
+        let files = unmanagedBakFiles.filter { selectedBakFiles.contains($0.id) }
+        guard !files.isEmpty else { return }
+        performTrashUnmanagedBakFiles(files)
+    }
+
+    func performTrashUnmanagedBakFiles(_ files: [BakFileInfo]) {
+        backupIsWorking = true
+        backupLastError = nil
+        Task {
+            do {
+                try backupService.trashUnmanagedBakFiles(files)
+                await MainActor.run {
+                    refreshUnmanagedBakFiles()
+                    selectedBakFiles.removeAll()
+                }
+            } catch {
+                await MainActor.run {
+                    backupLastError = error.localizedDescription
+                }
+            }
+            await MainActor.run { backupIsWorking = false }
+        }
+    }
+
+    func deleteBackupRecord(_ record: BackupFileRecord) {
+        let url = URL(fileURLWithPath: record.path)
+        try? FileManager.default.removeItem(at: url)
+        refreshBackupState()
+    }
+
+    func refreshBackupState() {
+        let dir = preferences.backup.backupDirectory
+        backupRecords = backupService.listBackups(in: dir)
+        backupOverview = backupService.overview(in: dir)
+        backupCompleteness = backupService.verifyCompleteness(in: dir)
+        refreshConfigFileGroups()
+    }
+
+    func refreshUnmanagedBakFiles() {
+        unmanagedBakFiles = backupService.listUnmanagedBakFiles(sortOrder: bakFileSortOrder)
+    }
 }
