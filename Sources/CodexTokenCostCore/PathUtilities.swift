@@ -22,7 +22,7 @@ public enum TokenCostPathUtilities {
         }
 
         let prefix = canonicalRoot.hasSuffix("/") ? canonicalRoot : canonicalRoot + "/"
-        return canonicalCandidate.hasPrefix(prefix)
+        return canonicalCandidate.lowercased().hasPrefix(prefix.lowercased())
     }
 
     public static func canonicalPathString(from path: String) -> String {

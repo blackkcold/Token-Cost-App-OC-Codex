@@ -155,6 +155,14 @@
 "overview.openCode.cacheTokens" = "Cached token";
 "overview.openCode.cacheTokensSubtitle" = "Cache read + write";
 "overview.openCode.dateRange" = "Date range %@ → %@";
+"overview.monthlyCost" = "Monthly Cost";
+"overview.opencodeTokens" = "OpenCode Tokens";
+"overview.codexSessions" = "Codex Sessions";
+"overview.balanceProviders" = "Balance Providers";
+"overview.dataSourceStatus" = "Data Source Status";
+"overview.dataSourceStatusSubtitle" = "Status of each data source";
+"overview.balanceNotRefreshed" = "Balance not refreshed";
+"overview.balanceLastRefresh" = "Balance refreshed";
 "overview.openCode.messages" = "Messages";
 "overview.openCode.nonCodexCostSubtitle" = "Total cost minus Codex subscription fee";
 "overview.openCode.subtitle" = "Current mode: %@";
@@ -376,6 +384,7 @@
 "settings.billing.codexPlan" = "Codex Plan";
 "settings.billing.customCost" = "Custom Monthly Cost";
 "settings.billing.pricingDoc" = "Pricing Documentation";
+"settings.billing.viewPricingDoc" = "View Pricing Doc";
 "settings.billing.customPlan" = "Custom Monthly Cost";
 "settings.billing.apiOnlyProviders" = "DeepSeek supports API billing only; no subscription management needed.";
 "settings.billing.customCostHint" = "Custom costs are saved in the selected currency. Use a custom cost if you want usage-based or contact-sales plans to count toward totals.";
@@ -437,7 +446,10 @@
 "settings.developerMode.localGovernance" = "Local Governance";
 "settings.developerMode.multiCurrency" = "Multi-Currency";
 "settings.developerMode.modelCompare" = "Model Compare";
+"settings.developerMode.aiAnalysis" = "AI Analysis";
 "settings.developerMode.aiAnalysisDisabled" = "AI analysis is not yet available";
+"settings.developerMode.doc.button" = "View Documentation";
+"settings.developerMode.optimize.noIssues" = "No issues found";
 "settings.action.resetDeveloperMode" = "Reset Developer Mode Only";
 
 /* Developer Mode — Optimize v1 scanner */
@@ -575,6 +587,7 @@
 "settings.backup.bakDeselectAll" = "Deselect All";
 "settings.backup.bakRemoveSelected" = "Remove Selected";
 "settings.backup.bakViewAll" = "View All";
+"settings.backup.deprecated" = "deprecated";
 "settings.backup.bakManageTitle" = "Manage .bak Files";
 "settings.backup.sortNewest" = "↑ Newest";
 "settings.backup.sortOldest" = "↓ Oldest";
@@ -655,3 +668,8 @@
 "skills.noBackupFiles" = "No backup files";
 
 "settings.backup.configureLayers" = "Backup Content Layers";
+"settings.backup.noBackupOverview" = "No backups created yet";
+"settings.backup.noBackupOverviewHint" = "Click 'Backup Now' or 'Layered Backup' above to start your first backup";
+"settings.backup.noCompletenessReport" = "No completeness report yet";
+"settings.backup.noCompletenessReportHint" = "Run a backup to see the completeness report showing which configs are backed up";
+"settings.backup.completenessHint" = "Check which config groups are backed up";

@@ -74,7 +74,7 @@ public struct SafeFileStore {
     }
 
     private func relativeURL(_ relativePath: String) -> URL {
-        let components = relativePath.split(separator: "/")
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: true)
         // Reject path traversal attempts early
         guard !components.contains(".."), !relativePath.hasPrefix("/") else {
             // Return root to ensure validate() will catch it

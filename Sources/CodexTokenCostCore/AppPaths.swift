@@ -4,7 +4,7 @@ public enum TokenCostPaths {
     public static let appDisplayName = "Token Cost App - OC Codex"
     public static let bundleIdentifier = "com.yanghaoran.CodexTokenCost"
     public static let mainExecutableName = "TokenCostApp"
-    public static let helperExecutableName = "TokenCostHelper"
+    public static let helperExecutableName = "CodexTokenCostHelper"
 
     public static var applicationSupportRoot: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first

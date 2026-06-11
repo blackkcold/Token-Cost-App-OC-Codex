@@ -9,13 +9,13 @@ final class AppPreferencesTests: XCTestCase {
             balanceRefreshMinutes: 5,
             theme: .forest,
             displayCurrency: .cny,
-            developerMode: DeveloperModePreferences(isEnabled: true, optimizeEnabled: true)
+            developerMode: DeveloperModePreferences(isEnabled: true, localGovernanceEnabled: true)
         )
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(AppPreferences.self, from: data)
         XCTAssertEqual(original, decoded)
         XCTAssertTrue(decoded.developerMode.isEnabled)
-        XCTAssertTrue(decoded.developerMode.optimizeEnabled)
+        XCTAssertTrue(decoded.developerMode.localGovernanceEnabled)
     }
 
     func testOldConfigWithoutDeveloperModeDefaultsToAllOff() throws {
@@ -25,19 +25,26 @@ final class AppPreferencesTests: XCTestCase {
         let data = json.data(using: .utf8)!
         let prefs = try JSONDecoder().decode(AppPreferences.self, from: data)
         XCTAssertFalse(prefs.developerMode.isEnabled)
-        XCTAssertFalse(prefs.developerMode.taskClassificationEnabled)
-        XCTAssertFalse(prefs.developerMode.optimizeEnabled)
         XCTAssertFalse(prefs.developerMode.localGovernanceEnabled)
-        XCTAssertFalse(prefs.developerMode.multiCurrencyEnabled)
-        XCTAssertFalse(prefs.developerMode.modelCompareEnabled)
         XCTAssertFalse(prefs.developerMode.aiAnalysisEnabled)
+    }
+
+    func testMigratedFieldsDefaultToTrue() throws {
+        let json = """
+        {"language":"zh-Hans"}
+        """
+        let data = json.data(using: .utf8)!
+        let prefs = try JSONDecoder().decode(AppPreferences.self, from: data)
+        XCTAssertTrue(prefs.taskClassificationEnabled)
+        XCTAssertTrue(prefs.optimizeEnabled)
+        XCTAssertTrue(prefs.multiCurrencyEnabled)
+        XCTAssertTrue(prefs.modelCompareEnabled)
     }
 
     func testAppPreferencesResetToDefaults() throws {
         var prefs = AppPreferences()
-        prefs.developerMode = DeveloperModePreferences(isEnabled: true, taskClassificationEnabled: true)
+        prefs.developerMode = DeveloperModePreferences(isEnabled: true)
         prefs.developerMode = DeveloperModePreferences()
         XCTAssertFalse(prefs.developerMode.isEnabled)
-        XCTAssertFalse(prefs.developerMode.taskClassificationEnabled)
     }
 }

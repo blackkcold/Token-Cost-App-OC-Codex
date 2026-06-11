@@ -56,7 +56,7 @@ struct CodexTokenCostApp: App {
             )
         }
 
-        Settings {
+        Window("Settings", id: "settings") {
             SettingsView(
                 openCodeModel: openCodeModel,
                 codexModel: codexModel,
@@ -65,7 +65,7 @@ struct CodexTokenCostApp: App {
             )
         }
         .windowResizability(.contentMinSize)
-        .defaultSize(width: 900, height: 860)
+        .defaultSize(width: 960, height: 860)
         .environment(\.locale, appPreferencesModel.preferences.language.locale)
 
         MenuBarExtra(appPreferencesModel.preferences.language == .zhHans ? "Token Cost" : "Token Cost", systemImage: "chart.bar.fill") {

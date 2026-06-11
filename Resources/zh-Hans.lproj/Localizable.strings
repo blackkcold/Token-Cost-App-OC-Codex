@@ -182,6 +182,14 @@
 "overview.summary.totalCost" = "总成本";
 "overview.summary.totalCostSubtitle" = "已启用订阅费用 + 未订阅部分 API 估算";
 "overview.openCode.dateRange" = "日期区间 %@ → %@";
+"overview.monthlyCost" = "月费";
+"overview.opencodeTokens" = "OpenCode Token";
+"overview.codexSessions" = "Codex 会话";
+"overview.balanceProviders" = "余额 Provider";
+"overview.dataSourceStatus" = "数据源状态";
+"overview.dataSourceStatusSubtitle" = "各数据源运行状态";
+"overview.balanceNotRefreshed" = "余额未刷新";
+"overview.balanceLastRefresh" = "余额已刷新";
 
 "pagination.next" = "下一页";
 "pagination.previous" = "上一页";
@@ -376,6 +384,7 @@
 "settings.billing.codexPlan" = "Codex 方案";
 "settings.billing.customCost" = "自定义月费";
 "settings.billing.pricingDoc" = "定价文档";
+"settings.billing.viewPricingDoc" = "查看定价文档";
 "settings.billing.customPlan" = "自定义月费";
 "settings.billing.apiOnlyProviders" = "DeepSeek 仅支持 API 按量计费，无需订阅管理。";
 "settings.billing.customCostHint" = "自定义费用按当前选择的计价货币保存；按量计费和 contact-sales 档位如需纳入总成本，请使用自定义费用。";
@@ -437,7 +446,10 @@
 "settings.developerMode.localGovernance" = "本地治理";
 "settings.developerMode.multiCurrency" = "多货币";
 "settings.developerMode.modelCompare" = "模型对比";
+"settings.developerMode.aiAnalysis" = "AI 分析";
 "settings.developerMode.aiAnalysisDisabled" = "AI 分析功能暂未开放";
+"settings.developerMode.doc.button" = "查看文档";
+"settings.developerMode.optimize.noIssues" = "未发现问题";
 "settings.action.resetDeveloperMode" = "仅重置开发者模式";
 
 /* Developer Mode — Optimize v1 scanner */
@@ -575,6 +587,7 @@
 "settings.backup.bakDeselectAll" = "取消全选";
 "settings.backup.bakRemoveSelected" = "移除选中";
 "settings.backup.bakViewAll" = "查看全部";
+"settings.backup.deprecated" = "已弃用";
 "settings.backup.bakManageTitle" = "管理 .bak 文件";
 "settings.backup.sortNewest" = "↑新→旧";
 "settings.backup.sortOldest" = "↓旧→新";
@@ -655,3 +668,8 @@
 "skills.noBackupFiles" = "暂无备份文件";
 
 "settings.backup.configureLayers" = "备份内容层";
+"settings.backup.noBackupOverview" = "尚未创建备份";
+"settings.backup.noBackupOverviewHint" = "点击上方「立即备份」或「分层备份」按钮开始首次备份";
+"settings.backup.noCompletenessReport" = "尚未执行完备性检查";
+"settings.backup.noCompletenessReportHint" = "执行备份后将自动显示完备性报告，帮助您了解哪些配置已备份";
+"settings.backup.completenessHint" = "核查各配置组是否已备份";

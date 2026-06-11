@@ -6,8 +6,10 @@ enum TokenCostFormatters {
         value.formatted(.number.notation(.compactName).precision(.fractionLength(1)))
     }
 
-    static func millionRate(_ value: Double) -> String {
-        String(format: "%.2fM/$", value / 1_000_000)
+    static func millionRate(_ value: Double, displayCurrency: DisplayCurrency = .usd) -> String {
+        let symbol = displayCurrency == .cny ? "¥" : "$"
+        let rate = displayCurrency == .cny ? value * TokenCostCurrencyService.defaultExchangeRateUSDToCNY : value
+        return String(format: "%.2fM/%@", rate / 1_000_000, symbol)
     }
 
     static func percent(_ value: Double) -> String {
@@ -791,5 +793,19 @@ extension View {
 
     func settingsGlassButtonStyle(prominent: Bool = false) -> some View {
         modifier(SettingsGlassButtonStyleModifier(prominent: prominent))
+    }
+}
+
+struct AdaptiveSheetSizing: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content
+                .frame(maxHeight: 700)
+                .presentationSizing(.fitted)
+        } else {
+            content
+                .frame(minWidth: 600, idealWidth: 900, minHeight: 480, idealHeight: 700)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }

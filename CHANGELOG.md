@@ -5,24 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+> 当前下一版目标为 `v0.9.2`，以下为相对 `v0.9.1` 的累计变更。
+
+### Added
+
+（待开发）
+
+## [v0.9.1] - 2026-06-11
+
+> 相对 `v0.9.0` 的累计变更。
+
+### Added
+
+- **备份管理功能**：新增「备份管理」设置 Tab，整合两大功能模块（`BackupPreferences.swift`、`BackupService.swift`、`BackupSectionView.swift`、`AppPreferencesModel.swift`）
+  - **配置文件备份**：支持分别备份 `opencode.json`、`oh-my-openagent.json` 等 OpenCode 配置文件到外部备份目录；检测并管理 `~/.config/opencode/` 下未纳入外部备份的 `.bak` 文件，通过废纸篓安全清理（需用户显式确认）
+  - **外部备份管理**：支持自定义备份目录（默认 `~/Documents/Opencode project/记忆备份/`）、自动备份（每小时/每天/每周）、自动清理（保留 N 份）、手动备份/清理按钮、备份文件列表浏览与逐条删除、备份内容概览（文件数/大小/最后备份时间）、完备性测验（应备份文件清单覆盖率）
+  - 备份操作通过 `SafeFileStore` 写入外部目录、通过 `FileManager.trashItem` 安全清理 `.bak` 文件；不新增网络调用
+
+### Changed
+
+- **Skills 页面简化**：移除 Skills Overview 中的「Backup Manager」只读卡片，备份管理功能已迁移至独立的设置 Tab（`OpenCodeSkillsPageView.swift`）
+
+### Fixed
+
+- **完备性测验显示全部为"未备份"**：`verifyCompleteness()` 此前只检查扁平文件（flat）备份记录，忽略分层目录（layered `backup-*` 目录）备份。现已改为同时扫描最新分层备份的 `config-snapshot/` 和 `global-entry/` 子目录，与扁平备份合并判断完备性（`BackupService.swift`）
+- **分层备份 config-snapshot 遗漏文件**：`backupConfigSnapshotLayer()` 此前只备份 `AGENTS.md`、`oh-my-openagent.json`、`opencode.json` 三个文件，现已改为备份 `allKnownConfigFiles` 中全部存在的配置文件，补齐 `opencode.jsonc`、`oh-my-openagent.jsonc`、`oh-my-opencode.json`、`oh-my-opencode.jsonc`、`openpets.md`
+- **openpets.md 未纳入备份配置清单**：`allKnownConfigFiles` 此前未包含 `openpets.md`，导致该文件既不参与完备性检查，也不在分层备份的 config-snapshot 中。现已补齐，并在 `configFileGroups` 的 `agents` 分组中展示
+
+### Security
+
+- **备份管理安全边界**：备份写入仅通过 `SafeFileStore` 操作外部备份目录；`.bak` 文件清理使用 `FileManager.trashItem` 移至废纸篓而非永久删除，每次清理需用户显式确认；源配置文件读取为只读操作，不修改 `~/.config/opencode/` 中任何原始文件；自动备份使用本地 Timer，不新增网络请求
+
 ## [v0.9.0] - 2026-06-09
 
 ### Added
 
 - **分层备份可配置内容层**：`BackupPreferences.enabledLayers` 控制 7 个备份层（globalEntry/globalMemory/commandsSnapshot/configSnapshot/skillsSnapshot/scripts/launchd）的启用状态，设置页提供 Toggle 列表选择（`BackupPreferences.swift`、`BackupService.swift`、`BackupSectionView.swift`、`AppPreferencesModel.swift`）
 - **Skills 面板完整中文本地化**：新增 47 个 `skills.*` 命名空间 key，覆盖标题、筛选器、分区、详情、权限、诊断等全部 UI 文本（`Resources/zh-Hans.lproj/Localizable.strings`、`Resources/en.lproj/Localizable.strings`、`OpenCodeSkillsPageView.swift`）
+- **开发者模式设置视图**：新建 `DeveloperSectionView.swift`，包含存储优化扫描（调用 `OptimizeScanner.scan()` 并展示结果）、本地治理视图、AI 分析占位（`DeveloperSectionView.swift`）
+- **设置分区视图完整实现**：8 个设置分区视图（Overview/Preferences/Billing/Balance/OpenCode/Codex/Skills/Security）从空壳 stub 重建为完整功能 UI，包含实际控件（Toggle/Picker/Stepper/TextField）、数据绑定、分页、状态指示（`Sources/CodexTokenCostApp/Views/Settings/`）
+- **MiMo 中国区年付方案**：新增 Lite/Standard/Pro/Max 四档中国区年付（¥411.84-¥6959.04/年），并新增 `mimoAnnualCN()` helper（`BillingPlanCatalog.swift`）
 
 ### Fixed
 
 - **BAK 文件移除后选中状态未清除**：`performTrashUnmanagedBakFiles()` 删除文件后未清空 `selectedBakFiles` 集合，导致按钮计数与实际列表不同步（`AppPreferencesModel.swift`）
 - **完备性测验显示 50%**：`verifyCompleteness()` 的 `expectedFiles` 使用静态文件列表，即使源文件不存在也计入期望集合；修复为仅检查实际存在的源文件（`BackupService.swift`）
+- **备份管理状态"未提供"**：`backupOverviewSection` 和 `completenessSection` 当数据为 `nil` 时不显示任何内容；新增引导卡片提示用户执行备份操作（`BackupSectionView.swift`）
+- **扫描优化按钮无响应**：`OptimizeScanner.scan()` 从未从 UI 调用；`DeveloperSectionView` 新增扫描按钮，点击触发扫描并展示 findings 列表（`DeveloperSectionView.swift`）
+- **多货币 tokens/$ 标签不切换**：`millionRate()` 硬编码 `M/$`；新增 `displayCurrency` 参数，CNY 时显示 `M/¥` 并按汇率换算值（`Components.swift`、`DetailView.swift`）
+- **MiMo Credits 额度过时**：月付 Credits 从 60M-1600M 更新为 4.1B-82B，年付从 720M-19200M 更新为 49.2B-984B（`BillingPlanCatalog.swift`、`Pricing.md`）
+- **MiMo Credit 消耗规则过时**：从简单倍率更新为具体数值（mimo-v2.5: 2/100/200, mimo-v2.5-pro: 2.5/300/600），新增夜间 0.8x 折扣说明（`Pricing.md`）
+- **OpenCodeSkillManifest.swift 截断**：文件被截断仅 75 行，缺失类型定义和 `parseFrontmatter` 函数；补全完整实现（`OpenCodeSkillManifest.swift`）
 
 ### Changed
 
 - **设置页侧边栏排序优化**：数据源组（OpenCode/Codex/Skills）上移至全局偏好之后，计费/余额组下移，安全/开发者模式下沉至末尾（`SettingsView.swift`）
 - **Skills 页面 Liquid Glass UI 升级**：`TokenCostPalette` 实现 `Equatable` 支持主题切换时视图刷新；HSplitView 背景增加阴影层；侧边栏使用 `settingsInsetSurface()` 替换裸 Material（`ThemePalette.swift`、`OpenCodeSkillsPageView.swift`）
+- **开发者模式子功能常驻化**：任务分类、存储优化、多货币、模型对比从 `DeveloperModePreferences` 迁移至 `AppPreferences` 顶层字段，默认开启（`DeveloperModePreferences.swift`、`AppPreferences.swift`）
 
-## [v0.8.2] - 2026-06-05
+## [v0.8.5] - 2026-06-07
 
 ### Fixed
 
@@ -49,30 +92,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **开发者模式四原则**：所有开发者模式功能严格遵循「本地、只读、确定性、可解释」原则；`DeveloperFileAccessPolicy` 实现允许列表/禁止列表门控，禁止访问凭证文件（`~/.codex/auth.json`、`~/.ssh/` 等）；不新增网络调用，不修改源数据（`DeveloperFileAccessPolicy.swift`、`SECURITY.md`）
 
-## [Unreleased]
-
-> 当前下一版目标为 `v0.9.0`，以下为相对 `v0.8.5` 的累计变更。
-
-### Added
-
-- **备份管理功能**：新增「备份管理」设置 Tab，整合两大功能模块（`BackupPreferences.swift`、`BackupService.swift`、`BackupSectionView.swift`、`AppPreferencesModel.swift`）
-  - **配置文件备份**：支持分别备份 `opencode.json`、`oh-my-openagent.json` 等 OpenCode 配置文件到外部备份目录；检测并管理 `~/.config/opencode/` 下未纳入外部备份的 `.bak` 文件，通过废纸篓安全清理（需用户显式确认）
-  - **外部备份管理**：支持自定义备份目录（默认 `~/Documents/Opencode project/记忆备份/`）、自动备份（每小时/每天/每周）、自动清理（保留 N 份）、手动备份/清理按钮、备份文件列表浏览与逐条删除、备份内容概览（文件数/大小/最后备份时间）、完备性测验（应备份文件清单覆盖率）
-  - 备份操作通过 `SafeFileStore` 写入外部目录、通过 `FileManager.trashItem` 安全清理 `.bak` 文件；不新增网络调用
-
-### Changed
-
-- **Skills 页面简化**：移除 Skills Overview 中的「Backup Manager」只读卡片，备份管理功能已迁移至独立的设置 Tab（`OpenCodeSkillsPageView.swift`）
+## [v0.8.2] - 2026-06-05
 
 ### Fixed
 
-- **完备性测验显示全部为"未备份"**：`verifyCompleteness()` 此前只检查扁平文件（flat）备份记录，忽略分层目录（layered `backup-*` 目录）备份。现已改为同时扫描最新分层备份的 `config-snapshot/` 和 `global-entry/` 子目录，与扁平备份合并判断完备性（`BackupService.swift`）
-- **分层备份 config-snapshot 遗漏文件**：`backupConfigSnapshotLayer()` 此前只备份 `AGENTS.md`、`oh-my-openagent.json`、`opencode.json` 三个文件，现已改为备份 `allKnownConfigFiles` 中全部存在的配置文件，补齐 `opencode.jsonc`、`oh-my-openagent.jsonc`、`oh-my-opencode.json`、`oh-my-opencode.jsonc`、`openpets.md`
-- **openpets.md 未纳入备份配置清单**：`allKnownConfigFiles` 此前未包含 `openpets.md`，导致该文件既不参与完备性检查，也不在分层备份的 config-snapshot 中。现已补齐，并在 `configFileGroups` 的 `agents` 分组中展示
-
-### Security
-
-- **备份管理安全边界**：备份写入仅通过 `SafeFileStore` 操作外部备份目录；`.bak` 文件清理使用 `FileManager.trashItem` 移至废纸篓而非永久删除，每次清理需用户显式确认；源配置文件读取为只读操作，不修改 `~/.config/opencode/` 中任何原始文件；自动备份使用本地 Timer，不新增网络请求
+- **DeepSeek reasoning tokens 未计入成本**：`apiCost()` 新增 `reasoning` 参数，reasoning tokens 按 output 费率计费；修复 DeepSeek V4 Pro thinking mode 下 `syntheticApiCost` 被严重低估的问题，导致 Provider 性价比排行虚高（`DashboardAnalytics.swift`）
+- **模型对比排行成本分配偏差**：`buildModelComparisonRows()` 从 Provider 总成本按 token 比例分配改为各模型独立计算 `apiCost()`，消除同一 Provider 内不同单价的模型（V4 Flash vs V4 Pro）之间的成本均摊偏差（`DashboardAnalytics.swift`）
+- **Provider 成本优先使用 app 定价目录**：`providerEffectiveCosts()`、`combinedMonthlyCost()`、`openCodeOverviewCost()` 三处统一将 `syntheticApiCost` 优先级提到 `rawCost` 之前，避免 OpenCode 写入的过时 `$.cost` 污染排名和总览月费（`DashboardAnalytics.swift`、`BillingPlanCatalog.swift`）
 
 ## [v0.8.1] - 2026-06-05
 
@@ -315,7 +341,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[v0.8.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.7.0...HEAD
+[v0.9.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.0...v0.9.1
+[v0.9.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.5...v0.9.0
+[v0.8.5]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.2...v0.8.5
+[v0.8.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.1...v0.8.2
+[v0.8.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.0...v0.8.1
+[v0.8.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.7.0...v0.8.0
 [v0.7.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.6.0...v0.7.0
 [v0.6.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.5.1...v0.6.0
 [v0.5.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.1.1...v0.5.0

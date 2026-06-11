@@ -61,12 +61,75 @@ struct SettingsView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 900, minHeight: 720)
+        .frame(minWidth: 780, minHeight: 600)
         .sheet(isPresented: $isPricingDocPresented) {
             PricingDocView(palette: palette)
         }
         .sheet(isPresented: $isDeveloperDocPresented) {
             DeveloperModeDocView(palette: palette)
+        }
+        .onChange(of: isTestingGoConnection) { _, newValue in
+            guard newValue else { return }
+            Task {
+                let allowEnv = appPreferencesModel.preferences.balanceConfig?.allowEnvironmentCredentials ?? false
+                let checker = OpenCodeGoBalanceChecker(allowEnvironmentCredentials: allowEnv)
+                guard let apiKey = AuthTokenProvider.token(for: .opencodeGo) else {
+                    goTestResultAlertTitle = AppLocalization.text("settings.opencodeGo.test.failed")
+                    goTestResultAlertMessage = AppLocalization.text("settings.opencodeGo.test.noApiKey")
+                    showGoTestResultAlert = true
+                    isTestingGoConnection = false
+                    return
+                }
+                let snapshot = await balanceManager.testSnapshot(for: checker, authToken: apiKey)
+                if snapshot.isAvailable {
+                    goTestResultAlertTitle = AppLocalization.text("settings.opencodeGo.test.success")
+                    goTestResultAlertMessage = AppLocalization.text("settings.opencodeGo.test.successMessage")
+                } else {
+                    goTestResultAlertTitle = AppLocalization.text("settings.opencodeGo.test.failed")
+                    goTestResultAlertMessage = snapshot.errorMessage ?? AppLocalization.text("settings.opencodeGo.test.unknownError")
+                }
+                showGoTestResultAlert = true
+                isTestingGoConnection = false
+            }
+        }
+        .alert(goTestResultAlertTitle, isPresented: $showGoTestResultAlert) {
+            Button(AppLocalization.text("settings.action.close"), role: .cancel) {}
+        } message: {
+            Text(goTestResultAlertMessage)
+        }
+        .confirmationDialog(
+            AppLocalization.text("settings.opencodeGo.import.confirmTitle"),
+            isPresented: $showBrowserImportAlert,
+            titleVisibility: .visible
+        ) {
+            Button(AppLocalization.text("settings.action.continueImport")) {
+                isImportingFromBrowser = true
+                Task.detached {
+                    let result = BrowserCookieExtractor.extractCredentials()
+                    await MainActor.run {
+                        if let cookie = result.cookie, !cookie.isEmpty {
+                            goCookieInput = cookie
+                            SecureCredentialStore.shared.saveAuthCookie(cookie)
+                            goCookieSaved = true
+                        }
+                        if let workspaceID = result.workspaceID, !workspaceID.isEmpty {
+                            appPreferencesModel.updatePreferences { prefs in
+                                prefs.opencodeGoWorkspaceID = workspaceID
+                            }
+                            SecureCredentialStore.shared.saveWorkspaceID(workspaceID)
+                        }
+                        if result.cookie != nil || result.workspaceID != nil {
+                            browserImportMessage = AppLocalization.text("settings.opencodeGo.import.success")
+                        } else {
+                            browserImportMessage = AppLocalization.text("settings.opencodeGo.import.noBrowser")
+                        }
+                        isImportingFromBrowser = false
+                    }
+                }
+            }
+            Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {}
+        } message: {
+            Text(AppLocalization.text("settings.opencodeGo.import.confirmMessage"))
         }
     }
 

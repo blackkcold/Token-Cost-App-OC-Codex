@@ -6,7 +6,6 @@ struct CodexTokenCostCommands: Commands {
     @ObservedObject var codexModel: CodexSessionModel
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
 
     var body: some Commands {
         CommandMenu(AppLocalization.text("menu.appTitle")) {
@@ -22,9 +21,11 @@ struct CodexTokenCostCommands: Commands {
                 openWindow(id: "main")
             }
             .keyboardShortcut("1", modifiers: [.command])
+        }
 
+        CommandGroup(replacing: .appSettings) {
             Button(AppLocalization.text("menu.openSettings")) {
-                openSettings()
+                openWindow(id: "settings")
             }
             .keyboardShortcut(",", modifiers: [.command])
         }

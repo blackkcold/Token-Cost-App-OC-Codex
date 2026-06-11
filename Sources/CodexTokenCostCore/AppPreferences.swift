@@ -54,6 +54,11 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var balanceConfig: BalanceConfiguration?
     public var skillsPanel: SkillsPanelPreferences
     public var developerMode: DeveloperModePreferences
+    public var backup: BackupPreferences
+    public var taskClassificationEnabled: Bool
+    public var optimizeEnabled: Bool
+    public var multiCurrencyEnabled: Bool
+    public var modelCompareEnabled: Bool
 
     public init(
         language: AppDisplayLanguage = .zhHans,
@@ -65,7 +70,12 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         displayCurrency: DisplayCurrency = .usd,
         skillsPanel: SkillsPanelPreferences = SkillsPanelPreferences(),
         developerMode: DeveloperModePreferences = DeveloperModePreferences(),
-        balanceConfig: BalanceConfiguration? = nil
+        balanceConfig: BalanceConfiguration? = nil,
+        backup: BackupPreferences = BackupPreferences(),
+        taskClassificationEnabled: Bool = true,
+        optimizeEnabled: Bool = true,
+        multiCurrencyEnabled: Bool = true,
+        modelCompareEnabled: Bool = true
     ) {
         self.language = language
         self.billingSelectionsByProvider = billingSelectionsByProvider
@@ -77,6 +87,11 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.skillsPanel = skillsPanel
         self.developerMode = developerMode
         self.balanceConfig = balanceConfig
+        self.backup = backup
+        self.taskClassificationEnabled = taskClassificationEnabled
+        self.optimizeEnabled = optimizeEnabled
+        self.multiCurrencyEnabled = multiCurrencyEnabled
+        self.modelCompareEnabled = modelCompareEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -90,6 +105,11 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case balanceConfig = "balance_config"
         case skillsPanel
         case developerMode
+        case backup
+        case taskClassificationEnabled = "task_classification_enabled"
+        case optimizeEnabled = "optimize_enabled"
+        case multiCurrencyEnabled = "multi_currency_enabled"
+        case modelCompareEnabled = "model_compare_enabled"
     }
 
     private enum DecodingKeys: String, CodingKey {
@@ -103,6 +123,11 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case balanceConfig
         case skillsPanel
         case developerMode
+        case backup
+        case taskClassificationEnabled
+        case optimizeEnabled
+        case multiCurrencyEnabled
+        case modelCompareEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -143,6 +168,21 @@ public struct AppPreferences: Codable, Equatable, Sendable {
             ?? DeveloperModePreferences()
         self.balanceConfig = try container.decodeIfPresent(BalanceConfiguration.self, forKey: .balanceConfig)
             ?? legacyContainer?.decodeIfPresent(BalanceConfiguration.self, forKey: .balanceConfig)
+        self.backup = try container.decodeIfPresent(BackupPreferences.self, forKey: .backup)
+            ?? legacyContainer?.decodeIfPresent(BackupPreferences.self, forKey: .backup)
+            ?? BackupPreferences()
+        self.taskClassificationEnabled = try container.decodeIfPresent(Bool.self, forKey: .taskClassificationEnabled)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .taskClassificationEnabled)
+            ?? true
+        self.optimizeEnabled = try container.decodeIfPresent(Bool.self, forKey: .optimizeEnabled)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .optimizeEnabled)
+            ?? true
+        self.multiCurrencyEnabled = try container.decodeIfPresent(Bool.self, forKey: .multiCurrencyEnabled)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .multiCurrencyEnabled)
+            ?? true
+        self.modelCompareEnabled = try container.decodeIfPresent(Bool.self, forKey: .modelCompareEnabled)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .modelCompareEnabled)
+            ?? true
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -157,6 +197,11 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(skillsPanel, forKey: .skillsPanel)
         try container.encode(developerMode, forKey: .developerMode)
         try container.encodeIfPresent(balanceConfig, forKey: .balanceConfig)
+        try container.encode(backup, forKey: .backup)
+        try container.encode(taskClassificationEnabled, forKey: .taskClassificationEnabled)
+        try container.encode(optimizeEnabled, forKey: .optimizeEnabled)
+        try container.encode(multiCurrencyEnabled, forKey: .multiCurrencyEnabled)
+        try container.encode(modelCompareEnabled, forKey: .modelCompareEnabled)
     }
 
     /// Returns a copy of preferences with the given balanceConfig applied.

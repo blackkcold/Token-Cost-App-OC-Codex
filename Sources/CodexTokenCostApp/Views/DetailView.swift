@@ -268,7 +268,7 @@ struct DetailView: View {
                             tint: TokenCostSeriesPalette.color(for: row.colorKey),
                             palette: palette,
                             suffix: providerRankSuffix(row),
-                            valueLabel: TokenCostFormatters.millionRate(row.tokensPerDollar)
+                            valueLabel: TokenCostFormatters.millionRate(row.tokensPerDollar, displayCurrency: appPreferencesModel.preferences.displayCurrency)
                         )
                     }
                 }
@@ -302,11 +302,11 @@ struct DetailView: View {
                             tint: TokenCostSeriesPalette.color(for: row.colorKey),
                             palette: palette,
                             suffix: "\(row.provider) · \(modelCostLabel(row))",
-                            valueLabel: TokenCostFormatters.millionRate(row.tokensPerDollar)
+                            valueLabel: TokenCostFormatters.millionRate(row.tokensPerDollar, displayCurrency: appPreferencesModel.preferences.displayCurrency)
                         )
                     }
 
-                    if appPreferencesModel.preferences.developerMode.modelCompareEnabled {
+                    if appPreferencesModel.preferences.modelCompareEnabled {
                         Text(AppLocalization.text("developerMode.modelCompare.disclaimer"))
                             .font(.caption2)
                             .foregroundStyle(.tertiary)

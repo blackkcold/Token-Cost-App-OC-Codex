@@ -224,8 +224,8 @@ struct OpenCodeSkillsPageView: View {
                     if skill.isSymlink {
                         Image(systemName: "link").font(.system(size: 8)).foregroundStyle(.secondary)
                     }
-                    if !skill.manifest.extraFields.isEmpty {
-                        ForEach(Array(skill.manifest.extraFields.keys.prefix(2)), id: \.self) { key in
+                    if let extraFields = skill.manifest.extraFields, !extraFields.isEmpty {
+                        ForEach(Array(extraFields.keys.prefix(2)), id: \.self) { key in
                             Text(verbatim: key).font(.system(size: 7))
                                 .padding(.horizontal, 4).padding(.vertical, 1)
                                 .background(Capsule().fill(.secondary.opacity(0.1)))
@@ -308,10 +308,10 @@ struct OpenCodeSkillsPageView: View {
                     }
                 }
 
-                if !skill.manifest.extraFields.isEmpty {
+                if let extraFields = skill.manifest.extraFields, !extraFields.isEmpty {
                     detailCard(icon: "tag", title: AppLocalization.text("skills.detail.metadata")) {
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
-                            ForEach(Array(skill.manifest.extraFields.sorted(by: { $0.key < $1.key })), id: \.key) { key, value in
+                            ForEach(Array(extraFields.sorted(by: { $0.key < $1.key })), id: \.key) { key, value in
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(verbatim: key).font(.caption2).foregroundStyle(.secondary)
                                     Text(verbatim: String(value.prefix(80))).font(.caption).lineLimit(2)

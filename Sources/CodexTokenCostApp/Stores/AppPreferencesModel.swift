@@ -188,6 +188,50 @@ final class AppPreferencesModel: ObservableObject {
         preferences.balanceConfig ?? BalanceConfiguration()
     }
 
+    var taskClassificationEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.taskClassificationEnabled },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.taskClassificationEnabled = newValue
+                }
+            }
+        )
+    }
+
+    var optimizeEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.optimizeEnabled },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.optimizeEnabled = newValue
+                }
+            }
+        )
+    }
+
+    var multiCurrencyEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.multiCurrencyEnabled },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.multiCurrencyEnabled = newValue
+                }
+            }
+        )
+    }
+
+    var modelCompareEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.modelCompareEnabled },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.modelCompareEnabled = newValue
+                }
+            }
+        )
+    }
+
     func updatePreferences(_ mutate: (inout AppPreferences) -> Void) {
         var updated = preferences
         mutate(&updated)

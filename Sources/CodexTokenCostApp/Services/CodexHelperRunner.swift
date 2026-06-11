@@ -18,8 +18,25 @@ enum CodexHelperRunnerError: LocalizedError {
     }
 }
 
+private final class PipeBuffer: @unchecked Sendable {
+    private var data = Data()
+    private let lock = NSLock()
+
+    func append(_ newData: Data) {
+        lock.lock()
+        data.append(newData)
+        lock.unlock()
+    }
+
+    func read() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
+    }
+}
+
 enum CodexHelperRunner {
-    static func loadPayload(settings: TokenCostSettings, timeout: TimeInterval = 15) throws -> CodexDashboardPayload {
+    static func loadPayload(settings: TokenCostSettings, timeout: TimeInterval = 30) throws -> CodexDashboardPayload {
         let process = Process()
         process.executableURL = CodexAppPaths.helperBinaryURL
         process.arguments = buildArguments(for: settings)
@@ -29,30 +46,54 @@ enum CodexHelperRunner {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let stdoutBuffer = PipeBuffer()
+        let stderrBuffer = PipeBuffer()
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            } else {
+                stdoutBuffer.append(data)
+            }
+        }
+
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+            } else {
+                stderrBuffer.append(data)
+            }
+        }
+
         let timeoutItem = DispatchWorkItem {
             if process.isRunning {
                 process.terminate()
             }
         }
+        defer { timeoutItem.cancel() }
 
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
 
         try process.run()
         process.waitUntilExit()
-        timeoutItem.cancel()
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+        let finalStdout = stdoutBuffer.read()
+        let finalStderr = stderrBuffer.read()
 
         guard process.terminationStatus == 0 else {
-            let stderrText = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let stderrText = String(data: finalStderr, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             throw CodexHelperRunnerError.processFailed(status: process.terminationStatus, stderr: stderrText)
         }
 
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         do {
-            return try decoder.decode(CodexDashboardPayload.self, from: stdoutData)
+            return try decoder.decode(CodexDashboardPayload.self, from: finalStdout)
         } catch {
             throw CodexHelperRunnerError.invalidOutput("Codex helper output could not be decoded: \(error.localizedDescription)")
         }
@@ -66,6 +107,8 @@ enum CodexHelperRunner {
         for path in settings.effectiveManualSourcePaths {
             arguments.append(contentsOf: ["--manual-source-path", path])
         }
+        arguments.append(contentsOf: ["--max-depth", "\(settings.maxScanDepth)"])
+        arguments.append(contentsOf: ["--max-candidates", "\(settings.maxScanCandidates)"])
         return arguments
     }
 }

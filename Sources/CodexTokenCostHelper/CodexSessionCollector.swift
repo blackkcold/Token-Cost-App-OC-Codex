@@ -17,15 +17,21 @@ public final class CodexSessionCollector {
     private let sourceRoots: [URL]
     private let manualSourcePaths: [URL]
     private let profile: TokenCostSourceProfile
+    private let maxDepth: Int
+    private let maxCandidates: Int
 
     public init(
         sourceRoots: [URL] = [],
         manualSourcePaths: [URL] = [],
-        profile: TokenCostSourceProfile = .codex
+        profile: TokenCostSourceProfile = .codex,
+        maxDepth: Int = 6,
+        maxCandidates: Int = 256
     ) {
         self.sourceRoots = sourceRoots
         self.manualSourcePaths = manualSourcePaths
         self.profile = profile
+        self.maxDepth = maxDepth
+        self.maxCandidates = maxCandidates
     }
 
     public func loadPayload() throws -> CodexDashboardPayload {
@@ -40,6 +46,7 @@ public final class CodexSessionCollector {
 
         for configuredPath in effectiveSourceRoots + effectiveManualSourcePaths {
             collectConfiguredPath(configuredPath, seen: &seen, into: &urls)
+            if urls.count >= maxCandidates { break }
         }
 
         return urls.sorted { lhs, rhs in
@@ -81,8 +88,18 @@ public final class CodexSessionCollector {
             return
         }
 
+        let rootComponents = root.standardizedFileURL.pathComponents.count
+
         for case let itemURL as URL in enumerator {
+            if urls.count >= maxCandidates { break }
+
             let canonical = TokenCostPathUtilities.canonicalURL(itemURL)
+            let relativeDepth = canonical.standardizedFileURL.pathComponents.count - rootComponents
+            if relativeDepth > maxDepth {
+                enumerator.skipDescendants()
+                continue
+            }
+
             guard TokenCostPathUtilities.isDescendant(canonical, of: root) else {
                 continue
             }
@@ -103,26 +120,29 @@ public final class CodexSessionCollector {
 
     private func parseSessionFile(_ url: URL) -> CodexSessionSummary? {
         do {
-            let contents = try String(contentsOf: url, encoding: .utf8)
+            let fileHandle = try FileHandle(forReadingFrom: url)
+            defer { fileHandle.closeFile() }
+
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
 
             var accumulator = SessionAccumulator()
             accumulator.updatedAt = modificationTimestamp(for: url) ?? ISO8601DateFormatter().string(from: Date())
 
-            for line in contents.split(whereSeparator: \.isNewline) {
-                guard let data = line.data(using: .utf8),
-                      let rawObject = try? JSONSerialization.jsonObject(with: data, options: []),
-                      let event = try? decoder.decode(SessionLine.self, from: data) else {
-                    if let data = line.data(using: .utf8),
-                       let rawObject = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
-                        processGenericLine(rawObject, accumulator: &accumulator, fallbackPath: url)
-                    }
-                    continue
-                }
+            let data = fileHandle.readDataToEndOfFile()
+            guard let contents = String(data: data, encoding: .utf8) else {
+                return nil
+            }
 
-                let rawLine = rawObject as? [String: Any]
-                processTypedLine(event, rawLine: rawLine, accumulator: &accumulator, fallbackPath: url)
+            for line in contents.split(whereSeparator: \.isNewline) {
+                guard let lineData = line.data(using: .utf8) else { continue }
+
+                if let event = try? decoder.decode(SessionLine.self, from: lineData) {
+                    let rawLine = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any]
+                    processTypedLine(event, rawLine: rawLine, accumulator: &accumulator, fallbackPath: url)
+                } else if let rawObject = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
+                    processGenericLine(rawObject, accumulator: &accumulator, fallbackPath: url)
+                }
             }
 
             guard accumulator.hasAnyData else {
@@ -172,7 +192,7 @@ public final class CodexSessionCollector {
         case "event_msg":
             let rawPayload = rawLine.flatMap { dictionaryValue($0["payload"]) }
             let absoluteUsage = event.payload.info?.totalTokenUsage.map { codexTokenUsage(from: $0) }
-                ?? rawPayload.flatMap { extractAbsoluteUsage(from: $0) }
+                ?? rawPayload.flatMap { extractAbsoluteUsage(from: $0, depth: 0) }
 
             if event.payload.payloadType == "token_count" || absoluteUsage != nil {
                 accumulator.recordTokenEvent(at: event.timestamp)
@@ -192,7 +212,7 @@ public final class CodexSessionCollector {
 
         default:
             if let rawPayload = rawLine.flatMap({ dictionaryValue($0["payload"]) ?? $0 }),
-               let usage = extractAbsoluteUsage(from: rawPayload) {
+               let usage = extractAbsoluteUsage(from: rawPayload, depth: 0) {
                 accumulator.recordTokenEvent(at: event.timestamp)
                 accumulator.recordAbsoluteUsage(usage, planType: nil, modelContextWindow: nil, timestamp: event.timestamp)
             } else if let rawPayload = rawLine.flatMap({ dictionaryValue($0["payload"]) ?? $0 }) {
@@ -218,7 +238,7 @@ public final class CodexSessionCollector {
             return
         }
 
-        if let usage = extractAbsoluteUsage(from: rawPayload) {
+        if let usage = extractAbsoluteUsage(from: rawPayload, depth: 0) {
             accumulator.recordTokenEvent(at: timestamp)
             accumulator.recordAbsoluteUsage(usage, planType: planType(from: rawPayload), modelContextWindow: modelContextWindow(from: rawPayload), timestamp: timestamp)
             return
@@ -251,8 +271,8 @@ public final class CodexSessionCollector {
         }
     }
 
-    private func extractAbsoluteUsage(from object: Any?) -> CodexTokenUsage? {
-        guard let dict = dictionaryValue(object) else {
+    private func extractAbsoluteUsage(from object: Any?, depth: Int) -> CodexTokenUsage? {
+        guard depth < 20, let dict = dictionaryValue(object) else {
             return nil
         }
 
@@ -263,12 +283,12 @@ public final class CodexSessionCollector {
         let nestedKeys = [
             "total_token_usage",
             "totalTokenUsage",
+            "usage",
+            "info",
             "token_usage",
             "tokenUsage",
-            "usage",
             "codex_totals",
             "codexTotals",
-            "info",
             "payload",
             "data",
             "details",
@@ -277,7 +297,7 @@ public final class CodexSessionCollector {
         ]
 
         for key in nestedKeys {
-            if let usage = extractAbsoluteUsage(from: dict[key]) {
+            if let usage = extractAbsoluteUsage(from: dict[key], depth: depth + 1) {
                 return usage
             }
         }

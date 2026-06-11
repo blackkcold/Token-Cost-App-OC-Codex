@@ -31,7 +31,7 @@ public struct OpenCodeSkillRecord: Identifiable, Codable, Hashable, Sendable {
         isSymlink: Bool = false,
         targetCanonicalPath: String? = nil
     ) {
-        self.id = UUID().uuidString
+        self.id = canonicalPath
         self.name = name
         self.canonicalPath = canonicalPath
         self.displayPath = displayPath

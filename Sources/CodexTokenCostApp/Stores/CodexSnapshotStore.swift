@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import CodexTokenCostCore
 
 public final class CodexSnapshotStore {
@@ -69,7 +70,9 @@ public final class CodexSnapshotStore {
         let seed = [settings.sourceFamily.rawValue]
             + settings.effectiveSourceRoots.map { TokenCostPathUtilities.canonicalPathString(from: $0) }
             + settings.effectiveManualSourcePaths.map { TokenCostPathUtilities.canonicalPathString(from: $0) }
-        return TokenCostPaths.stableIdentifier(for: seed.joined(separator: "|"))
+        let data = Data(seed.joined(separator: "|").utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
     private func timestamp() -> String {

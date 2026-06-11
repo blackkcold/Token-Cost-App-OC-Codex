@@ -93,7 +93,7 @@ public struct TokenCostSourceProfile: Hashable, Sendable {
         defaultManualSourcePaths: [
             "~/.local/share/opencode/opencode.db"
         ],
-        filenameHints: ["opencode", "open-code", "open code", "desktop"],
+        filenameHints: ["opencode", "open-code", "open code", "opencodedesktop"],
         allowedExtensions: ["db", "sqlite", "sqlite3"],
         preferredLocationKind: .directory,
         maxScanDepth: 3,

@@ -57,6 +57,10 @@ public struct OpenCodeSkillsReadOnlySnapshot {
     public let desktopLocalStateIgnored: Bool
     public let ohMyOpenAgentDetected: Bool
     public let historicalBakCount: Int
+    public let desktopSkillLock: OpenCodeDesktopSkillLockSignal
+    public let ohMyOpenAgent: OpenCodeOhMyAgentSignal
+    public let diagnostics: [OpenCodeSkillDiagnosticEntry]
+    public let backupFiles: [OpenCodeSkillBackupFileEntry]
 
     public init(
         discoveredSkills: [OpenCodeSkillRecord] = [],
@@ -71,7 +75,11 @@ public struct OpenCodeSkillsReadOnlySnapshot {
         skillsUrlsEntries: [String] = [],
         desktopLocalStateIgnored: Bool = false,
         ohMyOpenAgentDetected: Bool = false,
-        historicalBakCount: Int = 0
+        historicalBakCount: Int = 0,
+        desktopSkillLock: OpenCodeDesktopSkillLockSignal = OpenCodeDesktopSkillLockSignal(),
+        ohMyOpenAgent: OpenCodeOhMyAgentSignal = OpenCodeOhMyAgentSignal(),
+        diagnostics: [OpenCodeSkillDiagnosticEntry] = [],
+        backupFiles: [OpenCodeSkillBackupFileEntry] = []
     ) {
         self.discoveredSkills = discoveredSkills
         self.builtinSkills = builtinSkills
@@ -87,6 +95,10 @@ public struct OpenCodeSkillsReadOnlySnapshot {
         self.desktopLocalStateIgnored = desktopLocalStateIgnored
         self.ohMyOpenAgentDetected = ohMyOpenAgentDetected
         self.historicalBakCount = historicalBakCount
+        self.desktopSkillLock = desktopSkillLock
+        self.ohMyOpenAgent = ohMyOpenAgent
+        self.diagnostics = diagnostics
+        self.backupFiles = backupFiles
     }
 }
 

@@ -230,18 +230,22 @@ public enum BillingPlanCatalog {
         minimax(id: "minimax-max-speed-monthly", name: "Max 极速版", cny: 199, usage: "M2.7-highspeed 4,500 次请求/5小时"),
         minimax(id: "minimax-ultra-speed-monthly", name: "Ultra 极速版", cny: 899, usage: "M2.7-highspeed 30,000 次请求/5小时"),
         mimo(id: "mimo-current-default", name: "当前默认费用", cny: 34.9, usd: nil, credits: "保持现有 App 默认费用"),
-        mimo(id: "mimo-lite-cn-monthly", name: "Lite 中国区", cny: 39, usd: nil, credits: "60M credits/月；入门探索"),
-        mimo(id: "mimo-standard-cn-monthly", name: "Standard 中国区", cny: 99, usd: nil, credits: "200M credits/月；日常使用"),
-        mimo(id: "mimo-pro-cn-monthly", name: "Pro 中国区", cny: 329, usd: nil, credits: "700M credits/月；专业工作流"),
-        mimo(id: "mimo-max-cn-monthly", name: "Max 中国区", cny: 659, usd: nil, credits: "1600M credits/月；高频重度使用"),
-        mimo(id: "mimo-lite-global-monthly", name: "Lite 海外", cny: nil, usd: 6, credits: "60M credits/月；入门探索"),
-        mimo(id: "mimo-standard-global-monthly", name: "Standard 海外", cny: nil, usd: 16, credits: "200M credits/月；日常使用"),
-        mimo(id: "mimo-pro-global-monthly", name: "Pro 海外", cny: nil, usd: 50, credits: "700M credits/月；专业工作流"),
-        mimo(id: "mimo-max-global-monthly", name: "Max 海外", cny: nil, usd: 100, credits: "1600M credits/月；高频重度使用"),
-        mimoAnnual(id: "mimo-lite-global-annual", name: "Lite 海外年付", usdAnnual: 63.36, credits: "720M credits/年"),
-        mimoAnnual(id: "mimo-standard-global-annual", name: "Standard 海外年付", usdAnnual: 168.96, credits: "2400M credits/年"),
-        mimoAnnual(id: "mimo-pro-global-annual", name: "Pro 海外年付", usdAnnual: 528, credits: "8400M credits/年"),
-        mimoAnnual(id: "mimo-max-global-annual", name: "Max 海外年付", usdAnnual: 1056, credits: "19200M credits/年")
+        mimo(id: "mimo-lite-cn-monthly", name: "Lite 中国区", cny: 39, usd: nil, credits: "4.1B credits/月；入门探索"),
+        mimo(id: "mimo-standard-cn-monthly", name: "Standard 中国区", cny: 99, usd: nil, credits: "11B credits/月；日常使用"),
+        mimo(id: "mimo-pro-cn-monthly", name: "Pro 中国区", cny: 329, usd: nil, credits: "38B credits/月；专业工作流"),
+        mimo(id: "mimo-max-cn-monthly", name: "Max 中国区", cny: 659, usd: nil, credits: "82B credits/月；高频重度使用"),
+        mimo(id: "mimo-lite-global-monthly", name: "Lite 海外", cny: nil, usd: 6, credits: "4.1B credits/月；入门探索"),
+        mimo(id: "mimo-standard-global-monthly", name: "Standard 海外", cny: nil, usd: 16, credits: "11B credits/月；日常使用"),
+        mimo(id: "mimo-pro-global-monthly", name: "Pro 海外", cny: nil, usd: 50, credits: "38B credits/月；专业工作流"),
+        mimo(id: "mimo-max-global-monthly", name: "Max 海外", cny: nil, usd: 100, credits: "82B credits/月；高频重度使用"),
+        mimoAnnualCN(id: "mimo-lite-cn-annual", name: "Lite 中国区年付", cnyAnnual: 411.84, credits: "49.2B credits/年"),
+        mimoAnnualCN(id: "mimo-standard-cn-annual", name: "Standard 中国区年付", cnyAnnual: 1045.44, credits: "132B credits/年"),
+        mimoAnnualCN(id: "mimo-pro-cn-annual", name: "Pro 中国区年付", cnyAnnual: 3474.24, credits: "456B credits/年"),
+        mimoAnnualCN(id: "mimo-max-cn-annual", name: "Max 中国区年付", cnyAnnual: 6959.04, credits: "984B credits/年"),
+        mimoAnnual(id: "mimo-lite-global-annual", name: "Lite 海外年付", usdAnnual: 63.36, credits: "49.2B credits/年"),
+        mimoAnnual(id: "mimo-standard-global-annual", name: "Standard 海外年付", usdAnnual: 168.96, credits: "132B credits/年"),
+        mimoAnnual(id: "mimo-pro-global-annual", name: "Pro 海外年付", usdAnnual: 528, credits: "456B credits/年"),
+        mimoAnnual(id: "mimo-max-global-annual", name: "Max 海外年付", usdAnnual: 1056, credits: "984B credits/年")
     ]
 
     public static func presets(for provider: BillingProvider) -> [BillingPlanPreset] {
@@ -423,6 +427,21 @@ public enum BillingPlanCatalog {
             price: usdAnnual,
             displayPrice: "$\(trim(usdAnnual))/年",
             normalizedMonthlyUSD: usdAnnual / 12,
+            sourceNote: "Xiaomi MiMo Token Plan 官方页。",
+            usageNote: credits
+        )
+    }
+
+    private static func mimoAnnualCN(id: String, name: String, cnyAnnual: Double, credits: String) -> BillingPlanPreset {
+        BillingPlanPreset(
+            id: id,
+            provider: .xiaomiMimo,
+            name: name,
+            kind: .fixedAnnual,
+            currencyCode: "CNY",
+            price: cnyAnnual,
+            displayPrice: "¥\(trim(cnyAnnual))/年",
+            normalizedMonthlyUSD: cnyAnnual * cnyToUSD / 12,
             sourceNote: "Xiaomi MiMo Token Plan 官方页。",
             usageNote: credits
         )

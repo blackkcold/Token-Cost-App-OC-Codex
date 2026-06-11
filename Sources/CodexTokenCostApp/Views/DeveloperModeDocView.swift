@@ -18,21 +18,6 @@ struct DeveloperModeDocView: View {
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                Divider()
-
-                HStack {
-                    Spacer()
-                    Button(AppLocalization.text("settings.action.close")) {
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(palette.cardFill)
             }
             .navigationTitle(Text(verbatim: "\u{1F527} \(AppLocalization.text("developerMode.doc.title"))"))
             .toolbar {
@@ -43,7 +28,7 @@ struct DeveloperModeDocView: View {
                 }
             }
         }
-        .frame(minWidth: 720, minHeight: 560)
+        .modifier(AdaptiveSheetSizing())
     }
 
     // MARK: - Overview
@@ -56,11 +41,24 @@ struct DeveloperModeDocView: View {
                 .foregroundStyle(palette.title)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 16) {
-                principleBadge(icon: "desktopcomputer", text: AppLocalization.text("developerMode.doc.principleLocal"))
-                principleBadge(icon: "eye.slash", text: AppLocalization.text("developerMode.doc.principleReadonly"))
-                principleBadge(icon: "function", text: AppLocalization.text("developerMode.doc.principleDeterministic"))
-                principleBadge(icon: "text.magnifyingglass", text: AppLocalization.text("developerMode.doc.principleExplainable"))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    principleBadge(icon: "desktopcomputer", text: AppLocalization.text("developerMode.doc.principleLocal"))
+                    principleBadge(icon: "eye.slash", text: AppLocalization.text("developerMode.doc.principleReadonly"))
+                    principleBadge(icon: "function", text: AppLocalization.text("developerMode.doc.principleDeterministic"))
+                    principleBadge(icon: "text.magnifyingglass", text: AppLocalization.text("developerMode.doc.principleExplainable"))
+                }
+
+                VStack(spacing: 12) {
+                    HStack(spacing: 16) {
+                        principleBadge(icon: "desktopcomputer", text: AppLocalization.text("developerMode.doc.principleLocal"))
+                        principleBadge(icon: "eye.slash", text: AppLocalization.text("developerMode.doc.principleReadonly"))
+                    }
+                    HStack(spacing: 16) {
+                        principleBadge(icon: "function", text: AppLocalization.text("developerMode.doc.principleDeterministic"))
+                        principleBadge(icon: "text.magnifyingglass", text: AppLocalization.text("developerMode.doc.principleExplainable"))
+                    }
+                }
             }
             .padding(.top, 4)
         }

@@ -70,7 +70,7 @@ struct BackupSectionView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(group.isDeprecated ? .orange : palette.title)
                 if group.isDeprecated {
-                    Text("(deprecated)")
+                    Text(AppLocalization.text("settings.backup.deprecated"))
                         .font(.caption2)
                         .foregroundStyle(.orange.opacity(0.7))
                 }
@@ -470,7 +470,7 @@ struct BackupSectionView: View {
                 .foregroundStyle(palette.subtitle)
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 200))], spacing: 4) {
-                ForEach(BackupLayer.allCases) { layer in
+                ForEach(Array(BackupLayer.allCases)) { layer in
                     Button {
                         appPreferencesModel.toggleBackupLayer(layer)
                     } label: {
@@ -506,7 +506,7 @@ struct BackupSectionView: View {
         if !appPreferencesModel.backupLayerResults.isEmpty {
             SettingsSurfaceCard(
                 title: "settings.backup.layeredStatus".localized,
-                subtitle: "\("settings.backup.layeredFileCount".localized): \(appPreferencesModel.backupLayerResults.reduce(0) { $0 + $1.fileCount })",
+                subtitle: AppLocalization.format("settings.backup.layeredFileCount", appPreferencesModel.backupLayerResults.reduce(0) { $0 + $1.fileCount }),
                 role: .secondary,
                 palette: palette
             ) {
@@ -632,6 +632,26 @@ struct BackupSectionView: View {
                     )
                 }
             }
+        } else {
+            SettingsSurfaceCard(
+                title: "settings.backup.overviewTitle".localized,
+                subtitle: "settings.backup.overviewSubtitle".localized,
+                role: .secondary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Image(systemName: "externaldrive.badge.questionmark")
+                        .font(.title2)
+                        .foregroundStyle(palette.subtitle)
+                    Text("settings.backup.noBackupOverview".localized)
+                        .font(.caption)
+                        .foregroundStyle(palette.subtitle)
+                    Text("settings.backup.noBackupOverviewHint".localized)
+                        .font(.caption2)
+                        .foregroundStyle(palette.accent)
+                }
+                .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+            }
         }
     }
 
@@ -688,6 +708,26 @@ struct BackupSectionView: View {
                         }
                     }
                 }
+            }
+        } else {
+            SettingsSurfaceCard(
+                title: "settings.backup.completenessTitle".localized,
+                subtitle: "settings.backup.completenessHint".localized,
+                role: .secondary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Image(systemName: "checklist")
+                        .font(.title2)
+                        .foregroundStyle(palette.subtitle)
+                    Text("settings.backup.noCompletenessReport".localized)
+                        .font(.caption)
+                        .foregroundStyle(palette.subtitle)
+                    Text("settings.backup.noCompletenessReportHint".localized)
+                        .font(.caption2)
+                        .foregroundStyle(palette.accent)
+                }
+                .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
             }
         }
     }
