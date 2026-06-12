@@ -67,14 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.8.5] - 2026-06-07
 
-### Fixed
-
-- **DeepSeek reasoning tokens 未计入成本**：`apiCost()` 新增 `reasoning` 参数，reasoning tokens 按 output 费率计费；修复 DeepSeek V4 Pro thinking mode 下 `syntheticApiCost` 被严重低估的问题，导致 Provider 性价比排行虚高（`DashboardAnalytics.swift`）
-- **模型对比排行成本分配偏差**：`buildModelComparisonRows()` 从 Provider 总成本按 token 比例分配改为各模型独立计算 `apiCost()`，消除同一 Provider 内不同单价的模型（V4 Flash vs V4 Pro）之间的成本均摊偏差（`DashboardAnalytics.swift`）
-- **Provider 成本优先使用 app 定价目录**：`providerEffectiveCosts()`、`combinedMonthlyCost()`、`openCodeOverviewCost()` 三处统一将 `syntheticApiCost` 优先级提到 `rawCost` 之前，避免 OpenCode 写入的过时 `$.cost` 污染排名和总览月费（`DashboardAnalytics.swift`、`BillingPlanCatalog.swift`）
-
-## [v0.8.5] - 2026-06-07
-
 ### Added
 
 - **开发者模式 v1**：新增开发者模式系统，包含 1 个主开关 + 6 个子功能开关（任务分类、存储优化、本地治理、多货币、模型对比、AI 分析）；所有开关通过 `AppPreferences` JSON 持久化，默认关闭（`DeveloperModePreferences.swift`、`AppPreferences.swift`、`AppPreferencesModel.swift`）
