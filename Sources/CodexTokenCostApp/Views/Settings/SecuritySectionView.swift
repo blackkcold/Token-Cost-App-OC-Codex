@@ -16,8 +16,8 @@ struct SecuritySectionView: View {
 
     private var securityInfoCard: some View {
         SettingsSurfaceCard(
-            title: "settings.security.title".localized,
-            subtitle: "settings.security.subtitle".localized,
+            title: AppLocalization.text("settings.security.title"),
+            subtitle: AppLocalization.text("settings.security.subtitle"),
             role: .primary,
             palette: palette
         ) {
@@ -27,7 +27,7 @@ struct SecuritySectionView: View {
                         .font(.title2)
                         .foregroundStyle(palette.accent)
 
-                    Text("settings.security.body".localized)
+                    Text(AppLocalization.text("settings.security.body"))
                         .font(.caption)
                         .foregroundStyle(palette.title)
                         .fixedSize(horizontal: false, vertical: true)
@@ -43,7 +43,7 @@ struct SecuritySectionView: View {
                         )
                         securityDetailRow(
                             icon: "lock.doc",
-                            text: "settings.security.body".localized
+                            text: AppLocalization.text("settings.security.body")
                         )
                         securityDetailRow(
                             icon: "antenna.radiowaves.left.and.right",
@@ -57,8 +57,8 @@ struct SecuritySectionView: View {
 
     private func warningCard(_ message: String) -> some View {
         SettingsSurfaceCard(
-            title: "settings.warning.title".localized,
-            subtitle: "settings.warning.subtitle".localized,
+            title: AppLocalization.text("settings.warning.title"),
+            subtitle: AppLocalization.text("settings.warning.subtitle"),
             role: .warning,
             palette: palette
         ) {
@@ -105,12 +105,6 @@ struct SecuritySectionView: View {
     }
 
     private var networkUsageSummary: String {
-        "settings.security.body".localized
-    }
-}
-
-private extension String {
-    var localized: String {
-        AppLocalization.text(self)
+        AppLocalization.text("settings.security.body")
     }
 }

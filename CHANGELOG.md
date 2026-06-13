@@ -7,11 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> 当前下一版目标为 `v0.9.2`，以下为相对 `v0.9.1` 的累计变更。
+> 当前下一版目标为 `v0.9.3`，以下为相对 `v0.9.2` 的累计变更。
 
 ### Added
 
 （待开发）
+
+## [v0.9.2] - 2026-06-12
+
+> 相对 `v0.9.1` 的累计变更。
+
+### Removed
+
+- **删除退役空目录**：移除 `.memory/` 和 `.sisyphus/` 空目录（`AppPaths.swift`）
+- **删除废弃源文件**：移除 `CodexBilling.swift` 和 `CodexSessionPaths.swift`，两个文件均为零引用死代码
+- **删除未使用的 @Published 属性**：移除 `AppPreferencesModel.showBakViewer`，该属性从未被任何 View 观察
+
+### Fixed
+
+- **ChatGPT Plus 遗留价格冲突**：`DashboardAnalytics` 中 `legacyFallbackMonthlyCosts` 的 `openai` 值从 `$19.99` 修正为 `$20.00`，与 `BillingPlanCatalog` 对齐
+- **汇率常量重复定义**：`BillingPlanCatalog.exchangeRateUSDToCNY` 改为引用 `TokenCostCurrencyService.defaultExchangeRateUSDToCNY`，消除双源不一致风险
+
+### Changed
+
+- **本地化调用统一**：`SecuritySectionView` 中的私有 `String.localized` 扩展替换为全局 `AppLocalization.text()`，与项目其余 300+ 处保持一致
+- **版本清单补全**：`release/versions.json` 补充 v0.8.5、v0.9.0、v0.9.1 三个缺失版本记录
 
 ## [v0.9.1] - 2026-06-11
 
@@ -64,14 +84,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **设置页侧边栏排序优化**：数据源组（OpenCode/Codex/Skills）上移至全局偏好之后，计费/余额组下移，安全/开发者模式下沉至末尾（`SettingsView.swift`）
 - **Skills 页面 Liquid Glass UI 升级**：`TokenCostPalette` 实现 `Equatable` 支持主题切换时视图刷新；HSplitView 背景增加阴影层；侧边栏使用 `settingsInsetSurface()` 替换裸 Material（`ThemePalette.swift`、`OpenCodeSkillsPageView.swift`）
 - **开发者模式子功能常驻化**：任务分类、存储优化、多货币、模型对比从 `DeveloperModePreferences` 迁移至 `AppPreferences` 顶层字段，默认开启（`DeveloperModePreferences.swift`、`AppPreferences.swift`）
-
-## [v0.8.5] - 2026-06-07
-
-### Fixed
-
-- **DeepSeek reasoning tokens 未计入成本**：`apiCost()` 新增 `reasoning` 参数，reasoning tokens 按 output 费率计费；修复 DeepSeek V4 Pro thinking mode 下 `syntheticApiCost` 被严重低估的问题，导致 Provider 性价比排行虚高（`DashboardAnalytics.swift`）
-- **模型对比排行成本分配偏差**：`buildModelComparisonRows()` 从 Provider 总成本按 token 比例分配改为各模型独立计算 `apiCost()`，消除同一 Provider 内不同单价的模型（V4 Flash vs V4 Pro）之间的成本均摊偏差（`DashboardAnalytics.swift`）
-- **Provider 成本优先使用 app 定价目录**：`providerEffectiveCosts()`、`combinedMonthlyCost()`、`openCodeOverviewCost()` 三处统一将 `syntheticApiCost` 优先级提到 `rawCost` 之前，避免 OpenCode 写入的过时 `$.cost` 污染排名和总览月费（`DashboardAnalytics.swift`、`BillingPlanCatalog.swift`）
 
 ## [v0.8.5] - 2026-06-07
 
@@ -341,6 +353,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
+[v0.9.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.1...v0.9.2
 [v0.9.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.0...v0.9.1
 [v0.9.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.5...v0.9.0
 [v0.8.5]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.2...v0.8.5

@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.1)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.2)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
