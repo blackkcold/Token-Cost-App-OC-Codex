@@ -7,11 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> 当前下一版目标为 `v0.9.2`，以下为相对 `v0.9.1` 的累计变更。
+> 当前下一版目标为 `v0.9.3`，以下为相对 `v0.9.2` 的累计变更。
 
 ### Added
 
 （待开发）
+
+## [v0.9.2] - 2026-06-12
+
+> 相对 `v0.9.1` 的累计变更。
+
+### Removed
+
+- **删除退役空目录**：移除 `.memory/` 和 `.sisyphus/` 空目录（`AppPaths.swift`）
+- **删除废弃源文件**：移除 `CodexBilling.swift` 和 `CodexSessionPaths.swift`，两个文件均为零引用死代码
+- **删除未使用的 @Published 属性**：移除 `AppPreferencesModel.showBakViewer`，该属性从未被任何 View 观察
+
+### Fixed
+
+- **ChatGPT Plus 遗留价格冲突**：`DashboardAnalytics` 中 `legacyFallbackMonthlyCosts` 的 `openai` 值从 `$19.99` 修正为 `$20.00`，与 `BillingPlanCatalog` 对齐
+- **汇率常量重复定义**：`BillingPlanCatalog.exchangeRateUSDToCNY` 改为引用 `TokenCostCurrencyService.defaultExchangeRateUSDToCNY`，消除双源不一致风险
+
+### Changed
+
+- **本地化调用统一**：`SecuritySectionView` 中的私有 `String.localized` 扩展替换为全局 `AppLocalization.text()`，与项目其余 300+ 处保持一致
+- **版本清单补全**：`release/versions.json` 补充 v0.8.5、v0.9.0、v0.9.1 三个缺失版本记录
 
 ## [v0.9.1] - 2026-06-11
 
@@ -333,6 +353,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
+[v0.9.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.1...v0.9.2
 [v0.9.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.0...v0.9.1
 [v0.9.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.5...v0.9.0
 [v0.8.5]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.2...v0.8.5

@@ -306,7 +306,6 @@ final class AppPreferencesModel: ObservableObject {
     @Published var backupLayerResults: [BackupLayerResult] = []
     @Published var selectedBakFiles: Set<String> = []
     @Published var bakFileSortOrder: BakFileSortOrder = .newestFirst
-    @Published var showBakViewer = false
 
     var backupDirectoryBinding: Binding<String> {
         Binding(

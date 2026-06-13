@@ -786,7 +786,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
     static let legacyFallbackMonthlyCosts: [String: Double] = [
         "minimax-cn-coding-plan": TokenCostCurrencyService.convert(98, from: .cny, to: .usd),
         "xiaomi-token-plan-cn": TokenCostCurrencyService.convert(34.9, from: .cny, to: .usd),
-        "openai": 19.99
+        "openai": 20.00
     ]
 
     private static let modelAliases: [String: String] = [

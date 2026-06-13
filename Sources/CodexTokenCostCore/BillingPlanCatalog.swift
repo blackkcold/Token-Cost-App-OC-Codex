@@ -146,7 +146,7 @@ public struct ResolvedBillingPlan: Equatable, Sendable {
 public enum BillingPlanCatalog {
     public static let customOptionID = "__custom_monthly_usd"
 
-    public static let exchangeRateUSDToCNY: Double = 7.2
+    public static var exchangeRateUSDToCNY: Double { TokenCostCurrencyService.defaultExchangeRateUSDToCNY }
 
     private static let cnyToUSD: Double = 1 / exchangeRateUSDToCNY
 
