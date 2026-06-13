@@ -165,7 +165,8 @@ public final class CodexSessionCollector {
                 tokenCountEvents: accumulator.tokenCountEvents,
                 validTokenCountEvents: accumulator.validTokenCountEvents,
                 usage: accumulator.usage,
-                modelContextWindow: accumulator.modelContextWindow
+                modelContextWindow: accumulator.modelContextWindow,
+                modelBreakdown: accumulator.modelBreakdown
             )
         } catch {
             FileHandle.standardError.write(Data("Skipping Codex session file \(url.path): \(error.localizedDescription)\n".utf8))
@@ -180,6 +181,14 @@ public final class CodexSessionCollector {
         fallbackPath: URL
     ) {
         switch event.type {
+        case "turn_context":
+            if let rawPayload = rawLine.flatMap({ dictionaryValue($0["payload"]) }) {
+                let model = stringValue(rawPayload["model"])
+                if let model, !model.isEmpty, model != accumulator.currentModel {
+                    accumulator.currentModel = model
+                }
+            }
+
         case "session_meta":
             if event.payload.id != nil || event.payload.agentNickname != nil || event.payload.timestamp != nil {
                 accumulator.apply(sessionMeta: event.payload, fallbackPath: fallbackPath)
@@ -203,6 +212,18 @@ public final class CodexSessionCollector {
                         modelContextWindow: event.payload.info?.modelContextWindow,
                         timestamp: event.timestamp
                     )
+                    if let lastUsage = event.payload.info?.lastTokenUsage {
+                        let delta = CodexTokenUsage(
+                            inputTokens: lastUsage.inputTokens ?? 0,
+                            cachedInputTokens: lastUsage.cachedInputTokens ?? 0,
+                            outputTokens: lastUsage.outputTokens ?? 0,
+                            reasoningOutputTokens: lastUsage.reasoningOutputTokens ?? 0,
+                            totalTokens: lastUsage.totalTokens ?? 0
+                        )
+                        if delta.totalTokens > 0 {
+                            accumulator.recordModelUsage(from: delta)
+                        }
+                    }
                 } else if accumulator.planType == nil {
                     accumulator.planType = event.payload.rateLimits?.planType
                 }
@@ -230,6 +251,14 @@ public final class CodexSessionCollector {
         let timestamp = stringValue(rawLine["timestamp"])
         let rawPayload = dictionaryValue(rawLine["payload"]) ?? rawLine
 
+        if type == "turn_context" {
+            let model = stringValue(rawPayload["model"])
+            if let model, !model.isEmpty, model != accumulator.currentModel {
+                accumulator.currentModel = model
+            }
+            return
+        }
+
         if type == "session_meta" {
             processGenericSessionMeta(rawPayload, accumulator: &accumulator, fallbackPath: fallbackPath)
             if let timestamp, accumulator.startedAt == nil {
@@ -241,6 +270,11 @@ public final class CodexSessionCollector {
         if let usage = extractAbsoluteUsage(from: rawPayload, depth: 0) {
             accumulator.recordTokenEvent(at: timestamp)
             accumulator.recordAbsoluteUsage(usage, planType: planType(from: rawPayload), modelContextWindow: modelContextWindow(from: rawPayload), timestamp: timestamp)
+            if let lastUsage = extractLastTokenUsage(from: rawPayload) {
+                if lastUsage.totalTokens > 0 {
+                    accumulator.recordModelUsage(from: lastUsage)
+                }
+            }
             return
         }
 
@@ -269,6 +303,20 @@ public final class CodexSessionCollector {
                 fallbackPath: fallbackPath
             )
         }
+    }
+
+    private func extractLastTokenUsage(from object: Any?) -> CodexTokenUsage? {
+        guard let dict = dictionaryValue(object),
+              let lastUsage = dictionaryValue(dict["last_token_usage"] ?? dict["lastTokenUsage"]) else {
+            return nil
+        }
+        return CodexTokenUsage(
+            inputTokens: doubleValue(lastUsage["input_tokens"] ?? lastUsage["inputTokens"]) ?? 0,
+            cachedInputTokens: doubleValue(lastUsage["cached_input_tokens"] ?? lastUsage["cachedInputTokens"]) ?? 0,
+            outputTokens: doubleValue(lastUsage["output_tokens"] ?? lastUsage["outputTokens"]) ?? 0,
+            reasoningOutputTokens: doubleValue(lastUsage["reasoning_output_tokens"] ?? lastUsage["reasoningOutputTokens"]) ?? 0,
+            totalTokens: doubleValue(lastUsage["total_tokens"] ?? lastUsage["totalTokens"]) ?? 0
+        )
     }
 
     private func extractAbsoluteUsage(from object: Any?, depth: Int) -> CodexTokenUsage? {
@@ -445,6 +493,23 @@ public final class CodexSessionCollector {
             if let planType = session.planType, !planType.isEmpty {
                 result.planTypeCounts[planType, default: 0] += 1
             }
+            for modelUsage in session.modelBreakdown {
+                if var existing = result.modelBreakdown.first(where: { $0.model == modelUsage.model }) {
+                    let idx = result.modelBreakdown.firstIndex(where: { $0.model == modelUsage.model })!
+                    result.modelBreakdown[idx] = CodexModelUsage(
+                        model: modelUsage.model,
+                        provider: modelUsage.provider ?? existing.provider,
+                        inputTokens: existing.inputTokens + modelUsage.inputTokens,
+                        cachedInputTokens: existing.cachedInputTokens + modelUsage.cachedInputTokens,
+                        outputTokens: existing.outputTokens + modelUsage.outputTokens,
+                        reasoningOutputTokens: existing.reasoningOutputTokens + modelUsage.reasoningOutputTokens,
+                        totalTokens: existing.totalTokens + modelUsage.totalTokens,
+                        turnCount: existing.turnCount + modelUsage.turnCount
+                    )
+                } else {
+                    result.modelBreakdown.append(modelUsage)
+                }
+            }
             if let startedAt = session.startedAt {
                 if let current = result.firstSessionStartedAt {
                     result.firstSessionStartedAt = min(current, startedAt)
@@ -549,6 +614,15 @@ private struct TokenCountRateLimits: Decodable {
     var planType: String?
 }
 
+
+private struct ModelUsageAccumulator {
+    var inputTokens: Double = 0
+    var cachedInputTokens: Double = 0
+    var outputTokens: Double = 0
+    var reasoningOutputTokens: Double = 0
+    var totalTokens: Double = 0
+    var turnCount: Int = 0
+}
 private struct SessionAccumulator {
     var sessionID: String = ""
     var agentNickname: String?
@@ -559,9 +633,39 @@ private struct SessionAccumulator {
     var validTokenCountEvents: Int = 0
     var usage: CodexTokenUsage = .zero
     var modelContextWindow: Int?
+    var currentModel: String?
+    var modelProvider: String?
+    var modelUsages: [String: ModelUsageAccumulator] = [:]
 
     var hasAnyData: Bool {
         tokenCountEvents > 0
+    }
+
+    var modelBreakdown: [CodexModelUsage] {
+        modelUsages.map { model, acc in
+            CodexModelUsage(
+                model: model,
+                provider: modelProvider,
+                inputTokens: acc.inputTokens,
+                cachedInputTokens: acc.cachedInputTokens,
+                outputTokens: acc.outputTokens,
+                reasoningOutputTokens: acc.reasoningOutputTokens,
+                totalTokens: acc.totalTokens,
+                turnCount: acc.turnCount
+            )
+        }.sorted { $0.totalTokens > $1.totalTokens }
+    }
+
+    mutating func recordModelUsage(from usage: CodexTokenUsage) {
+        guard let model = currentModel else { return }
+        var acc = modelUsages[model] ?? ModelUsageAccumulator()
+        acc.inputTokens += usage.inputTokens
+        acc.cachedInputTokens += usage.cachedInputTokens
+        acc.outputTokens += usage.outputTokens
+        acc.reasoningOutputTokens += usage.reasoningOutputTokens
+        acc.totalTokens += usage.totalTokens
+        acc.turnCount += 1
+        modelUsages[model] = acc
     }
 
     mutating func apply(sessionMeta: SessionLinePayload, fallbackPath: URL) {
@@ -576,6 +680,9 @@ private struct SessionAccumulator {
         }
         if sessionID.isEmpty {
             sessionID = TokenCostPaths.stableIdentifier(for: TokenCostPathUtilities.canonicalURL(fallbackPath).path)
+        }
+        if let provider = sessionMeta.modelProvider, !provider.isEmpty {
+            modelProvider = provider
         }
     }
 
@@ -625,3 +732,4 @@ private struct SessionAccumulator {
         }
     }
 }
+

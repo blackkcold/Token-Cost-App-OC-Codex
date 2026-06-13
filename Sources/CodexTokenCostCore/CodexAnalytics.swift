@@ -83,6 +83,11 @@ public enum CodexDashboardAnalytics {
         }
     }
 
+    /// Returns model breakdown slices from the summary, sorted by totalTokens descending.
+    public static func modelSlices(from payload: CodexDashboardPayload) -> [CodexModelUsage] {
+        payload.summary.modelBreakdown
+    }
+
     public static func displayTimestamp(for updatedAt: String) -> String {
         guard let date = date(from: updatedAt) else {
             return updatedAt

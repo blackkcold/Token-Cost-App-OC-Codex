@@ -673,3 +673,10 @@
 "settings.backup.noCompletenessReport" = "尚未执行完备性检查";
 "settings.backup.noCompletenessReportHint" = "执行备份后将自动显示完备性报告，帮助您了解哪些配置已备份";
 "settings.backup.completenessHint" = "核查各配置组是否已备份";
+
+
+/* Codex Models Distribution */
+"codex.models.title" = "模型分布";
+"codex.models.subtitle" = "不同模型的 token 消耗占比";
+"codex.models.turns" = "%d 轮";
+
