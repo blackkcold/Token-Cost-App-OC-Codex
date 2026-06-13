@@ -8,11 +8,10 @@ on:
 
 jobs:
   build:
-    name: Build (${{ matrix.runner }})
+    name: Build
+    runs-on: macos-26
     strategy:
-      matrix:
-        runner: [macos-26, macos-15]
-    runs-on: ${{ matrix.runner }}
+      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - name: Check Developer Mode Banned Symbols
