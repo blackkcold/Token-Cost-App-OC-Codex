@@ -1,5 +1,44 @@
 import Foundation
 
+public struct CodexModelUsage: Codable, Hashable, Sendable {
+    public var model: String
+    public var provider: String?
+    public var inputTokens: Double
+    public var cachedInputTokens: Double
+    public var outputTokens: Double
+    public var reasoningOutputTokens: Double
+    public var totalTokens: Double
+    public var turnCount: Int
+
+    public init(
+        model: String,
+        provider: String?,
+        inputTokens: Double,
+        cachedInputTokens: Double,
+        outputTokens: Double,
+        reasoningOutputTokens: Double,
+        totalTokens: Double,
+        turnCount: Int
+    ) {
+        self.model = model
+        self.provider = provider
+        self.inputTokens = inputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.outputTokens = outputTokens
+        self.reasoningOutputTokens = reasoningOutputTokens
+        self.totalTokens = totalTokens
+        self.turnCount = turnCount
+    }
+
+    public var actualInputTokens: Double {
+        max(inputTokens - cachedInputTokens, 0)
+    }
+
+    public var actualTokens: Double {
+        actualInputTokens + outputTokens + reasoningOutputTokens
+    }
+}
+
 public struct CodexTokenUsage: Codable, Hashable, Sendable {
     public var inputTokens: Double
     public var cachedInputTokens: Double
@@ -52,6 +91,7 @@ public struct CodexSessionSummary: Codable, Hashable, Identifiable, Sendable {
     public var validTokenCountEvents: Int
     public var usage: CodexTokenUsage
     public var modelContextWindow: Int?
+    public var modelBreakdown: [CodexModelUsage]
 
     public init(
         sessionID: String,
@@ -63,7 +103,8 @@ public struct CodexSessionSummary: Codable, Hashable, Identifiable, Sendable {
         tokenCountEvents: Int,
         validTokenCountEvents: Int,
         usage: CodexTokenUsage,
-        modelContextWindow: Int?
+        modelContextWindow: Int?,
+        modelBreakdown: [CodexModelUsage] = []
     ) {
         self.sessionId = sessionID
         self.label = label
@@ -75,6 +116,7 @@ public struct CodexSessionSummary: Codable, Hashable, Identifiable, Sendable {
         self.validTokenCountEvents = validTokenCountEvents
         self.usage = usage
         self.modelContextWindow = modelContextWindow
+        self.modelBreakdown = modelBreakdown
     }
 
     public var actualTokens: Double {
@@ -94,6 +136,7 @@ public struct CodexDashboardPayload: Codable, Hashable, Sendable {
         public var totalTokens: Double
         public var planTypeCounts: [String: Int]
         public var firstSessionStartedAt: String?
+        public var modelBreakdown: [CodexModelUsage]
         public var lastSessionUpdatedAt: String?
         public var sourceRootLabel: String
         public var updatedAt: String
@@ -109,6 +152,7 @@ public struct CodexDashboardPayload: Codable, Hashable, Sendable {
             totalTokens: Double,
             planTypeCounts: [String: Int],
             firstSessionStartedAt: String?,
+            modelBreakdown: [CodexModelUsage] = [],
             lastSessionUpdatedAt: String?,
             sourceRootLabel: String,
             updatedAt: String
@@ -123,6 +167,7 @@ public struct CodexDashboardPayload: Codable, Hashable, Sendable {
             self.totalTokens = totalTokens
             self.planTypeCounts = planTypeCounts
             self.firstSessionStartedAt = firstSessionStartedAt
+            self.modelBreakdown = modelBreakdown
             self.lastSessionUpdatedAt = lastSessionUpdatedAt
             self.sourceRootLabel = sourceRootLabel
             self.updatedAt = updatedAt
@@ -158,6 +203,7 @@ public struct CodexDashboardPayload: Codable, Hashable, Sendable {
                 totalTokens: 0,
                 planTypeCounts: [:],
                 firstSessionStartedAt: nil,
+                modelBreakdown: [],
                 lastSessionUpdatedAt: nil,
                 sourceRootLabel: TokenCostSourceProfile.codex.sourceRootsLabel,
                 updatedAt: ISO8601DateFormatter().string(from: Date())

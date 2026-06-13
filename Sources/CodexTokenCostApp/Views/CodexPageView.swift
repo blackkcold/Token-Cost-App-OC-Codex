@@ -23,6 +23,7 @@ struct CodexPageView: View {
                     warningCard(message: warning)
                 }
                 summaryCard
+                modelDistributionCard
                 BalanceOverviewCard(
                     snapshots: balanceManager.snapshots.filter { $0.provider == .codex },
                     lastRefreshTime: balanceManager.lastRefreshTime,
@@ -146,6 +147,56 @@ struct CodexPageView: View {
             } else {
                 Text(model.statusMessage)
                     .foregroundStyle(palette.subtitle)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modelDistributionCard: some View {
+        if let payload = model.payload {
+            let slices = CodexDashboardAnalytics.modelSlices(from: payload)
+            if slices.count > 1 {
+                TokenSectionCard(
+                    title: AppLocalization.text("codex.models.title"),
+                    subtitle: AppLocalization.text("codex.models.subtitle"),
+                    trailing: nil,
+                    palette: palette
+                ) {
+                    let maxTokens = slices.map { $0.totalTokens }.max() ?? 1
+                    VStack(spacing: 6) {
+                        ForEach(slices, id: \.model) { usage in
+                            let pct = maxTokens > 0 ? usage.totalTokens / maxTokens : 0
+                            HStack(spacing: 10) {
+                                Text(usage.model)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(palette.title)
+                                    .frame(width: 140, alignment: .leading)
+                                    .lineLimit(1)
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .fill(palette.cardStroke)
+                                            .frame(height: 8)
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .fill(palette.accent)
+                                            .frame(width: max(geo.size.width * CGFloat(pct), 4), height: 8)
+                                    }
+                                }
+                                .frame(height: 8)
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(TokenCostFormatters.tokens(usage.totalTokens))
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(palette.title)
+                                    Text(AppLocalization.format("codex.models.turns", usage.turnCount))
+                                        .font(.caption2)
+                                        .foregroundStyle(palette.subtitle)
+                                }
+                                .frame(width: 80, alignment: .trailing)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                }
             }
         }
     }

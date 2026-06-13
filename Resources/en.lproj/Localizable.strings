@@ -673,3 +673,10 @@
 "settings.backup.noCompletenessReport" = "No completeness report yet";
 "settings.backup.noCompletenessReportHint" = "Run a backup to see the completeness report showing which configs are backed up";
 "settings.backup.completenessHint" = "Check which config groups are backed up";
+
+
+/* Codex Models Distribution */
+"codex.models.title" = "Model Distribution";
+"codex.models.subtitle" = "Token consumption by model";
+"codex.models.turns" = "%d turns";
+
