@@ -15,6 +15,7 @@ struct DetailView: View {
     @State private var modelComparisonExpanded = false
     @State private var distributionCardHeight: CGFloat = 0
     @State private var trendDayRange: Int = 30
+    @State private var cachedAnalytics: TokenCostDashboardAnalytics?
 
     private let recentWindowLimit = 100
     private let sectionPageSize = 20
@@ -33,20 +34,13 @@ struct DetailView: View {
                     sourceHeader(source)
 
                     if let payload = model.selectedPayload {
-                        let analytics = TokenCostDashboardAnalytics(
+                        let analytics = cachedAnalytics ?? TokenCostDashboardAnalytics(
                             payload: payload,
                             showZeroUsageXiaomiProvider: model.settings.showZeroUsageXiaomiProvider,
                             billingOverridesByProviderKey: appPreferencesModel.preferences.billingOverridesByProviderKey()
                         )
 
                         overviewSection(analytics)
-                        trendSection(analytics)
-                        cacheSection(analytics)
-                        providerRankingSection(analytics)
-                        modelComparisonSection(analytics)
-                        distributionSection(analytics)
-                        stackedSection(analytics)
-                        detailSection(analytics)
 
                         BalanceOverviewCard(
                             snapshots: balanceManager.snapshots.filter {
@@ -55,6 +49,14 @@ struct DetailView: View {
                             lastRefreshTime: balanceManager.lastRefreshTime,
                             palette: palette
                         )
+
+                        trendSection(analytics)
+                        distributionSection(analytics)
+                        cacheSection(analytics)
+                        providerRankingSection(analytics)
+                        modelComparisonSection(analytics)
+                        stackedSection(analytics)
+                        detailSection(analytics)
                     } else if model.isBootstrapping || model.isRefreshing {
                         loadingCard
                     } else {
@@ -74,6 +76,13 @@ struct DetailView: View {
             detailPageIndex = 0
             stackedPageIndex = 0
             modelComparisonExpanded = false
+            if let payload = model.selectedPayload {
+                cachedAnalytics = TokenCostDashboardAnalytics(
+                    payload: payload,
+                    showZeroUsageXiaomiProvider: model.settings.showZeroUsageXiaomiProvider,
+                    billingOverridesByProviderKey: appPreferencesModel.preferences.billingOverridesByProviderKey()
+                )
+            }
         }
     }
 

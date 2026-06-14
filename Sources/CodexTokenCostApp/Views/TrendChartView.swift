@@ -100,7 +100,7 @@ struct TokenTrendChartView: View {
                         }
                 }
             }
-            .onChange(of: points.map(\.id)) { _, _ in
+            .onChange(of: points.count) { _, _ in
                 hoveredPoint = nil
             }
 
