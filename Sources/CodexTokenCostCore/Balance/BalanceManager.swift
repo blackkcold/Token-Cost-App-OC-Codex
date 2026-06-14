@@ -85,10 +85,10 @@ public final class BalanceManager: ObservableObject {
         }
     }
 
-    public func shouldRefresh(intervalMinutes: Int) -> Bool {
+    public func shouldRefresh(intervalSeconds: Int) -> Bool {
         guard let lastRefreshTime else { return true }
         let elapsed = Date().timeIntervalSince(lastRefreshTime)
-        return elapsed >= Double(intervalMinutes * 60)
+        return elapsed >= Double(intervalSeconds)
     }
 
     var activeProviderKinds: [BalanceProviderKind] {

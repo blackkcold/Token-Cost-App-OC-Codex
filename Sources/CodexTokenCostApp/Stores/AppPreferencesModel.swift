@@ -156,12 +156,12 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
-    var balanceRefreshMinutesBinding: Binding<Int> {
+    var balanceRefreshSecondsBinding: Binding<Int> {
         Binding(
-            get: { self.preferences.balanceRefreshMinutes },
+            get: { self.preferences.balanceRefreshSeconds },
             set: { newValue in
                 self.updatePreferences { preferences in
-                    preferences.balanceRefreshMinutes = max(1, min(newValue, 60))
+                    preferences.balanceRefreshSeconds = max(30, min(newValue, 3600))
                 }
             }
         )
