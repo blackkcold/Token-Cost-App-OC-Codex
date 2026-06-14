@@ -47,7 +47,7 @@ struct TotalView: View {
         ) {
             TokenHeatmapGrid(
                 data: TokenHeatmapBuilder.build(
-                    fromOpenCodeDaily: openCodePayload?.dailyTotals ?? [:],
+                    fromOpenCodeDaily: openCodeDailyActualTokens,
                     codexDaily: codexDailyTokens,
                     referenceDate: Date()
                 ),
@@ -93,10 +93,29 @@ struct TotalView: View {
     }
 
     private var combinedActualInputTokens: Double? {
-        guard let openCodeActualInputTokens, let codexSummary else {
-            return nil
+        let oc = openCodeActualInputTokens ?? 0
+        let cx = codexSummary?.totalActualInputTokens ?? 0
+        guard openCodeActualInputTokens != nil || codexSummary != nil else { return nil }
+        return oc + cx
+    }
+
+    /// OpenCode + Codex 合并的完整计费 token 总量
+    /// 单端缺失时只累加有数据的一端
+    private var combinedTotalActualTokens: Double? {
+        let oc = openCodeSummary?.totalActualTokens ?? 0
+        let cx = codexSummary?.totalActualTokens ?? 0
+        guard openCodeSummary != nil || codexSummary != nil else { return nil }
+        return oc + cx
+    }
+
+    /// OpenCode 每日 actual tokens（input + output + reasoning），不含 cache
+    private var openCodeDailyActualTokens: [String: Double] {
+        guard let rawData = openCodePayload?.rawData else { return [:] }
+        var result: [String: Double] = [:]
+        for row in rawData {
+            result[row.date, default: 0] += (row.input + row.output + row.reasoning)
         }
-        return openCodeActualInputTokens + codexSummary.totalActualInputTokens
+        return result
     }
 
     private var combinedCost: Double? {
@@ -146,7 +165,7 @@ struct TotalView: View {
 
                 TokenMetricCard(
                     title: AppLocalization.text("overview.summary.totalActualTokens"),
-                    value: combinedActualInputTokens.map(TokenCostFormatters.tokens) ?? AppLocalization.text("common.unavailable"),
+                    value: combinedTotalActualTokens.map(TokenCostFormatters.tokens) ?? AppLocalization.text("common.unavailable"),
                     subtitle: AppLocalization.text("overview.summary.totalActualTokensSubtitle"),
                     tint: .green,
                     palette: palette
@@ -167,7 +186,7 @@ struct TotalView: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                     TokenMetricCard(
                         title: AppLocalization.text("overview.openCode.actualTokens"),
-                        value: openCodeActualInputTokens.map(TokenCostFormatters.tokens) ?? AppLocalization.text("common.unavailable"),
+                        value: (openCodeSummary?.totalActualTokens).map(TokenCostFormatters.tokens) ?? AppLocalization.text("common.unavailable"),
                         subtitle: AppLocalization.text("overview.openCode.actualTokensSubtitle"),
                         tint: palette.accent,
                         palette: palette

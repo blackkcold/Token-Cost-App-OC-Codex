@@ -149,8 +149,8 @@
 "overview.codex.title" = "Codex";
 "overview.codex.updatedAt" = "Updated at %@";
 "overview.openCode.activeDaysSubtitle" = "Active for %d days";
-"overview.openCode.actualTokens" = "Actual input token";
-"overview.openCode.actualTokensSubtitle" = "Excluding cache read/write";
+"overview.openCode.actualTokens" = "Actual Tokens";
+"overview.openCode.actualTokensSubtitle" = "Input + output + reasoning, excluding cache";
 "overview.openCode.apiCostSubtitle" = "API billing basis";
 "overview.openCode.cacheTokens" = "Cached token";
 "overview.openCode.cacheTokensSubtitle" = "Cache read + write";
@@ -186,8 +186,8 @@
 "overview.summary.openCodeCostSubtitle" = "Actual input %@ token · %@";
 "overview.summary.subtitle" = "Compared by actual input token only; cache read/write are shown separately";
 "overview.summary.title" = "Total";
-"overview.summary.totalActualTokens" = "Total actual input token";
-"overview.summary.totalActualTokensSubtitle" = "OpenCode actual input + Codex actual input, excluding cache read/write";
+"overview.summary.totalActualTokens" = "Total Actual Tokens";
+"overview.summary.totalActualTokensSubtitle" = "OpenCode + Codex billed tokens, excluding cache";
 "overview.summary.totalCost" = "Total cost";
 "overview.summary.totalCostSubtitle" = "Enabled subscription fees + API estimates for unsubscribed";
 

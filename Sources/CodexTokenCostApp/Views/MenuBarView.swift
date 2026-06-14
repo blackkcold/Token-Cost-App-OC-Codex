@@ -13,7 +13,7 @@ struct MenuBarView: View {
 
     var body: some View {
         let cost = combinedCost
-        let tokens = combinedInputTokens
+        let tokens = combinedTotalActualTokens
         let messages = openCodePayload?.summary.totalMessages
         let sessions = codexPayload?.summary.sessionCount
         let points = sparklinePoints
@@ -100,9 +100,17 @@ struct MenuBarView: View {
     }
 
     private var combinedInputTokens: Double? {
-        guard let openCodeTokens = openCodePayload?.totalActualInputTokens,
-              let codexTokens = codexPayload?.summary.totalActualInputTokens else { return nil }
-        return openCodeTokens + codexTokens
+        let oc = openCodePayload?.totalActualInputTokens ?? 0
+        let cx = codexPayload?.summary.totalActualInputTokens ?? 0
+        guard openCodePayload?.totalActualInputTokens != nil || codexPayload?.summary.totalActualInputTokens != nil else { return nil }
+        return oc + cx
+    }
+
+    private var combinedTotalActualTokens: Double? {
+        let oc = openCodePayload?.summary.totalActualTokens ?? 0
+        let cx = codexPayload?.summary.totalActualTokens ?? 0
+        guard openCodePayload?.summary != nil || codexPayload?.summary != nil else { return nil }
+        return oc + cx
     }
 
     // MARK: - Sparkline

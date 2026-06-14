@@ -149,8 +149,8 @@
 "overview.codex.title" = "Codex";
 "overview.codex.updatedAt" = "更新于 %@";
 "overview.openCode.activeDaysSubtitle" = "活跃 %d 天";
-"overview.openCode.actualTokens" = "实际输入 token";
-"overview.openCode.actualTokensSubtitle" = "不含缓存读写";
+"overview.openCode.actualTokens" = "实际 Token";
+"overview.openCode.actualTokensSubtitle" = "输入 + 输出 + 推理，不含缓存";
 "overview.openCode.apiCostSubtitle" = "API 口径";
 "overview.openCode.cacheTokens" = "缓存 token";
 "overview.openCode.cacheTokensSubtitle" = "缓存读 + 写";
@@ -177,8 +177,8 @@
 "overview.summary.openCodeCostSubtitle" = "实际输入 %@ token · %@";
 "overview.summary.subtitle" = "统一按实际输入 token 对照，缓存读写单独展示";
 "overview.summary.title" = "总计";
-"overview.summary.totalActualTokens" = "总实际输入 token";
-"overview.summary.totalActualTokensSubtitle" = "OpenCode 实际输入 + Codex 实际输入，不含缓存读写";
+"overview.summary.totalActualTokens" = "总实际 Token";
+"overview.summary.totalActualTokensSubtitle" = "OpenCode + Codex 实际消耗，不含缓存";
 "overview.summary.totalCost" = "总成本";
 "overview.summary.totalCostSubtitle" = "已启用订阅费用 + 未订阅部分 API 估算";
 "overview.openCode.dateRange" = "日期区间 %@ → %@";
