@@ -47,7 +47,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var language: AppDisplayLanguage
     public var billingSelectionsByProvider: [String: BillingPlanSelection]
     public var balanceEnabled: Bool
-    public var balanceRefreshMinutes: Int
+    public var balanceRefreshSeconds: Int
     public var opencodeGoWorkspaceID: String?
     public var theme: TokenCostThemeChoice
     public var displayCurrency: DisplayCurrency
@@ -64,7 +64,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         language: AppDisplayLanguage = .zhHans,
         billingSelectionsByProvider: [String: BillingPlanSelection] = [:],
         balanceEnabled: Bool = false,
-        balanceRefreshMinutes: Int = 10,
+        balanceRefreshSeconds: Int = 300,
         opencodeGoWorkspaceID: String? = nil,
         theme: TokenCostThemeChoice = .ocean,
         displayCurrency: DisplayCurrency = .usd,
@@ -80,7 +80,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.language = language
         self.billingSelectionsByProvider = billingSelectionsByProvider
         self.balanceEnabled = balanceEnabled
-        self.balanceRefreshMinutes = balanceRefreshMinutes
+        self.balanceRefreshSeconds = balanceRefreshSeconds
         self.opencodeGoWorkspaceID = opencodeGoWorkspaceID
         self.theme = theme
         self.displayCurrency = displayCurrency
@@ -98,7 +98,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case language
         case billingSelectionsByProvider
         case balanceEnabled = "balance_enabled"
-        case balanceRefreshMinutes = "balance_refresh_minutes"
+        case balanceRefreshSeconds = "balance_refresh_seconds"
+        case legacyBalanceRefreshMinutes = "balance_refresh_minutes"
         case opencodeGoWorkspaceID = "opencode_go_workspace_id"
         case theme
         case displayCurrency
@@ -116,7 +117,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case language
         case billingSelectionsByProvider
         case balanceEnabled
-        case balanceRefreshMinutes
+        case balanceRefreshSeconds
+        case legacyBalanceRefreshMinutes = "balanceRefreshMinutes"
         case opencodeGoWorkspaceID = "opencodeGoWorkspaceId"
         case theme
         case displayCurrency
@@ -155,9 +157,17 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.balanceEnabled = try container.decodeIfPresent(Bool.self, forKey: .balanceEnabled)
             ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .balanceEnabled)
             ?? false
-        self.balanceRefreshMinutes = try container.decodeIfPresent(Int.self, forKey: .balanceRefreshMinutes)
-            ?? legacyContainer?.decodeIfPresent(Int.self, forKey: .balanceRefreshMinutes)
-            ?? 10
+        if let raw = try container.decodeIfPresent(Int.self, forKey: .balanceRefreshSeconds) {
+            self.balanceRefreshSeconds = raw
+        } else if let raw = try legacyContainer?.decodeIfPresent(Int.self, forKey: .balanceRefreshSeconds) {
+            self.balanceRefreshSeconds = raw
+        } else if let oldValue = try container.decodeIfPresent(Int.self, forKey: .legacyBalanceRefreshMinutes) {
+            self.balanceRefreshSeconds = oldValue < 120 ? oldValue * 60 : oldValue
+        } else if let oldValue = try legacyContainer?.decodeIfPresent(Int.self, forKey: .legacyBalanceRefreshMinutes) {
+            self.balanceRefreshSeconds = oldValue < 120 ? oldValue * 60 : oldValue
+        } else {
+            self.balanceRefreshSeconds = 300
+        }
         self.opencodeGoWorkspaceID = try container.decodeIfPresent(String.self, forKey: .opencodeGoWorkspaceID)
             ?? legacyContainer?.decodeIfPresent(String.self, forKey: .opencodeGoWorkspaceID)
         self.theme = try container.decodeIfPresent(TokenCostThemeChoice.self, forKey: .theme) ?? .ocean
@@ -190,7 +200,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(language, forKey: .language)
         try container.encode(billingSelectionsByProvider, forKey: .billingSelectionsByProvider)
         try container.encode(balanceEnabled, forKey: .balanceEnabled)
-        try container.encode(balanceRefreshMinutes, forKey: .balanceRefreshMinutes)
+        try container.encode(balanceRefreshSeconds, forKey: .balanceRefreshSeconds)
         try container.encodeIfPresent(opencodeGoWorkspaceID, forKey: .opencodeGoWorkspaceID)
         try container.encode(theme, forKey: .theme)
         try container.encode(displayCurrency, forKey: .displayCurrency)

@@ -258,6 +258,7 @@
 "settings.balance.providerToggles" = "Provider 开关";
 "settings.balance.refreshInterval" = "刷新间隔";
 "settings.balance.refreshIntervalOption" = "%d 分钟";
+"settings.balance.refreshIntervalSeconds" = "%d 秒";
 "settings.balance.refreshNow" = "立即刷新余额";
 "settings.balance.searchingBrowser" = "正在搜索浏览器数据…";
 "settings.balance.subtitle" = "通过 HTTPS 查询各 Provider 余额，凭证只保存在本地。";

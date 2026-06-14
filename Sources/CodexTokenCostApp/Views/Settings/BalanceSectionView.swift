@@ -44,9 +44,9 @@ struct BalanceSectionView: View {
                             title: "settings.balance.refreshInterval".localized,
                             palette: palette
                         ) {
-                            Picker("", selection: appPreferencesModel.balanceRefreshMinutesBinding) {
-                                ForEach([5, 10, 15, 30, 60], id: \.self) { interval in
-                                    Text(AppLocalization.format("settings.balance.refreshIntervalOption", interval))
+                            Picker("", selection: appPreferencesModel.balanceRefreshSecondsBinding) {
+                                ForEach([30, 60, 300, 600, 900, 1800, 3600], id: \.self) { interval in
+                                    Text(BalanceSectionView.formatRefreshInterval(interval))
                                         .tag(interval)
                                 }
                             }
@@ -361,6 +361,15 @@ struct BalanceSectionView: View {
         case ..<0.80: return .yellow
         case ..<0.95: return .orange
         default: return .red
+        }
+    }
+
+    static func formatRefreshInterval(_ seconds: Int) -> String {
+        if seconds < 60 {
+            return AppLocalization.format("settings.balance.refreshIntervalSeconds", seconds)
+        } else {
+            let minutes = seconds / 60
+            return AppLocalization.format("settings.balance.refreshIntervalOption", minutes)
         }
     }
 

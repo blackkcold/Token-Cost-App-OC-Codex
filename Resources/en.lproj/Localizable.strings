@@ -258,6 +258,7 @@
 "settings.balance.providerToggles" = "Provider toggles";
 "settings.balance.refreshInterval" = "Refresh interval";
 "settings.balance.refreshIntervalOption" = "%d min";
+"settings.balance.refreshIntervalSeconds" = "%d sec";
 "settings.balance.refreshNow" = "Refresh balance now";
 "settings.balance.searchingBrowser" = "Searching browser data…";
 "settings.balance.subtitle" = "Queries provider balances over HTTPS and keeps credentials local.";

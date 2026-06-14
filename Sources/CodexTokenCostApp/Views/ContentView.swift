@@ -86,10 +86,18 @@ struct ContentView: View {
                     codexModel.bootstrapIfNeeded()
                     openCodexSourcePromptIfNeeded()
                     updateChecker.checkForUpdate()
+                    if appPreferencesModel.preferences.balanceEnabled {
+                        await balanceManager.refresh()
+                    }
                 }
                 .onChange(of: codexModel.shouldPromptForSourceConfirmation) { _, shouldPrompt in
                     guard shouldPrompt else { return }
                     openCodexSourcePromptIfNeeded()
+                }
+                .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
+                    guard appPreferencesModel.preferences.balanceEnabled else { return }
+                    guard balanceManager.shouldRefresh(intervalSeconds: appPreferencesModel.preferences.balanceRefreshSeconds) else { return }
+                    Task { await balanceManager.refresh() }
                 }
             }
         }
