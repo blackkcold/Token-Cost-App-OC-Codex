@@ -9,6 +9,7 @@ struct CodexPageView: View {
     @State private var sessionSortField: CodexSessionSortField = .updatedAt
     @State private var sessionSortDirection: TokenCostSortDirection = .descending
     @State private var trendDayRange: Int = 30
+    @State private var cachedTrendPoints: [CodexDailyTrendPoint] = []
 
     private let sessionPageSize = 20
     private var summaryColumns: [GridItem] {
@@ -23,13 +24,13 @@ struct CodexPageView: View {
                     warningCard(message: warning)
                 }
                 summaryCard
-                modelDistributionCard
                 BalanceOverviewCard(
                     snapshots: balanceManager.snapshots.filter { $0.provider == .codex },
                     lastRefreshTime: balanceManager.lastRefreshTime,
                     palette: palette
                 )
                 dailyTrendCard
+                modelDistributionCard
                 sessionsCard
             }
             .padding(20)
@@ -40,6 +41,9 @@ struct CodexPageView: View {
         }
         .onChange(of: model.payload?.summary.updatedAt ?? "") { _, _ in
             sessionPageIndex = 0
+            if let payload = model.payload {
+                cachedTrendPoints = CodexDashboardAnalytics.dailyTrendPoints(from: payload)
+            }
         }
     }
 
@@ -208,9 +212,8 @@ struct CodexPageView: View {
             trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange)),
             palette: palette
         ) {
-            if let payload = model.payload {
-                let points = CodexDashboardAnalytics.dailyTrendPoints(from: payload)
-                let visiblePoints = Array(points.suffix(trendDayRange)).map(codexTrendPoint)
+            if model.payload != nil {
+                let visiblePoints = Array(cachedTrendPoints.suffix(trendDayRange)).map(codexTrendPoint)
 
                 if visiblePoints.isEmpty {
                     Text(AppLocalization.text("common.noData"))

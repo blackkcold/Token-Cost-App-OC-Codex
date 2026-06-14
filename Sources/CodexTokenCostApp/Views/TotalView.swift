@@ -7,6 +7,10 @@ struct TotalView: View {
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     @ObservedObject var balanceManager: BalanceManager
     let palette: TokenCostPalette
+    @State private var totalTrendDayRange: Int = 30
+    @State private var cachedCodexDailyTokens: [String: Double] = [:]
+    @State private var cachedOpenCodeDaily: [String: Double] = [:]
+    @State private var cachedHeatmapData: TokenHeatmapData?
 
     var body: some View {
         ScrollView {
@@ -17,8 +21,9 @@ struct TotalView: View {
                     lastRefreshTime: balanceManager.lastRefreshTime,
                     palette: palette
                 )
-                openCodeCard
+                dailyTrendCard
                 tokenHeatmapCard
+                openCodeCard
                 codexCard
             }
             .padding(20)
@@ -26,12 +31,81 @@ struct TotalView: View {
         .task {
             openCodeModel.bootstrapIfNeeded()
             codexModel.bootstrapIfNeeded()
+            refreshCachedDailyData()
+        }
+        .onChange(of: codexPayload?.summary.updatedAt ?? "") { _, _ in
+            refreshCachedDailyData()
+        }
+        .onChange(of: openCodePayload?.summary.updatedAt ?? "") { _, _ in
+            refreshCachedDailyData()
+        }
+    }
+
+    // MARK: - Combined daily trend
+
+    /// Merge OpenCode + Codex daily actual tokens into a single dictionary
+    private var combinedDailyTokens: [String: Double] {
+        var result = openCodeDailyActualTokens
+        for (date, tokens) in codexDailyTokens {
+            result[date, default: 0] += tokens
+        }
+        return result
+    }
+
+    private var totalTrendPoints: [TokenTrendChartPoint] {
+        let allDates = combinedDailyTokens.keys.sorted()
+        return allDates.compactMap { dateString -> TokenTrendChartPoint? in
+            guard let date = Self.trendDateFormatter.date(from: dateString),
+                  let tokens = combinedDailyTokens[dateString] else { return nil }
+            let openCodeVal = openCodeDailyActualTokens[dateString] ?? 0
+            let codexVal = codexDailyTokens[dateString] ?? 0
+            return TokenTrendChartPoint(
+                date: date,
+                dateString: dateString,
+                actualTokens: tokens,
+                tooltipLines: [
+                    TokenTrendTooltipLine(
+                        color: palette.accent,
+                        title: "OpenCode",
+                        value: TokenCostFormatters.tokens(openCodeVal)
+                    ),
+                    TokenTrendTooltipLine(
+                        color: palette.accentSecondary,
+                        title: "Codex",
+                        value: TokenCostFormatters.tokens(codexVal)
+                    ),
+                    TokenTrendTooltipLine(
+                        color: .orange,
+                        title: "合计",
+                        value: TokenCostFormatters.tokens(tokens)
+                    )
+                ]
+            )
+        }
+    }
+
+    private var dailyTrendCard: some View {
+        let visiblePoints = Array(totalTrendPoints.suffix(totalTrendDayRange))
+        return TokenSectionCard(
+            title: "每日用量趋势",
+            subtitle: "近 \(totalTrendDayRange) 日 · OpenCode + Codex 合计",
+            trailing: AnyView(TokenTrendRangePicker(selection: $totalTrendDayRange)),
+            palette: palette
+        ) {
+            if visiblePoints.isEmpty {
+                Text("暂无数据")
+                    .foregroundStyle(palette.subtitle)
+                    .frame(maxWidth: .infinity, minHeight: 200, alignment: .leading)
+            } else {
+                TokenTrendChartView(points: visiblePoints, palette: palette)
+            }
         }
     }
 
     // MARK: - Heatmap data
 
     private var codexDailyTokens: [String: Double] {
+        if !cachedCodexDailyTokens.isEmpty { return cachedCodexDailyTokens }
         guard let payload = codexPayload else { return [:] }
         return CodexDashboardAnalytics.dailyTrendPoints(from: payload).reduce(into: [:]) { dict, point in
             dict[point.dateString, default: 0] += point.actualTokens
@@ -46,9 +120,9 @@ struct TotalView: View {
             palette: palette
         ) {
             TokenHeatmapGrid(
-                data: TokenHeatmapBuilder.build(
-                    fromOpenCodeDaily: openCodeDailyActualTokens,
-                    codexDaily: codexDailyTokens,
+                data: cachedHeatmapData ?? TokenHeatmapBuilder.build(
+                    fromOpenCodeDaily: cachedOpenCodeDaily,
+                    codexDaily: cachedCodexDailyTokens,
                     referenceDate: Date()
                 ),
                 palette: palette
@@ -126,6 +200,16 @@ struct TotalView: View {
     private var nonCodexMonthlyCost: Double? {
         guard let payload = openCodePayload else { return nil }
         return preferences.nonCodexMonthlyCost(payload: payload)
+    }
+
+    private func refreshCachedDailyData() {
+        cachedCodexDailyTokens = codexDailyTokens
+        cachedOpenCodeDaily = openCodeDailyActualTokens
+        cachedHeatmapData = TokenHeatmapBuilder.build(
+            fromOpenCodeDaily: cachedOpenCodeDaily,
+            codexDaily: cachedCodexDailyTokens,
+            referenceDate: Date()
+        )
     }
 
     private var overviewCard: some View {
@@ -237,6 +321,13 @@ struct TotalView: View {
             }
         }
     }
+
+    private static let trendDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
 
     private var codexCard: some View {
         TokenSectionCard(
