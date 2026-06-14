@@ -119,6 +119,35 @@ public struct CodexSessionSummary: Codable, Hashable, Identifiable, Sendable {
         self.modelBreakdown = modelBreakdown
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.label = try container.decode(String.self, forKey: .label)
+        self.agentNickname = try container.decodeIfPresent(String.self, forKey: .agentNickname)
+        self.startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
+        self.updatedAt = try container.decode(String.self, forKey: .updatedAt)
+        self.planType = try container.decodeIfPresent(String.self, forKey: .planType)
+        self.tokenCountEvents = try container.decode(Int.self, forKey: .tokenCountEvents)
+        self.validTokenCountEvents = try container.decode(Int.self, forKey: .validTokenCountEvents)
+        self.usage = try container.decode(CodexTokenUsage.self, forKey: .usage)
+        self.modelContextWindow = try container.decodeIfPresent(Int.self, forKey: .modelContextWindow)
+        self.modelBreakdown = try container.decodeIfPresent([CodexModelUsage].self, forKey: .modelBreakdown) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionId
+        case label
+        case agentNickname
+        case startedAt
+        case updatedAt
+        case planType
+        case tokenCountEvents
+        case validTokenCountEvents
+        case usage
+        case modelContextWindow
+        case modelBreakdown
+    }
+
     public var actualTokens: Double {
         usage.actualTokens
     }
@@ -175,6 +204,41 @@ public struct CodexDashboardPayload: Codable, Hashable, Sendable {
 
         public var totalActualInputTokens: Double {
             max(totalInputTokens - totalCachedInputTokens, 0)
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.sessionCount = try container.decode(Int.self, forKey: .sessionCount)
+            self.tokenCountEvents = try container.decode(Int.self, forKey: .tokenCountEvents)
+            self.validTokenCountEvents = try container.decode(Int.self, forKey: .validTokenCountEvents)
+            self.totalInputTokens = try container.decode(Double.self, forKey: .totalInputTokens)
+            self.totalCachedInputTokens = try container.decode(Double.self, forKey: .totalCachedInputTokens)
+            self.totalOutputTokens = try container.decode(Double.self, forKey: .totalOutputTokens)
+            self.totalReasoningOutputTokens = try container.decode(Double.self, forKey: .totalReasoningOutputTokens)
+            self.totalTokens = try container.decode(Double.self, forKey: .totalTokens)
+            self.planTypeCounts = try container.decode([String: Int].self, forKey: .planTypeCounts)
+            self.firstSessionStartedAt = try container.decodeIfPresent(String.self, forKey: .firstSessionStartedAt)
+            self.modelBreakdown = try container.decodeIfPresent([CodexModelUsage].self, forKey: .modelBreakdown) ?? []
+            self.lastSessionUpdatedAt = try container.decodeIfPresent(String.self, forKey: .lastSessionUpdatedAt)
+            self.sourceRootLabel = try container.decode(String.self, forKey: .sourceRootLabel)
+            self.updatedAt = try container.decode(String.self, forKey: .updatedAt)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case sessionCount
+            case tokenCountEvents
+            case validTokenCountEvents
+            case totalInputTokens
+            case totalCachedInputTokens
+            case totalOutputTokens
+            case totalReasoningOutputTokens
+            case totalTokens
+            case planTypeCounts
+            case firstSessionStartedAt
+            case modelBreakdown
+            case lastSessionUpdatedAt
+            case sourceRootLabel
+            case updatedAt
         }
 
         public var totalActualTokens: Double {
