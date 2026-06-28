@@ -61,7 +61,8 @@ struct BalanceOverviewCard: View {
     }
 
     private func balanceRow(_ snapshot: BalanceSnapshot) -> some View {
-        let showWindows = snapshot.primaryWindowUsagePercent != nil || snapshot.quotaWindows != nil
+        let hasQuotaWindows = snapshot.quotaWindows != nil && !(snapshot.quotaWindows?.isEmpty ?? true)
+        let hasLegacyWindows = snapshot.primaryWindowUsagePercent != nil
         let showCostOnly = snapshot.usagePercent == nil && snapshot.totalCostUSD != nil
         let showValueEntries = snapshot.valueEntries != nil && !(snapshot.valueEntries?.isEmpty ?? true)
 
@@ -75,7 +76,17 @@ struct BalanceOverviewCard: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(palette.title)
 
-                if showWindows {
+                if hasQuotaWindows, let windows = snapshot.quotaWindows {
+                    ForEach(windows) { window in
+                        windowProgressBar(
+                            label: window.label,
+                            pct: window.usedRatio ?? 0,
+                            resetAt: window.resetAt,
+                            windowSeconds: window.windowSeconds,
+                            consumptionRate: window.consumptionRate
+                        )
+                    }
+                } else if hasLegacyWindows {
                     if let primary = snapshot.primaryWindowUsagePercent {
                         windowProgressBar(label: snapshot.primaryWindowLabel ?? "", pct: primary)
                     }
@@ -142,30 +153,71 @@ struct BalanceOverviewCard: View {
         )
     }
 
-    private func windowProgressBar(label: String?, pct: Double) -> some View {
+    private func windowProgressBar(
+        label: String?,
+        pct: Double,
+        resetAt: Date? = nil,
+        windowSeconds: Int? = nil,
+        consumptionRate: ConsumptionRate? = nil
+    ) -> some View {
         let color = gradientColor(for: pct < 0.5 ? UsageGradient.low : pct < 0.8 ? .moderate : pct < 0.95 ? .high : .critical)
-        return HStack(spacing: 6) {
-            if let label {
-                Text(label)
+        let countdownText: String? = {
+            guard let resetAt, windowSeconds != nil else { return nil }
+            let remaining = max(0, resetAt.timeIntervalSinceNow)
+            if remaining <= 0 { return "即将重置" }
+            if remaining < 60 { return "<1m" }
+            let hours = Int(remaining) / 3600
+            let minutes = (Int(remaining) % 3600) / 60
+            if hours > 0 {
+                return "剩\(hours)h\(minutes)m"
+            }
+            return "剩\(minutes)m"
+        }()
+        let rateText: String? = {
+            guard let rate = consumptionRate, rate.confidence > 0 else { return nil }
+            if let windowSeconds, windowSeconds >= 86400 {
+                return String(format: "约 %.1f%%/d", rate.perDay)
+            }
+            return String(format: "约 %.1f%%/h", rate.perHour)
+        }()
+
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                if let label {
+                    Text(label)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(palette.subtitle)
+                        .frame(width: 36, alignment: .leading)
+                }
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(palette.trackBackground)
+                            .frame(height: 6)
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(color)
+                            .frame(width: geo.size.width * CGFloat(min(pct, 1.0)), height: 6)
+                    }
+                }
+                .frame(height: 6)
+                Text("\(Int(pct * 100))%")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(palette.subtitle)
-                    .frame(width: 36, alignment: .leading)
+                    .frame(width: 36, alignment: .trailing)
             }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(palette.trackBackground)
-                        .frame(height: 6)
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(color)
-                        .frame(width: geo.size.width * CGFloat(min(pct, 1.0)), height: 6)
+            HStack(spacing: 8) {
+                if let countdownText {
+                    Text(countdownText)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(palette.subtitle.opacity(0.7))
+                }
+                if let rateText {
+                    Text(rateText)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(palette.accent.opacity(0.8))
                 }
             }
-            .frame(height: 6)
-            Text("\(Int(pct * 100))%")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(palette.subtitle)
-                .frame(width: 36, alignment: .trailing)
+            .padding(.leading, label != nil ? 42 : 0)
         }
     }
 
@@ -183,8 +235,20 @@ struct BalanceOverviewCard: View {
                         .font(.caption)
                         .foregroundStyle(palette.subtitle)
                 }
+                if snapshot.provider == .opencodeGo,
+                   let hint = snapshot.errorRecoveryHint, !hint.isEmpty {
+                    Text(hint)
+                        .font(.caption2)
+                        .foregroundStyle(palette.subtitle)
+                }
             }
             Spacer()
+            if snapshot.provider == .opencodeGo, snapshot.errorRequiresReimport {
+                Button(AppLocalization.text("settings.opencodeGo.action.importNow")) {}
+                .buttonStyle(.borderless)
+                .font(.caption2)
+                .foregroundStyle(palette.accent)
+            }
             Text("不可用")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.gray)

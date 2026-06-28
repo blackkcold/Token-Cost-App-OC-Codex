@@ -18,15 +18,23 @@ struct BalanceSectionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            balanceToggleCard
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 260), spacing: 12, alignment: .top)],
+                spacing: 12
+            ) {
+                balanceControlCard
+                if appPreferencesModel.preferences.balanceEnabled {
+                    balanceDisplayCard
+                }
+            }
             goCredentialsCard
             providerStatusCard
         }
     }
 
-    // MARK: - Balance toggle card
+    // MARK: - Balance control card
 
-    private var balanceToggleCard: some View {
+    private var balanceControlCard: some View {
         SettingsSurfaceCard(
             title: "settings.balance.title".localized,
             subtitle: "settings.balance.subtitle".localized,
@@ -34,7 +42,7 @@ struct BalanceSectionView: View {
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                SettingsControlGrid(minimumWidth: 220) {
+                SettingsControlGrid(minimumWidth: 180) {
                     SettingsControlTile(palette: palette, minHeight: 54) {
                         Toggle("settings.balance.enable".localized, isOn: appPreferencesModel.balanceEnabledBinding)
                     }
@@ -62,7 +70,7 @@ struct BalanceSectionView: View {
 
                     HStack(spacing: 10) {
                         Button {
-                            Task { await balanceManager.refresh() }
+                            Task { await balanceManager.refresh(force: true) }
                         } label: {
                             Label("settings.balance.refreshNow".localized, systemImage: "arrow.clockwise")
                         }
@@ -77,11 +85,46 @@ struct BalanceSectionView: View {
                         }
 
                         if let lastRefresh = balanceManager.lastRefreshTime {
-                            Text("\("settings.balance.lastRefreshAt".localized): \(formattedTime(lastRefresh))")
+                            Text(AppLocalization.format("settings.balance.lastRefreshAt", formattedTime(lastRefresh)))
                                 .font(.caption2)
                                 .foregroundStyle(palette.subtitle)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // MARK: - Balance display card
+
+    private var balanceDisplayCard: some View {
+        SettingsSurfaceCard(
+            title: "显示",
+            subtitle: nil,
+            role: .secondary,
+            palette: palette
+        ) {
+            SettingsControlGrid(minimumWidth: 180) {
+                SettingsControlTile(title: "排序方式", palette: palette, minHeight: 54) {
+                    Picker("", selection: appPreferencesModel.balanceSortOrderBinding) {
+                        ForEach(BalanceSortOrder.allCases, id: \.self) { order in
+                            Text(order.displayName).tag(order)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 160)
+                }
+
+                SettingsControlTile(title: "显示模式", palette: palette, minHeight: 54) {
+                    Picker("", selection: appPreferencesModel.balanceDisplayModeBinding) {
+                        ForEach(BalanceDisplayMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 160)
                 }
             }
         }
@@ -165,6 +208,21 @@ struct BalanceSectionView: View {
                         .font(.caption2)
                         .foregroundStyle(palette.subtitle)
                         .padding(.top, 2)
+                }
+
+                if appPreferencesModel.preferences.balanceEnabled {
+                    Divider().opacity(0.3)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(
+                            AppLocalization.text("settings.opencodeGo.autoImport.toggle"),
+                            isOn: appPreferencesModel.autoImportOnFailureBinding
+                        )
+                        .font(.caption)
+                        Text(AppLocalization.text("settings.opencodeGo.autoImport.description"))
+                            .font(.caption2)
+                            .foregroundStyle(palette.subtitle)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
@@ -346,6 +404,27 @@ struct BalanceSectionView: View {
                     .font(.caption2)
                     .foregroundStyle(.red)
                     .padding(.leading, 20)
+
+                if snapshot.provider == .opencodeGo,
+                   let hint = snapshot.errorRecoveryHint, !hint.isEmpty {
+                    Text(verbatim: hint)
+                        .font(.caption2)
+                        .foregroundStyle(palette.subtitle)
+                        .padding(.leading, 20)
+                }
+                if snapshot.provider == .opencodeGo, snapshot.errorRequiresReimport {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 9))
+                        Button(AppLocalization.text("settings.opencodeGo.action.importNow")) {
+                            showBrowserImportAlert = true
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption2)
+                        .foregroundStyle(palette.accent)
+                    }
+                    .padding(.leading, 20)
+                }
             }
         }
         .padding(.horizontal, 8)

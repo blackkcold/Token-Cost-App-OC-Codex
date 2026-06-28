@@ -429,6 +429,14 @@
 "settings.opencodeGo.import.noBrowser" = "No supported browser data found. Make sure you are logged in to opencode.ai in your browser";
 "settings.opencodeGo.import.partial" = "Cookie imported. Please enter Workspace ID manually";
 
+/* OpenCode Go Credential Diagnosis & Auto-Recovery v0.10 */
+"settings.opencodeGo.autoImport.toggle" = "Auto-import from browser on failure";
+"settings.opencodeGo.autoImport.description" = "When cookie expiry or credential mismatch is detected, automatically import the latest credentials from Edge / Chrome / Brave / Arc. macOS may show a Keychain permission dialog.";
+"settings.opencodeGo.diagnosis.cookieExpired" = "Auth Cookie expired. Please re-import.";
+"settings.opencodeGo.diagnosis.workspaceMismatch" = "Workspace ID does not match the cookie";
+"settings.opencodeGo.diagnosis.noSubscription" = "This account has not subscribed to OpenCode Go";
+"settings.opencodeGo.action.importNow" = "Import Now";
+
 /* Skills Panel v0.7.0 */
 "tab.skills" = "Skills";
 "tab.skills.tooltip" = "Manage OpenCode Skills";

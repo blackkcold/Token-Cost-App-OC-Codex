@@ -96,17 +96,52 @@ public struct BalanceProviderError: Error, Codable, Hashable, Sendable {
     public let category: Category
     public let publicMessage: String
     public let underlyingCode: String?
+    /// User-actionable recovery suggestion (UI may display alongside error).
+    public let recoveryHint: String
+    /// Whether re-importing credentials from browser is the recommended fix.
+    public let requiresReimport: Bool
 
     public init(
         provider: BalanceProviderKind,
         category: Category,
         publicMessage: String,
-        underlyingCode: String? = nil
+        underlyingCode: String? = nil,
+        recoveryHint: String = "",
+        requiresReimport: Bool = false
     ) {
         self.provider = provider
         self.category = category
         self.publicMessage = publicMessage
         self.underlyingCode = underlyingCode
+        self.recoveryHint = recoveryHint
+        self.requiresReimport = requiresReimport
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case provider, category, publicMessage
+        case underlyingCode
+        case recoveryHint
+        case requiresReimport
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.provider = try container.decode(BalanceProviderKind.self, forKey: .provider)
+        self.category = try container.decode(Category.self, forKey: .category)
+        self.publicMessage = try container.decode(String.self, forKey: .publicMessage)
+        self.underlyingCode = try container.decodeIfPresent(String.self, forKey: .underlyingCode)
+        self.recoveryHint = try container.decodeIfPresent(String.self, forKey: .recoveryHint) ?? ""
+        self.requiresReimport = try container.decodeIfPresent(Bool.self, forKey: .requiresReimport) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(provider, forKey: .provider)
+        try container.encode(category, forKey: .category)
+        try container.encode(publicMessage, forKey: .publicMessage)
+        try container.encodeIfPresent(underlyingCode, forKey: .underlyingCode)
+        try container.encode(recoveryHint, forKey: .recoveryHint)
+        try container.encode(requiresReimport, forKey: .requiresReimport)
     }
 }
 
@@ -118,13 +153,56 @@ public struct BalanceConfiguration: Codable, Equatable, Sendable {
     public var enabledBalanceProviders: [BalanceProviderKind]
     /// Allow reading credentials from environment variables (off by default).
     public var allowEnvironmentCredentials: Bool
+    /// When true, automatically re-import OpenCode Go credentials from browser
+    /// on auth failure (cookie expiration, workspace mismatch).
+    public var autoImportFromBrowserOnFailure: Bool
 
     public init(
         enabledBalanceProviders: [BalanceProviderKind] = [.opencodeGo, .codex, .opencodeZen],
-        allowEnvironmentCredentials: Bool = false
+        allowEnvironmentCredentials: Bool = false,
+        autoImportFromBrowserOnFailure: Bool = false
     ) {
         self.enabledBalanceProviders = enabledBalanceProviders
         self.allowEnvironmentCredentials = allowEnvironmentCredentials
+        self.autoImportFromBrowserOnFailure = autoImportFromBrowserOnFailure
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabledBalanceProviders
+        case allowEnvironmentCredentials
+        case autoImportFromBrowserOnFailure
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabledBalanceProviders = try container.decodeIfPresent([BalanceProviderKind].self, forKey: .enabledBalanceProviders) ?? [.opencodeGo, .codex, .opencodeZen]
+        self.allowEnvironmentCredentials = try container.decodeIfPresent(Bool.self, forKey: .allowEnvironmentCredentials) ?? false
+        self.autoImportFromBrowserOnFailure = try container.decodeIfPresent(Bool.self, forKey: .autoImportFromBrowserOnFailure) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(enabledBalanceProviders, forKey: .enabledBalanceProviders)
+        try container.encode(allowEnvironmentCredentials, forKey: .allowEnvironmentCredentials)
+        try container.encode(autoImportFromBrowserOnFailure, forKey: .autoImportFromBrowserOnFailure)
+    }
+}
+
+// MARK: - Consumption rate
+
+/// Estimated consumption rate derived from historical usage snapshots.
+public struct ConsumptionRate: Codable, Hashable, Sendable {
+    /// Percentage points per hour (e.g. 2.3 = 2.3%/h).
+    public let perHour: Double
+    /// Percentage points per day (e.g. 15.2 = 15.2%/d).
+    public let perDay: Double
+    /// Confidence score 0…1 — higher means more data points.
+    public let confidence: Double
+
+    public init(perHour: Double = 0, perDay: Double = 0, confidence: Double = 0) {
+        self.perHour = perHour
+        self.perDay = perDay
+        self.confidence = confidence
     }
 }
 
@@ -138,19 +216,55 @@ public struct BalanceQuotaWindow: Codable, Hashable, Identifiable, Sendable {
     public let remainingRatio: Double?
     public let resetAt: Date?
     public let windowSeconds: Int?
+    /// Estimated consumption rate (nil until enough samples are collected).
+    public let consumptionRate: ConsumptionRate?
 
     public init(
         label: String,
         usedRatio: Double? = nil,
         remainingRatio: Double? = nil,
         resetAt: Date? = nil,
-        windowSeconds: Int? = nil
+        windowSeconds: Int? = nil,
+        consumptionRate: ConsumptionRate? = nil
     ) {
         self.label = label
         self.usedRatio = usedRatio
         self.remainingRatio = remainingRatio
         self.resetAt = resetAt
         self.windowSeconds = windowSeconds
+        self.consumptionRate = consumptionRate
+    }
+}
+
+// MARK: - Sort order
+
+/// Controls how balance snapshot cards are ordered in the UI.
+public enum BalanceSortOrder: String, Codable, CaseIterable, Sendable {
+    case quotaFirst    // 余量（quota/usage）类型优先
+    case balanceFirst  // 余额（balance/cost）类型优先
+    case byProvider    // 按 provider 固定顺序
+
+    public var displayName: String {
+        switch self {
+        case .quotaFirst: return "余量优先"
+        case .balanceFirst: return "余额优先"
+        case .byProvider: return "Provider 排序"
+        }
+    }
+}
+
+// MARK: - Display mode
+
+/// Controls whether progress bars show used or remaining ratios.
+public enum BalanceDisplayMode: String, Codable, CaseIterable, Sendable {
+    case used      // 显示已使用
+    case remaining // 显示剩余
+
+    public var displayName: String {
+        switch self {
+        case .used: return "已使用"
+        case .remaining: return "剩余"
+        }
     }
 }
 
@@ -164,6 +278,10 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
     public let fetchedAt: Date
     public let isAvailable: Bool
     public let errorMessage: String?
+    /// User-actionable recovery suggestion when unavailable.
+    public let errorRecoveryHint: String?
+    /// Whether re-importing credentials from browser is the recommended fix.
+    public let errorRequiresReimport: Bool
 
     // -- Generic fields --
     public let remainingCredits: Double?
@@ -202,6 +320,8 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
         fetchedAt: Date,
         isAvailable: Bool,
         errorMessage: String? = nil,
+        errorRecoveryHint: String? = nil,
+        errorRequiresReimport: Bool = false,
         remainingCredits: Double? = nil,
         totalCredits: Double? = nil,
         usedCredits: Double? = nil,
@@ -225,6 +345,8 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
         self.fetchedAt = fetchedAt
         self.isAvailable = isAvailable
         self.errorMessage = errorMessage
+        self.errorRecoveryHint = errorRecoveryHint
+        self.errorRequiresReimport = errorRequiresReimport
         self.remainingCredits = remainingCredits
         self.totalCredits = totalCredits
         self.usedCredits = usedCredits
@@ -249,13 +371,17 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
     public static func unavailable(
         _ provider: BalanceProviderKind,
         reason: String? = nil,
+        recoveryHint: String? = nil,
+        requiresReimport: Bool = false,
         fetchedAt: Date = Date()
     ) -> BalanceSnapshot {
         BalanceSnapshot(
             provider: provider,
             fetchedAt: fetchedAt,
             isAvailable: false,
-            errorMessage: reason
+            errorMessage: reason,
+            errorRecoveryHint: recoveryHint,
+            errorRequiresReimport: requiresReimport
         )
     }
 
@@ -294,5 +420,17 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
             return "\(provider.displayName) \(parts.joined(separator: " "))"
         }
         return "\(provider.displayName) OK"
+    }
+
+    // MARK: - Type classification helpers
+
+    /// Whether this snapshot represents quota/usage tracking (has progress bars).
+    public var isQuotaType: Bool {
+        quotaWindows != nil || usagePercent != nil
+    }
+
+    /// Whether this snapshot represents monetary balance tracking.
+    public var isBalanceType: Bool {
+        valueEntries != nil || totalCostUSD != nil
     }
 }

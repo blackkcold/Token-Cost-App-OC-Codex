@@ -23,7 +23,13 @@ enum OpenCodeGoDashboardFetcher {
     static func fetch(apiKey: String, workspaceID: String, cookie: String) async throws -> OpenCodeGoDashboardUsage {
         let modelCount = try await fetchModelCount(apiKey: apiKey)
         guard modelCount > 0 else {
-            throw BalanceFetchError.unavailable("无可用 Go 模型")
+            throw BalanceProviderError(
+                provider: .opencodeGo,
+                category: .process,
+                publicMessage: "无可用 Go 模型",
+                recoveryHint: "当前账号尚未订阅 OpenCode Go 计划",
+                requiresReimport: false
+            )
         }
 
         return try await fetchDashboardUsage(workspaceID: workspaceID, cookie: cookie)
@@ -39,7 +45,13 @@ enum OpenCodeGoDashboardFetcher {
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.unavailable("Go API 不可用")
+            throw BalanceProviderError(
+                provider: .opencodeGo,
+                category: .network,
+                publicMessage: "Go API 不可用",
+                recoveryHint: "网络请求失败，请检查网络连接后重试",
+                requiresReimport: false
+            )
         }
 
         let object = try JSONSerialization.jsonObject(with: data)
@@ -48,12 +60,24 @@ enum OpenCodeGoDashboardFetcher {
             if let arr = dict["models"] as? [Any] { return arr.count }
         }
         if let arr = object as? [Any] { return arr.count }
-        throw BalanceFetchError.unavailable("无法解析模型列表")
+        throw BalanceProviderError(
+            provider: .opencodeGo,
+            category: .parse,
+            publicMessage: "无法解析模型列表",
+            recoveryHint: "Go API 返回格式异常",
+            requiresReimport: false
+        )
     }
 
     private static func fetchDashboardUsage(workspaceID: String, cookie: String) async throws -> OpenCodeGoDashboardUsage {
         guard let url = URL(string: "https://opencode.ai/workspace/\(workspaceID)/go") else {
-            throw BalanceFetchError.unavailable("Invalid workspace URL")
+            throw BalanceProviderError(
+                provider: .opencodeGo,
+                category: .process,
+                publicMessage: "Invalid workspace URL",
+                recoveryHint: "请检查 Workspace ID 格式是否正确",
+                requiresReimport: false
+            )
         }
 
         var request = URLRequest(url: url)
@@ -66,18 +90,43 @@ enum OpenCodeGoDashboardFetcher {
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw BalanceFetchError.unavailable("无效响应")
+            throw BalanceProviderError(
+                provider: .opencodeGo,
+                category: .network,
+                publicMessage: "无效响应",
+                recoveryHint: "服务器返回了无效响应，请稍后重试",
+                requiresReimport: false
+            )
         }
         switch httpResponse.statusCode {
         case 200: break
         case 302, 401, 403:
-            throw BalanceFetchError.unavailable("Cookie 已过期，请重新配置")
+            throw BalanceProviderError(
+                provider: .opencodeGo,
+                category: .auth,
+                publicMessage: "Cookie 已过期",
+                underlyingCode: "HTTP \(httpResponse.statusCode)",
+                recoveryHint: "Auth Cookie 已过期，请从浏览器重新导入或手动更新",
+                requiresReimport: true
+            )
         default:
-            throw BalanceFetchError.unavailable("HTTP \(httpResponse.statusCode)")
+            throw BalanceProviderError(
+                provider: .opencodeGo,
+                category: .network,
+                publicMessage: "HTTP \(httpResponse.statusCode)",
+                recoveryHint: "服务器返回异常状态码，请稍后重试",
+                requiresReimport: false
+            )
         }
 
         guard let html = String(data: data, encoding: .utf8) else {
-            throw BalanceFetchError.unavailable("无法解析页面")
+            throw BalanceProviderError(
+                provider: .opencodeGo,
+                category: .parse,
+                publicMessage: "无法解析页面",
+                recoveryHint: "服务器返回了非文本内容",
+                requiresReimport: false
+            )
         }
 
         guard let usage = parseWindows(from: html) else {
@@ -89,9 +138,21 @@ enum OpenCodeGoDashboardFetcher {
             #endif
 
             if html.contains("rollingUsage") || html.contains("monthlyUsage") {
-                throw BalanceFetchError.unavailable("页面格式已更新，解析失败。请在 GitHub Issues 报告此问题")
+                throw BalanceProviderError(
+                    provider: .opencodeGo,
+                    category: .parse,
+                    publicMessage: "页面格式已更新，解析失败",
+                    recoveryHint: "页面格式已更新，解析失败。请在 GitHub Issues 报告此问题",
+                    requiresReimport: false
+                )
             } else {
-                throw BalanceFetchError.unavailable("页面不含配额数据。可能原因：Cookie 与 Workspace ID 不匹配，或该账号尚未订阅 Go 计划")
+                throw BalanceProviderError(
+                    provider: .opencodeGo,
+                    category: .auth,
+                    publicMessage: "页面不含配额数据",
+                    recoveryHint: "Cookie 与 Workspace ID 不匹配，或该账号尚未订阅 Go 计划。请重新从浏览器导入",
+                    requiresReimport: true
+                )
             }
         }
 
@@ -171,13 +232,5 @@ enum OpenCodeGoDashboardFetcher {
             weekly: weekly,
             monthly: monthly
         )
-    }
-}
-
-struct BalanceFetchError: LocalizedError {
-    let message: String
-    var errorDescription: String? { message }
-    static func unavailable(_ msg: String) -> BalanceFetchError {
-        BalanceFetchError(message: msg)
     }
 }

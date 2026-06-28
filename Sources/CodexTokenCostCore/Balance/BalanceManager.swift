@@ -9,6 +9,7 @@ public final class BalanceManager: ObservableObject {
     @Published public private(set) var snapshots: [BalanceSnapshot] = []
     @Published public private(set) var lastRefreshTime: Date?
     @Published public private(set) var isRefreshing: Bool = false
+    @Published public private(set) var goLastDiagnosis: BalanceProviderError?
     private var consecutiveFailures: Int = 0
     private var checkers: [BalanceChecker] = []
 
@@ -22,11 +23,11 @@ public final class BalanceManager: ObservableObject {
         configuration = new
     }
 
-    public func refresh() async {
+    public func refresh(force: Bool = false) async {
         guard !isRefreshing else { return }
         isRefreshing = true
 
-        if consecutiveFailures > 0, let lastRefreshTime {
+        if !force, consecutiveFailures > 0, let lastRefreshTime {
             let backoff = backoffSeconds()
             if Date().timeIntervalSince(lastRefreshTime) < Double(backoff) {
                 isRefreshing = false
@@ -66,6 +67,26 @@ public final class BalanceManager: ObservableObject {
         snapshots = results.sorted { $0.provider.sortOrder < $1.provider.sortOrder }
         lastRefreshTime = now
 
+        // Compute rates against prior history first, then store this refresh as the next sample.
+        if !snapshots.isEmpty {
+            snapshots = ConsumptionRateCalculator.compute(current: snapshots)
+            ConsumptionRateCalculator.store(snapshots)
+        }
+
+        if let goSnapshot = snapshots.first(where: { $0.provider == .opencodeGo }),
+           !goSnapshot.isAvailable,
+           let errorMessage = goSnapshot.errorMessage {
+            goLastDiagnosis = BalanceProviderError(
+                provider: .opencodeGo,
+                category: goSnapshot.errorRequiresReimport ? .auth : .unknown,
+                publicMessage: errorMessage,
+                recoveryHint: goSnapshot.errorRecoveryHint ?? "",
+                requiresReimport: goSnapshot.errorRequiresReimport
+            )
+        } else if snapshots.contains(where: { $0.provider == .opencodeGo && $0.isAvailable }) {
+            goLastDiagnosis = nil
+        }
+
         if anySucceeded {
             consecutiveFailures = 0
         } else {
@@ -89,6 +110,10 @@ public final class BalanceManager: ObservableObject {
         guard let lastRefreshTime else { return true }
         let elapsed = Date().timeIntervalSince(lastRefreshTime)
         return elapsed >= Double(intervalSeconds)
+    }
+
+    public func clearDiagnosis() {
+        goLastDiagnosis = nil
     }
 
     var activeProviderKinds: [BalanceProviderKind] {

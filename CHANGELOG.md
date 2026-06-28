@@ -7,11 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> 当前下一版目标为 `v0.9.3`，以下为相对 `v0.9.2` 的累计变更。
+> 当前下一版目标为 `v0.9.6`，以下为相对 `v0.9.5` 的累计变更。
 
 ### Added
 
 （待开发）
+
+## [v0.9.5] - 2026-06-28
+
+> 相对 `v0.9.2` 的累计变更。
+
+### Added
+
+- **余额消耗速率功能**：基于历史快照的滑动窗口速率估算（`ConsumptionRateCalculator.swift`），支持线性回归和 fallback 窗口内估算，输出百分比点
+- **菜单栏余额速率展示**：短窗口配额卡片展示实时重置倒计时和简写速率（`MenuBarView.swift`）
+- **余额采集参数可视化**：设置面板新增采样间隔说明卡片（`BalanceSectionView.swift`）
+- `AppPreferences` 新增 `balanceSortOrder`、`balanceDisplayMode` 序列化支持
+
+### Fixed
+
+- **余额消耗速率 fallback 计算**：使用 `resetAt - windowSeconds` 作为窗口起点替代错误的 `now - resetAt`
+- **速率单位缩放**：`ConsumptionRate` 统一输出百分比点（×100），UI 不再低 100 倍显示
+- **采样重复纳入**：`BalanceManager.refresh` 先计算后存储，避免当前样本被重复纳入线性回归
+- **主卡速率单位**：按 `windowSeconds` 选择 `%/h` 或 `%/d`，修正原有按数值选择的逻辑
+- **窗口重置检测顺序**：reset 检测前置于 debounce，避免窗口重置后仍保留过期历史
+- **OpenCode Go Dashboard 解析器优化**：增强模型成本解析的兼容性
+
+### Changed
+
+- 本地化文件新增余额速率相关文案 key（`Resources/*.lproj/Localizable.strings`）
+- 开发文档更新：菜单栏 §2.11 和余额速率 §2.14 口径对齐（`docs/功能模块关联清单.md`、`docs/开发手册.md`）
 
 ## [v0.9.2] - 2026-06-12
 
@@ -353,6 +378,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
+[v0.9.5]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.2...v0.9.5
 [v0.9.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.1...v0.9.2
 [v0.9.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.0...v0.9.1
 [v0.9.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.5...v0.9.0

@@ -568,6 +568,84 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(credentials.cookie, "cookie_env_enabled")
     }
 
+    // MARK: - ConsumptionRateCalculator
+
+    func testConsumptionRateFallbackUsesWindowStartAndPercentagePoints() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let windowStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetAt = windowStart.addingTimeInterval(3_600)
+        let snapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(900),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "5小时",
+                    usedRatio: 0.25,
+                    remainingRatio: 0.75,
+                    resetAt: resetAt,
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [snapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+
+        XCTAssertNotNil(rate)
+        XCTAssertEqual(rate?.perHour ?? 0, 100, accuracy: 0.001)
+        XCTAssertEqual(rate?.perDay ?? 0, 2_400, accuracy: 0.001)
+        XCTAssertEqual(rate?.confidence ?? 0, 0.2, accuracy: 0.001)
+    }
+
+    func testConsumptionRateUsesPriorHistoryAndCurrentSnapshot() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let windowStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetAt = windowStart.addingTimeInterval(3_600)
+        let firstSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(600),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "5小时",
+                    usedRatio: 0.10,
+                    remainingRatio: 0.90,
+                    resetAt: resetAt,
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+        ConsumptionRateCalculator.store([firstSnapshot])
+
+        let secondSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(1_200),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "5小时",
+                    usedRatio: 0.20,
+                    remainingRatio: 0.80,
+                    resetAt: resetAt,
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [secondSnapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+
+        XCTAssertNotNil(rate)
+        XCTAssertEqual(rate?.perHour ?? 0, 60, accuracy: 0.001)
+        XCTAssertEqual(rate?.perDay ?? 0, 1_440, accuracy: 0.001)
+        XCTAssertEqual(rate?.confidence ?? 0, 0.4, accuracy: 0.001)
+    }
+
     // MARK: - BalanceManager testSnapshot with mock checker
 
     @MainActor

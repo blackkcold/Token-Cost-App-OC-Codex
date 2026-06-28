@@ -167,6 +167,28 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
+    var balanceSortOrderBinding: Binding<BalanceSortOrder> {
+        Binding(
+            get: { self.preferences.balanceSortOrder },
+            set: { newValue in
+                self.updatePreferences { preferences in
+                    preferences.balanceSortOrder = newValue
+                }
+            }
+        )
+    }
+
+    var balanceDisplayModeBinding: Binding<BalanceDisplayMode> {
+        Binding(
+            get: { self.preferences.balanceDisplayMode },
+            set: { newValue in
+                self.updatePreferences { preferences in
+                    preferences.balanceDisplayMode = newValue
+                }
+            }
+        )
+    }
+
     var opencodeGoWorkspaceIDBinding: Binding<String> {
         Binding(
             get: { self.preferences.opencodeGoWorkspaceID ?? "" },
@@ -246,6 +268,17 @@ final class AppPreferencesModel: ObservableObject {
             mutate(&config)
             prefs.balanceConfig = config
         }
+    }
+
+    var autoImportOnFailureBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.balanceConfig?.autoImportFromBrowserOnFailure ?? false },
+            set: { newValue in
+                self.updateBalanceConfiguration { config in
+                    config.autoImportFromBrowserOnFailure = newValue
+                }
+            }
+        )
     }
 
     func updateSkillsPanel(showSource: Bool? = nil, showState: Bool? = nil, showTags: Bool? = nil, previewLength: Int? = nil, sortBy: String? = nil) {

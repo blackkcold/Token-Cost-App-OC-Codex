@@ -429,6 +429,14 @@
 "settings.opencodeGo.import.noBrowser" = "未找到支持的浏览器数据，请确认已在浏览器中登录 opencode.ai";
 "settings.opencodeGo.import.partial" = "已导入 Cookie，请手动填写 Workspace ID";
 
+/* OpenCode Go 凭证诊断与自动恢复 v0.10 */
+"settings.opencodeGo.autoImport.toggle" = "失败时自动从浏览器导入";
+"settings.opencodeGo.autoImport.description" = "当检测到 Cookie 过期或凭证不匹配时，自动从 Edge / Chrome / Brave / Arc 导入最新凭证。macOS 可能会弹出 Keychain 授权请求。";
+"settings.opencodeGo.diagnosis.cookieExpired" = "Auth Cookie 已过期，请重新导入";
+"settings.opencodeGo.diagnosis.workspaceMismatch" = "Workspace ID 与 Cookie 不匹配";
+"settings.opencodeGo.diagnosis.noSubscription" = "当前账号尚未订阅 OpenCode Go 计划";
+"settings.opencodeGo.action.importNow" = "立即导入";
+
 /* Skills 管理面板 v0.7.0 */
 "tab.skills" = "Skills";
 "tab.skills.tooltip" = "管理 OpenCode Skills";

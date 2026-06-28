@@ -98,6 +98,28 @@ struct ContentView: View {
                     guard appPreferencesModel.preferences.balanceEnabled else { return }
                     guard balanceManager.shouldRefresh(intervalSeconds: appPreferencesModel.preferences.balanceRefreshSeconds) else { return }
                     Task { await balanceManager.refresh() }
+
+                    if let diagnosis = balanceManager.goLastDiagnosis,
+                       diagnosis.requiresReimport,
+                       appPreferencesModel.preferences.balanceConfig?.autoImportFromBrowserOnFailure == true {
+                        Task.detached {
+                            let result = BrowserCookieExtractor.extractCredentials()
+                            await MainActor.run {
+                                if let cookie = result.cookie {
+                                    SecureCredentialStore.shared.saveAuthCookie(cookie)
+                                }
+                                if let wid = result.workspaceID {
+                                    SecureCredentialStore.shared.saveWorkspaceID(wid)
+                                    appPreferencesModel.updatePreferences { $0.opencodeGoWorkspaceID = wid }
+                                }
+                                if result.cookie != nil || result.workspaceID != nil {
+                                    Task { await balanceManager.refresh(force: true) }
+                                } else {
+                                    balanceManager.clearDiagnosis()
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -10,14 +10,14 @@ public struct OpenCodeGoBalanceChecker: BalanceChecker {
 
     public func fetch(authToken: String) async -> BalanceSnapshot {
         guard !authToken.isEmpty else {
-            return .unavailable(.opencodeGo, reason: "未找到 OpenCode Go API key")
+            return .unavailable(.opencodeGo, reason: "未找到 OpenCode Go API key。请确认 ~/.local/share/opencode/auth.json 中存在 opencode-go 凭证")
         }
 
         let (workspaceID, cookie) = SecureCredentialStore.shared.discoverCredentials(
             allowEnvironment: allowEnvironmentCredentials
         )
         guard let workspaceID, let cookie else {
-            return .unavailable(.opencodeGo, reason: "请先在设置中配置 OpenCode Go 凭证")
+            return .unavailable(.opencodeGo, reason: "请先在设置中配置 OpenCode Go 凭证（Workspace ID 和 Auth Cookie）")
         }
 
         let usage: OpenCodeGoDashboardUsage
@@ -26,6 +26,12 @@ public struct OpenCodeGoBalanceChecker: BalanceChecker {
                 apiKey: authToken,
                 workspaceID: workspaceID,
                 cookie: cookie
+            )
+        } catch let providerError as BalanceProviderError {
+            return .unavailable(.opencodeGo,
+                reason: providerError.publicMessage,
+                recoveryHint: providerError.recoveryHint,
+                requiresReimport: providerError.requiresReimport
             )
         } catch {
             return .unavailable(.opencodeGo, reason: error.localizedDescription)
