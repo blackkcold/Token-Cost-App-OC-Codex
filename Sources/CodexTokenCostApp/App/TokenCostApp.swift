@@ -68,7 +68,7 @@ struct CodexTokenCostApp: App {
         .defaultSize(width: 960, height: 860)
         .environment(\.locale, appPreferencesModel.preferences.language.locale)
 
-        MenuBarExtra(appPreferencesModel.preferences.language == .zhHans ? "Token Cost" : "Token Cost", systemImage: "chart.bar.fill") {
+        MenuBarExtra(appPreferencesModel.preferences.language == .zhHans ? "代币费用" : "Token Cost", systemImage: "chart.bar.fill") {
             MenuBarView(
                 openCodeModel: openCodeModel,
                 codexModel: codexModel,

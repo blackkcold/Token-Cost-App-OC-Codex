@@ -681,3 +681,11 @@
 "codex.models.subtitle" = "不同模型的 token 消耗占比";
 "codex.models.turns" = "%d 轮";
 
+/* Balance 余额卡片 */
+"balance.title" = "实时余额";
+"balance.lastRefresh" = "上次刷新：%@";
+"balance.notRefreshed" = "尚未刷新";
+"balance.total90Days" = "90天累计 %@";
+"balance.dailyAverage" = "日均 %@";
+"balance.balance" = "余额";
+

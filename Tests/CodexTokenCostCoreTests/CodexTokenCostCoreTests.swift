@@ -1106,6 +1106,104 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(prefs.combinedMonthlyCost(payload: payload) ?? 0, 0.003625, accuracy: 0.0001)
     }
 
+    // MARK: - Codex JSONL discovery probe
+
+    func testCodexJSONLProbeFirstLineExceeds4KB() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("codex_probe_4k_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("session.jsonl")
+        let largeValue = String(repeating: "x", count: 5000)
+        let firstLine = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"s1\",\"large\":\"\(largeValue)\"}}\n"
+        let secondLine = "{\"type\":\"event_msg\",\"payload\":{\"total_tokens\":100}}\n"
+        try (firstLine + secondLine).write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let service = CodexSessionDiscoveryService()
+        XCTAssertTrue(service.probeIsValidCodexJSONL(at: fileURL),
+                       "Should detect valid JSONL when first meaningful line exceeds 4KB")
+    }
+
+    func testCodexJSONLProbeLeadingBlankLines() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("codex_probe_blanks_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("session.jsonl")
+        let content = "\n\n  \n\n{\"type\":\"session_meta\",\"payload\":{\"id\":\"s1\"}}\n"
+        try content.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let service = CodexSessionDiscoveryService()
+        XCTAssertTrue(service.probeIsValidCodexJSONL(at: fileURL),
+                       "Should skip leading blank/whitespace-only lines and detect valid JSON")
+    }
+
+    func testCodexJSONLProbeInvalidFirstLineThenValid() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("codex_probe_invalid_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("session.jsonl")
+        let content = "not valid json\n{\"type\":\"session_meta\",\"payload\":{\"id\":\"s1\"}}\n"
+        try content.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let service = CodexSessionDiscoveryService()
+        XCTAssertTrue(service.probeIsValidCodexJSONL(at: fileURL),
+                       "Should tolerate invalid first line and continue scanning")
+    }
+
+    func testCodexJSONLProbeAllInvalidReturnsFalse() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("codex_probe_all_invalid_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("session.jsonl")
+        let content = "not json\n[1,2,3]\n\"just a string\"\n"
+        try content.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let service = CodexSessionDiscoveryService()
+        XCTAssertFalse(service.probeIsValidCodexJSONL(at: fileURL),
+                       "Should reject file with no valid JSON dictionary lines")
+    }
+
+    func testCodexJSONLProbeSkipsOversizeLineThenValid() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("codex_probe_oversize_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("session.jsonl")
+        let oversizeLine = String(repeating: "x", count: 64)
+        let content = "\(oversizeLine)\n{\"t\":1}\n"
+        try content.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let service = CodexSessionDiscoveryService()
+        XCTAssertTrue(
+            service.probeIsValidCodexJSONL(at: fileURL, readChunkSize: 16, maxLineSize: 32),
+            "Should discard an oversize line without letting the buffer grow unbounded, then continue scanning"
+        )
+    }
+
+    func testCodexJSONLUnsupportedSchemaForInvalidReadableFile() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("codex_unsupported_schema_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("session.jsonl")
+        try "not valid json at all\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let service = CodexSessionDiscoveryService()
+        XCTAssertEqual(
+            service.fileStatusMessageKind(for: fileURL, profile: .codex, status: .unsupported),
+            .unsupportedSchema
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeTestPayload(provider: String, rawCost: Double) -> DashboardPayload {

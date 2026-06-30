@@ -4,6 +4,7 @@ import Foundation
 /// Consolidates all USD/CNY conversion logic previously scattered across BillingPlanCatalog.
 public enum TokenCostCurrencyService {
     public static let canonicalBase: DisplayCurrency = .usd
+    /// Exchange rate may be overridden by user settings in future versions.
     public static let defaultExchangeRateUSDToCNY: Double = 7.2
 
     /// Convert amount between currencies.
