@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.2)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.6)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
@@ -13,7 +13,7 @@
 
 A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
 
-> **Latest**: [v0.9.1](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.1) — backup management, layered backup configuration, and Skills panel localization
+> **Latest**: [v0.9.6](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.6) — Codex JSONL streaming parser, SQL injection hardening, menu bar redesign, and CI upgrade to macOS 26
 
 ### Why Token Cost App?
 
@@ -117,7 +117,7 @@ MIT License — see [LICENSE](LICENSE)
 
 一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
 
-> **最新版本**: [v0.9.1](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.1) — 备份管理、分层备份配置和 Skills 面板本地化
+> **最新版本**: [v0.9.6](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.6) — Codex JSONL 流式解析、SQL 注入加固、菜单栏重构和 CI 升级至 macOS 26
 
 ### 为什么需要它？
 

@@ -31,6 +31,7 @@ final class CodexSessionModel: ObservableObject {
     private let settingsStore: SettingsStore
     private let snapshotStore: CodexSnapshotStore
     private var didBootstrap = false
+    private var discoveryGeneration = 0
 
     init() {
         self.settingsStore = SettingsStore(
@@ -119,7 +120,6 @@ final class CodexSessionModel: ObservableObject {
         shouldPromptForSourceConfirmation = false
 
         let currentSettings = settings
-        refreshDiscoverySources(using: currentSettings)
 
         Task.detached(priority: .userInitiated) { [weak self, currentSettings] in
             do {
@@ -142,7 +142,6 @@ final class CodexSessionModel: ObservableObject {
                         self.statusState = .refreshed
                         self.shouldPromptForSourceConfirmation = false
                     }
-                    self.refreshDiscoverySources(using: currentSettings)
                     self.isRefreshing = false
                 }
             } catch {
@@ -160,7 +159,6 @@ final class CodexSessionModel: ObservableObject {
                         self.statusState = .refreshFailed
                     }
                     self.shouldPromptForSourceConfirmation = (self.payload?.summary.sessionCount ?? 0) == 0
-                    self.refreshDiscoverySources(using: currentSettings)
                     self.isRefreshing = false
                 }
             }
@@ -287,8 +285,12 @@ final class CodexSessionModel: ObservableObject {
             settings.sourceFamily = .codex
         }
         settings.snapshotRetentionCount = min(max(settings.snapshotRetentionCount, 1), 20)
+        settings.maxScanDepth = min(max(settings.maxScanDepth, 1), 12)
+        settings.maxScanCandidates = min(max(settings.maxScanCandidates, 1), 1000)
         settings.sourceRoots = deduplicatedCanonicalPaths(from: settings.sourceRoots)
+            .filter { TokenCostPathUtilities.isSafeScanRoot(TokenCostPathUtilities.canonicalURL(from: $0)) }
         settings.manualSourcePaths = deduplicatedCanonicalPaths(from: settings.manualSourcePaths)
+            .filter { TokenCostPathUtilities.isSafeScanRoot(TokenCostPathUtilities.canonicalURL(from: $0)) }
     }
 
     private func deduplicatedCanonicalPaths(from paths: [String]) -> [String] {
@@ -323,337 +325,21 @@ final class CodexSessionModel: ObservableObject {
         discoverySources.contains { $0.status == .available }
     }
 
-    private func refreshDiscoverySources(using currentSettings: TokenCostSettings? = nil) {
-        let settings = currentSettings ?? self.settings
-        discoverySources = buildDiscoverySources(for: settings)
-    }
+    private func refreshDiscoverySources() {
+        discoveryGeneration += 1
+        let capturedGeneration = discoveryGeneration
+        let currentSettings = settings
 
-    private func buildDiscoverySources(for settings: TokenCostSettings) -> [TokenCostSource] {
-        let profile = settings.profile
-        var seenIDs = Set<String>()
-        var sources: [TokenCostSource] = []
+        Task.detached(priority: .userInitiated) { [capturedGeneration, currentSettings] in
+            let service = CodexSessionDiscoveryService()
+            let sources = service.discover(settings: currentSettings)
 
-        for root in settings.effectiveSourceRoots {
-            appendDirectorySources(
-                for: root,
-                profile: profile,
-                maxDepth: settings.maxScanDepth,
-                maxCandidates: settings.maxScanCandidates,
-                seenIDs: &seenIDs,
-                into: &sources
-            )
-        }
-
-        for path in settings.effectiveManualSourcePaths {
-            appendManualSource(
-                for: path,
-                profile: profile,
-                seenIDs: &seenIDs,
-                into: &sources
-            )
-        }
-
-        return sources.sorted { lhs, rhs in
-            if lhs.status == rhs.status {
-                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            await MainActor.run {
+                guard capturedGeneration == self.discoveryGeneration else {
+                    return
+                }
+                self.discoverySources = sources
             }
-            return statusRank(lhs.status) < statusRank(rhs.status)
-        }
-    }
-
-    private func appendDirectorySources(
-        for path: String,
-        profile: TokenCostSourceProfile,
-        maxDepth: Int,
-        maxCandidates: Int,
-        seenIDs: inout Set<String>,
-        into sources: inout [TokenCostSource]
-    ) {
-        let normalized = TokenCostPathUtilities.canonicalURL(from: path)
-        var isDirectory: ObjCBool = false
-        let exists = fileManager.fileExists(atPath: normalized.path, isDirectory: &isDirectory)
-
-        guard exists else {
-            appendIfNeeded(
-                makeCodexSource(
-                    sourceURL: normalized,
-                    locationURL: normalized,
-                    locationKind: .directory,
-                    profile: profile,
-                    status: .missing,
-                    statusMessageKind: .missingDefaultLocation,
-                    isDefault: true
-                ),
-                seenIDs: &seenIDs,
-                into: &sources
-            )
-            return
-        }
-
-        if isDirectory.boolValue {
-            let discoveredFiles = discoverSessionFiles(
-                in: normalized,
-                profile: profile,
-                maxDepth: maxDepth,
-                maxCandidates: maxCandidates
-            )
-
-            if discoveredFiles.isEmpty {
-                appendIfNeeded(
-                makeCodexSource(
-                    sourceURL: normalized,
-                    locationURL: normalized,
-                    locationKind: .directory,
-                    profile: profile,
-                    status: .missing,
-                    statusMessageKind: .missingDirectoryFiles,
-                    isDefault: true
-                ),
-                seenIDs: &seenIDs,
-                into: &sources
-            )
-                return
-            }
-
-            for fileURL in discoveredFiles {
-                appendIfNeeded(
-                makeCodexSource(
-                    sourceURL: fileURL,
-                    locationURL: normalized,
-                    locationKind: .file,
-                    profile: profile,
-                    status: fileStatus(for: fileURL, profile: profile),
-                    statusMessageKind: fileStatusMessageKind(for: fileURL, profile: profile),
-                    isDefault: false
-                ),
-                seenIDs: &seenIDs,
-                into: &sources
-            )
-            }
-            return
-        }
-
-        appendManualSource(
-            for: normalized.path,
-            profile: profile,
-            seenIDs: &seenIDs,
-            into: &sources
-        )
-    }
-
-    private func appendManualSource(
-        for path: String,
-        profile: TokenCostSourceProfile,
-        seenIDs: inout Set<String>,
-        into sources: inout [TokenCostSource]
-    ) {
-        let normalized = TokenCostPathUtilities.canonicalURL(from: path)
-        var isDirectory: ObjCBool = false
-        let exists = fileManager.fileExists(atPath: normalized.path, isDirectory: &isDirectory)
-
-        if exists == false {
-            appendIfNeeded(
-                makeCodexSource(
-                    sourceURL: normalized,
-                    locationURL: normalized,
-                    locationKind: .file,
-                    profile: profile,
-                    status: .missing,
-                    statusMessageKind: .missingPath,
-                    isDefault: false
-                ),
-                seenIDs: &seenIDs,
-                into: &sources
-            )
-            return
-        }
-
-        if isDirectory.boolValue {
-            let discoveredFiles = discoverSessionFiles(
-                in: normalized,
-                profile: profile,
-                maxDepth: profile.maxScanDepth,
-                maxCandidates: profile.maxScanCandidates
-            )
-
-            if discoveredFiles.isEmpty {
-                appendIfNeeded(
-                makeCodexSource(
-                    sourceURL: normalized,
-                    locationURL: normalized,
-                    locationKind: .directory,
-                    profile: profile,
-                    status: .missing,
-                    statusMessageKind: .missingDirectoryFiles,
-                    isDefault: false
-                ),
-                seenIDs: &seenIDs,
-                into: &sources
-            )
-                return
-            }
-
-            for fileURL in discoveredFiles {
-                appendIfNeeded(
-                makeCodexSource(
-                    sourceURL: fileURL,
-                    locationURL: normalized,
-                    locationKind: .file,
-                    profile: profile,
-                    status: fileStatus(for: fileURL, profile: profile),
-                    statusMessageKind: fileStatusMessageKind(for: fileURL, profile: profile),
-                    isDefault: false
-                ),
-                seenIDs: &seenIDs,
-                into: &sources
-            )
-            }
-            return
-        }
-
-        appendIfNeeded(
-            makeCodexSource(
-                sourceURL: normalized,
-                locationURL: normalized,
-                locationKind: .file,
-                profile: profile,
-                status: fileStatus(for: normalized, profile: profile),
-                statusMessageKind: fileStatusMessageKind(for: normalized, profile: profile),
-                isDefault: false
-            ),
-            seenIDs: &seenIDs,
-            into: &sources
-        )
-    }
-
-    private func appendIfNeeded(
-        _ source: TokenCostSource,
-        seenIDs: inout Set<String>,
-        into sources: inout [TokenCostSource]
-    ) {
-        guard seenIDs.insert(source.id).inserted else {
-            return
-        }
-        sources.append(source)
-    }
-
-    private func discoverSessionFiles(
-        in root: URL,
-        profile: TokenCostSourceProfile,
-        maxDepth: Int,
-        maxCandidates: Int
-    ) -> [URL] {
-        guard let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            return []
-        }
-
-        var results: [URL] = []
-        for case let itemURL as URL in enumerator {
-            let canonical = TokenCostPathUtilities.canonicalURL(itemURL)
-            guard TokenCostPathUtilities.isDescendant(canonical, of: root) else {
-                continue
-            }
-            let relativeDepth = canonical.pathComponents.count - root.pathComponents.count
-            if relativeDepth > maxDepth {
-                enumerator.skipDescendants()
-                continue
-            }
-
-            guard profile.matchesCandidateFile(canonical) else {
-                continue
-            }
-
-            results.append(canonical)
-            if results.count >= maxCandidates {
-                break
-            }
-        }
-        return results.sorted { lhs, rhs in
-            let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            if lhsDate == rhsDate {
-                return lhs.path < rhs.path
-            }
-            return lhsDate > rhsDate
-        }
-    }
-
-    private func makeCodexSource(
-        sourceURL: URL,
-        locationURL: URL?,
-        locationKind: TokenCostSourceLocationKind,
-        profile: TokenCostSourceProfile,
-        status: TokenCostSourceStatus,
-        statusMessageKind: TokenCostSourceStatusMessageKind,
-        isDefault: Bool
-    ) -> TokenCostSource {
-        let normalized = TokenCostPathUtilities.canonicalURL(sourceURL)
-        return TokenCostSource(
-            id: TokenCostPaths.stableIdentifier(for: normalized.path),
-            name: displayName(for: normalized, kind: locationKind, isDefault: isDefault),
-            sourceFamily: profile.family,
-            locationKind: locationKind,
-            sourceURL: normalized,
-            locationURL: locationURL.map(TokenCostPathUtilities.canonicalURL),
-            status: status,
-            statusMessageKind: statusMessageKind,
-            lastModified: modificationDate(for: normalized),
-            isReadOnly: true
-        )
-    }
-
-    private func fileStatus(for url: URL, profile: TokenCostSourceProfile) -> TokenCostSourceStatus {
-        guard profile.matchesCandidateFile(url) else {
-            return .unsupported
-        }
-        if fileManager.isReadableFile(atPath: url.path) {
-            return .available
-        }
-        return .locked
-    }
-
-    private func fileStatusMessageKind(for url: URL, profile: TokenCostSourceProfile) -> TokenCostSourceStatusMessageKind {
-        guard profile.matchesCandidateFile(url) else {
-            return .fileFormatMismatch
-        }
-        if fileManager.isReadableFile(atPath: url.path) {
-            return .fileReadable
-        }
-        return .fileUnreadable
-    }
-
-    private func displayName(for url: URL, kind: TokenCostSourceLocationKind, isDefault: Bool) -> String {
-        if isDefault {
-            return url.lastPathComponent.isEmpty ? settings.profile.sourceRootsLabel : url.lastPathComponent
-        }
-        switch kind {
-        case .directory:
-            return url.lastPathComponent.isEmpty ? AppLocalization.text("settings.codex.discovery.directoryFallback") : url.lastPathComponent
-        case .file:
-            let fileName = url.deletingPathExtension().lastPathComponent
-            return fileName.isEmpty ? url.lastPathComponent : fileName
-        }
-    }
-
-    private func modificationDate(for url: URL) -> String? {
-        guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
-              let date = attrs[.modificationDate] as? Date else {
-            return nil
-        }
-        return ISO8601DateFormatter().string(from: date)
-    }
-
-    private func statusRank(_ status: TokenCostSourceStatus) -> Int {
-        switch status {
-        case .available: return 0
-        case .locked: return 1
-        case .unsupported: return 2
-        case .missing: return 3
-        case .unknown: return 4
         }
     }
 }

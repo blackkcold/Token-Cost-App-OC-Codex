@@ -354,7 +354,8 @@ struct MenuBarView: View {
                 Text(label)
                     .font(.system(size: 9))
                     .foregroundStyle(palette.subtitle)
-                    .frame(width: 18, alignment: .leading)
+                    .frame(minWidth: 28, idealWidth: 36, alignment: .leading)
+                    .layoutPriority(1)
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -366,54 +367,48 @@ struct MenuBarView: View {
                         .frame(width: geo.size.width * CGFloat(min(pct, 1.0)), height: 5)
                 }
             }
-            .frame(width: 36, height: 5)
+            .frame(minWidth: 20, idealWidth: 32, minHeight: 5, idealHeight: 5, maxHeight: 5)
             Text("\(Int(pct * 100))%")
                 .font(.system(size: 9))
                 .foregroundStyle(palette.subtitle)
-                .frame(width: 24, alignment: .trailing)
+                .frame(minWidth: 16, idealWidth: 20, alignment: .trailing)
+        Spacer(minLength: 0)
+    }
+    }
+
+    private func statusIndicator(
+        label: String, hasPayload: Bool, isBusy: Bool, statusMessage: String
+    ) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(hasPayload ? Color.green : (isBusy ? palette.accent : palette.subtitle.opacity(0.5)))
+                .frame(width: 5, height: 5)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(palette.subtitle)
+                .lineLimit(1)
         }
+        .help(statusMessage)
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(CodexAppPaths.appDisplayName)
                 .font(.headline)
                 .foregroundStyle(palette.title)
-
-            Text(openCodeModel.statusMessage)
-                .font(.caption)
-                .foregroundStyle(palette.subtitle)
-                .lineLimit(2)
-
-            Text(codexModel.statusMessage)
-                .font(.caption2)
-                .foregroundStyle(palette.subtitle)
-                .lineLimit(2)
-
-            if let source = openCodeModel.selectedSource, let payload = openCodeModel.selectedPayload {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(source.name)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(palette.title)
-                        Text(TokenCostFormatters.tokens(payload.summary.totalActualTokens))
-                            .font(.caption)
-                            .foregroundStyle(palette.subtitle)
-                    }
-                    Spacer()
-                }
-            } else if let payload = codexModel.payload {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(AppLocalization.text("common.codex"))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(palette.title)
-                        Text(TokenCostFormatters.tokens(payload.summary.totalActualTokens))
-                            .font(.caption)
-                            .foregroundStyle(palette.subtitle)
-                    }
-                    Spacer()
-                }
+            HStack(spacing: 12) {
+                statusIndicator(
+                    label: "OpenCode",
+                    hasPayload: openCodeModel.selectedPayload != nil,
+                    isBusy: openCodeModel.isBootstrapping || openCodeModel.isRefreshing,
+                    statusMessage: openCodeModel.statusMessage
+                )
+                statusIndicator(
+                    label: "Codex",
+                    hasPayload: codexModel.payload != nil,
+                    isBusy: codexModel.isBootstrapping || codexModel.isRefreshing,
+                    statusMessage: codexModel.statusMessage
+                )
             }
         }
     }

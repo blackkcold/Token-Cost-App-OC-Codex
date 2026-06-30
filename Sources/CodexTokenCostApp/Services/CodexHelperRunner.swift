@@ -36,7 +36,7 @@ private final class PipeBuffer: @unchecked Sendable {
 }
 
 enum CodexHelperRunner {
-    static func loadPayload(settings: TokenCostSettings, timeout: TimeInterval = 30) throws -> CodexDashboardPayload {
+    static func loadPayload(settings: TokenCostSettings, timeout: TimeInterval = 60) throws -> CodexDashboardPayload {
         let process = Process()
         process.executableURL = CodexAppPaths.helperBinaryURL
         process.arguments = buildArguments(for: settings)

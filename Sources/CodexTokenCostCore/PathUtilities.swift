@@ -28,4 +28,15 @@ public enum TokenCostPathUtilities {
     public static func canonicalPathString(from path: String) -> String {
         canonicalURL(from: path).path
     }
+
+    /// Scan roots that must never be traversed for source discovery.
+    public static let forbiddenScanRoots: Set<String> = [
+        "/", "/System", "/Users", "/Applications",
+        "/Library", "/private", "/.Trash"
+    ]
+
+    /// Returns `true` when the URL's path is not one of the forbidden scan roots.
+    public static func isSafeScanRoot(_ url: URL) -> Bool {
+        !forbiddenScanRoots.contains(url.path)
+    }
 }

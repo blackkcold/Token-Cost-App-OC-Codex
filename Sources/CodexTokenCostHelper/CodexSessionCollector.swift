@@ -13,12 +13,20 @@ public enum CodexSessionCollectorError: LocalizedError {
 }
 
 public final class CodexSessionCollector {
+    private static let readChunkSize = 1024 * 1024
+    private static let maxLineSize = 32 * 1024 * 1024
+
     private let fileManager = FileManager.default
     private let sourceRoots: [URL]
     private let manualSourcePaths: [URL]
     private let profile: TokenCostSourceProfile
     private let maxDepth: Int
     private let maxCandidates: Int
+
+    private static nonisolated(unsafe) let iso8601Formatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        return f
+    }()
 
     public init(
         sourceRoots: [URL] = [],
@@ -123,25 +131,43 @@ public final class CodexSessionCollector {
             let fileHandle = try FileHandle(forReadingFrom: url)
             defer { fileHandle.closeFile() }
 
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            var buffer = Data()
+            var lineNumber = 0
 
             var accumulator = SessionAccumulator()
-            accumulator.updatedAt = modificationTimestamp(for: url) ?? ISO8601DateFormatter().string(from: Date())
+            accumulator.updatedAt = modificationTimestamp(for: url) ?? Self.iso8601Formatter.string(from: Date())
 
-            let data = fileHandle.readDataToEndOfFile()
-            guard let contents = String(data: data, encoding: .utf8) else {
-                return nil
+            while true {
+                let chunk = fileHandle.readData(ofLength: Self.readChunkSize)
+                if chunk.isEmpty { break }
+                buffer.append(chunk)
+
+                while let nlRange = findNewline(in: buffer) {
+                    let lineData = buffer.subdata(in: 0..<nlRange.lowerBound)
+                    buffer.removeSubrange(0..<nlRange.upperBound)
+                    lineNumber += 1
+
+                    guard lineData.count <= Self.maxLineSize else {
+                        fputs("Warning: Skipping over-size line \(lineNumber) in \(url.lastPathComponent) (\(lineData.count) bytes)\n", stderr)
+                        continue
+                    }
+
+                    guard !lineData.isEmpty else { continue }
+
+                    if let rawObject = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
+                        processLine(rawObject, accumulator: &accumulator, fallbackPath: url)
+                    }
+                }
             }
 
-            for line in contents.split(whereSeparator: \.isNewline) {
-                guard let lineData = line.data(using: .utf8) else { continue }
-
-                if let event = try? decoder.decode(SessionLine.self, from: lineData) {
-                    let rawLine = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any]
-                    processTypedLine(event, rawLine: rawLine, accumulator: &accumulator, fallbackPath: url)
-                } else if let rawObject = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
-                    processGenericLine(rawObject, accumulator: &accumulator, fallbackPath: url)
+            if !buffer.isEmpty {
+                lineNumber += 1
+                if buffer.count <= Self.maxLineSize {
+                    if let rawObject = try? JSONSerialization.jsonObject(with: buffer) as? [String: Any] {
+                        processLine(rawObject, accumulator: &accumulator, fallbackPath: url)
+                    }
+                } else {
+                    fputs("Warning: Skipping over-size final line \(lineNumber) in \(url.lastPathComponent) (\(buffer.count) bytes)\n", stderr)
                 }
             }
 
@@ -174,75 +200,17 @@ public final class CodexSessionCollector {
         }
     }
 
-    private func processTypedLine(
-        _ event: SessionLine,
-        rawLine: [String: Any]?,
-        accumulator: inout SessionAccumulator,
-        fallbackPath: URL
-    ) {
-        switch event.type {
-        case "turn_context":
-            if let rawPayload = rawLine.flatMap({ dictionaryValue($0["payload"]) }) {
-                let model = stringValue(rawPayload["model"])
-                if let model, !model.isEmpty, model != accumulator.currentModel {
-                    accumulator.currentModel = model
-                }
-            }
-
-        case "session_meta":
-            if event.payload.id != nil || event.payload.agentNickname != nil || event.payload.timestamp != nil {
-                accumulator.apply(sessionMeta: event.payload, fallbackPath: fallbackPath)
-                let timestamp = event.payload.timestamp ?? event.timestamp
-                accumulator.startedAt = accumulator.startedAt ?? timestamp
-            } else if let rawPayload = rawLine.flatMap({ dictionaryValue($0["payload"]) }) {
-                processGenericSessionMeta(rawPayload, accumulator: &accumulator, fallbackPath: fallbackPath)
-            }
-
-        case "event_msg":
-            let rawPayload = rawLine.flatMap { dictionaryValue($0["payload"]) }
-            let absoluteUsage = event.payload.info?.totalTokenUsage.map { codexTokenUsage(from: $0) }
-                ?? rawPayload.flatMap { extractAbsoluteUsage(from: $0, depth: 0) }
-
-            if event.payload.payloadType == "token_count" || absoluteUsage != nil {
-                accumulator.recordTokenEvent(at: event.timestamp)
-                if let usage = absoluteUsage {
-                    accumulator.recordAbsoluteUsage(
-                        usage,
-                        planType: event.payload.rateLimits?.planType,
-                        modelContextWindow: event.payload.info?.modelContextWindow,
-                        timestamp: event.timestamp
-                    )
-                    if let lastUsage = event.payload.info?.lastTokenUsage {
-                        let delta = CodexTokenUsage(
-                            inputTokens: lastUsage.inputTokens ?? 0,
-                            cachedInputTokens: lastUsage.cachedInputTokens ?? 0,
-                            outputTokens: lastUsage.outputTokens ?? 0,
-                            reasoningOutputTokens: lastUsage.reasoningOutputTokens ?? 0,
-                            totalTokens: lastUsage.totalTokens ?? 0
-                        )
-                        if delta.totalTokens > 0 {
-                            accumulator.recordModelUsage(from: delta)
-                        }
-                    }
-                } else if accumulator.planType == nil {
-                    accumulator.planType = event.payload.rateLimits?.planType
-                }
-            } else if accumulator.planType == nil {
-                accumulator.planType = event.payload.rateLimits?.planType
-            }
-
-        default:
-            if let rawPayload = rawLine.flatMap({ dictionaryValue($0["payload"]) ?? $0 }),
-               let usage = extractAbsoluteUsage(from: rawPayload, depth: 0) {
-                accumulator.recordTokenEvent(at: event.timestamp)
-                accumulator.recordAbsoluteUsage(usage, planType: nil, modelContextWindow: nil, timestamp: event.timestamp)
-            } else if let rawPayload = rawLine.flatMap({ dictionaryValue($0["payload"]) ?? $0 }) {
-                processGenericSessionMeta(rawPayload, accumulator: &accumulator, fallbackPath: fallbackPath)
+    private func findNewline(in data: Data) -> Range<Int>? {
+        for i in 0..<data.count {
+            if data[i] == 0x0A {
+                let start = i > 0 && data[i - 1] == 0x0D ? i - 1 : i
+                return start..<(i + 1)
             }
         }
+        return nil
     }
 
-    private func processGenericLine(
+    private func processLine(
         _ rawLine: [String: Any],
         accumulator: inout SessionAccumulator,
         fallbackPath: URL
@@ -251,37 +219,85 @@ public final class CodexSessionCollector {
         let timestamp = stringValue(rawLine["timestamp"])
         let rawPayload = dictionaryValue(rawLine["payload"]) ?? rawLine
 
-        if type == "turn_context" {
+        switch type {
+        case "turn_context":
             let model = stringValue(rawPayload["model"])
             if let model, !model.isEmpty, model != accumulator.currentModel {
                 accumulator.currentModel = model
             }
-            return
-        }
 
-        if type == "session_meta" {
-            processGenericSessionMeta(rawPayload, accumulator: &accumulator, fallbackPath: fallbackPath)
-            if let timestamp, accumulator.startedAt == nil {
-                accumulator.startedAt = timestamp
-            }
-            return
-        }
+        case "session_meta":
+            let sessionID = stringValue(rawPayload["id"])
+            let nickname = stringValue(rawPayload["agentNickname"])
+            let ts = stringValue(rawPayload["timestamp"])
+            let provider = stringValue(rawPayload["modelProvider"])
 
-        if let usage = extractAbsoluteUsage(from: rawPayload, depth: 0) {
-            accumulator.recordTokenEvent(at: timestamp)
-            accumulator.recordAbsoluteUsage(usage, planType: planType(from: rawPayload), modelContextWindow: modelContextWindow(from: rawPayload), timestamp: timestamp)
-            if let lastUsage = extractLastTokenUsage(from: rawPayload) {
-                if lastUsage.totalTokens > 0 {
-                    accumulator.recordModelUsage(from: lastUsage)
+            if sessionID != nil || nickname != nil || ts != nil {
+                accumulator.apply(
+                    sessionID: sessionID,
+                    agentNickname: nickname,
+                    timestamp: ts,
+                    fallbackPath: fallbackPath
+                )
+                if let provider, !provider.isEmpty {
+                    accumulator.modelProvider = provider
                 }
+                accumulator.startedAt = accumulator.startedAt ?? (ts ?? timestamp)
+            } else {
+                processGenericSessionMeta(rawPayload, accumulator: &accumulator, fallbackPath: fallbackPath)
             }
-            return
-        }
 
-        if let rawPayloadType = stringValue(rawPayload["type"]), rawPayloadType == "token_count" {
-            accumulator.recordTokenEvent(at: timestamp)
-            if accumulator.planType == nil {
-                accumulator.planType = planType(from: rawPayload)
+        case "event_msg":
+            let absoluteUsage = extractAbsoluteUsage(from: rawPayload, depth: 0)
+            let payloadType = stringValue(rawPayload["type"])
+            let isTokenCount = payloadType == "token_count"
+
+            if isTokenCount || absoluteUsage != nil {
+                accumulator.recordTokenEvent(at: timestamp)
+            }
+
+            if let usage = absoluteUsage {
+                accumulator.recordAbsoluteUsage(
+                    usage,
+                    planType: planType(from: rawPayload),
+                    modelContextWindow: modelContextWindow(from: rawPayload),
+                    timestamp: timestamp
+                )
+                if let lastUsage = extractLastTokenUsage(from: rawPayload) {
+                    if lastUsage.totalTokens > 0 {
+                        accumulator.recordModelUsage(from: lastUsage)
+                    }
+                }
+            } else if isTokenCount, accumulator.planType == nil, let pt = planType(from: rawPayload) {
+                accumulator.planType = pt
+            } else if accumulator.planType == nil, let pt = planType(from: rawPayload) {
+                accumulator.planType = pt
+            }
+
+        default:
+            if let usage = extractAbsoluteUsage(from: rawPayload, depth: 0) {
+                accumulator.recordTokenEvent(at: timestamp)
+                accumulator.recordAbsoluteUsage(
+                    usage,
+                    planType: planType(from: rawPayload),
+                    modelContextWindow: modelContextWindow(from: rawPayload),
+                    timestamp: timestamp
+                )
+                if let lastUsage = extractLastTokenUsage(from: rawPayload) {
+                    if lastUsage.totalTokens > 0 {
+                        accumulator.recordModelUsage(from: lastUsage)
+                    }
+                }
+            } else {
+                let payloadType = stringValue(rawPayload["type"])
+                if payloadType == "token_count" {
+                    accumulator.recordTokenEvent(at: timestamp)
+                    if accumulator.planType == nil {
+                        accumulator.planType = planType(from: rawPayload)
+                    }
+                } else {
+                    processGenericSessionMeta(rawPayload, accumulator: &accumulator, fallbackPath: fallbackPath)
+                }
             }
         }
     }
@@ -294,6 +310,7 @@ public final class CodexSessionCollector {
         let sessionID = stringValue(payload["id"])
         let nickname = stringValue(payload["agentNickname"])
         let timestamp = stringValue(payload["timestamp"])
+        let provider = stringValue(payload["modelProvider"])
 
         if sessionID != nil || nickname != nil || timestamp != nil {
             accumulator.apply(
@@ -302,6 +319,9 @@ public final class CodexSessionCollector {
                 timestamp: timestamp,
                 fallbackPath: fallbackPath
             )
+            if let provider, !provider.isEmpty {
+                accumulator.modelProvider = provider
+            }
         }
     }
 
@@ -449,16 +469,6 @@ public final class CodexSessionCollector {
         }
     }
 
-    private func codexTokenUsage(from usage: TokenUsage) -> CodexTokenUsage {
-        CodexTokenUsage(
-            inputTokens: usage.inputTokens ?? 0,
-            cachedInputTokens: usage.cachedInputTokens ?? 0,
-            outputTokens: usage.outputTokens ?? 0,
-            reasoningOutputTokens: usage.reasoningOutputTokens ?? 0,
-            totalTokens: usage.totalTokens ?? 0
-        )
-    }
-
     private func buildPayload(from sessions: [CodexSessionSummary]) -> CodexDashboardPayload {
         let sortedSessions = sessions.sorted { lhs, rhs in
             if lhs.updatedAt == rhs.updatedAt {
@@ -466,6 +476,27 @@ public final class CodexSessionCollector {
             }
             return lhs.updatedAt > rhs.updatedAt
         }
+
+        var modelDict: [String: CodexModelUsage] = [:]
+        for session in sortedSessions {
+            for modelUsage in session.modelBreakdown {
+                if let existing = modelDict[modelUsage.model] {
+                    modelDict[modelUsage.model] = CodexModelUsage(
+                        model: modelUsage.model,
+                        provider: modelUsage.provider ?? existing.provider,
+                        inputTokens: existing.inputTokens + modelUsage.inputTokens,
+                        cachedInputTokens: existing.cachedInputTokens + modelUsage.cachedInputTokens,
+                        outputTokens: existing.outputTokens + modelUsage.outputTokens,
+                        reasoningOutputTokens: existing.reasoningOutputTokens + modelUsage.reasoningOutputTokens,
+                        totalTokens: existing.totalTokens + modelUsage.totalTokens,
+                        turnCount: existing.turnCount + modelUsage.turnCount
+                    )
+                } else {
+                    modelDict[modelUsage.model] = modelUsage
+                }
+            }
+        }
+        let mergedModelBreakdown = modelDict.values.sorted { $0.totalTokens > $1.totalTokens }
 
         let summary = sortedSessions.reduce(into: CodexDashboardPayload.Summary(
             sessionCount: 0,
@@ -478,9 +509,10 @@ public final class CodexSessionCollector {
             totalTokens: 0,
             planTypeCounts: [:],
             firstSessionStartedAt: nil,
+            modelBreakdown: mergedModelBreakdown,
             lastSessionUpdatedAt: nil,
             sourceRootLabel: sourceDescription(),
-            updatedAt: ISO8601DateFormatter().string(from: Date())
+            updatedAt: Self.iso8601Formatter.string(from: Date())
         )) { result, session in
             result.sessionCount += 1
             result.tokenCountEvents += session.tokenCountEvents
@@ -492,23 +524,6 @@ public final class CodexSessionCollector {
             result.totalTokens += session.usage.totalTokens
             if let planType = session.planType, !planType.isEmpty {
                 result.planTypeCounts[planType, default: 0] += 1
-            }
-            for modelUsage in session.modelBreakdown {
-                if var existing = result.modelBreakdown.first(where: { $0.model == modelUsage.model }) {
-                    let idx = result.modelBreakdown.firstIndex(where: { $0.model == modelUsage.model })!
-                    result.modelBreakdown[idx] = CodexModelUsage(
-                        model: modelUsage.model,
-                        provider: modelUsage.provider ?? existing.provider,
-                        inputTokens: existing.inputTokens + modelUsage.inputTokens,
-                        cachedInputTokens: existing.cachedInputTokens + modelUsage.cachedInputTokens,
-                        outputTokens: existing.outputTokens + modelUsage.outputTokens,
-                        reasoningOutputTokens: existing.reasoningOutputTokens + modelUsage.reasoningOutputTokens,
-                        totalTokens: existing.totalTokens + modelUsage.totalTokens,
-                        turnCount: existing.turnCount + modelUsage.turnCount
-                    )
-                } else {
-                    result.modelBreakdown.append(modelUsage)
-                }
             }
             if let startedAt = session.startedAt {
                 if let current = result.firstSessionStartedAt {
@@ -564,56 +579,9 @@ public final class CodexSessionCollector {
               let date = attrs[.modificationDate] as? Date else {
             return nil
         }
-        return ISO8601DateFormatter().string(from: date)
+        return Self.iso8601Formatter.string(from: date)
     }
 }
-
-private struct SessionLine: Decodable {
-    var timestamp: String
-    var type: String
-    var payload: SessionLinePayload
-}
-
-private struct SessionLinePayload: Decodable {
-    var payloadType: String?
-    var info: TokenCountInfo?
-    var rateLimits: TokenCountRateLimits?
-    var id: String?
-    var timestamp: String?
-    var agentNickname: String?
-    var originator: String?
-    var modelProvider: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case payloadType = "type"
-        case info
-        case rateLimits
-        case id
-        case timestamp
-        case agentNickname
-        case originator
-        case modelProvider
-    }
-}
-
-private struct TokenCountInfo: Decodable {
-    var totalTokenUsage: TokenUsage?
-    var lastTokenUsage: TokenUsage?
-    var modelContextWindow: Int?
-}
-
-private struct TokenUsage: Decodable {
-    var inputTokens: Double?
-    var cachedInputTokens: Double?
-    var outputTokens: Double?
-    var reasoningOutputTokens: Double?
-    var totalTokens: Double?
-}
-
-private struct TokenCountRateLimits: Decodable {
-    var planType: String?
-}
-
 
 private struct ModelUsageAccumulator {
     var inputTokens: Double = 0
@@ -623,6 +591,7 @@ private struct ModelUsageAccumulator {
     var totalTokens: Double = 0
     var turnCount: Int = 0
 }
+
 private struct SessionAccumulator {
     var sessionID: String = ""
     var agentNickname: String?
@@ -666,24 +635,6 @@ private struct SessionAccumulator {
         acc.totalTokens += usage.totalTokens
         acc.turnCount += 1
         modelUsages[model] = acc
-    }
-
-    mutating func apply(sessionMeta: SessionLinePayload, fallbackPath: URL) {
-        if let id = sessionMeta.id, !id.isEmpty {
-            sessionID = id
-        }
-        if let nickname = sessionMeta.agentNickname, !nickname.isEmpty {
-            agentNickname = nickname
-        }
-        if let timestamp = sessionMeta.timestamp, !timestamp.isEmpty {
-            startedAt = timestamp
-        }
-        if sessionID.isEmpty {
-            sessionID = TokenCostPaths.stableIdentifier(for: TokenCostPathUtilities.canonicalURL(fallbackPath).path)
-        }
-        if let provider = sessionMeta.modelProvider, !provider.isEmpty {
-            modelProvider = provider
-        }
     }
 
     mutating func apply(
@@ -732,4 +683,3 @@ private struct SessionAccumulator {
         }
     }
 }
-

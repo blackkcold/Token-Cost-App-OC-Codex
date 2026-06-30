@@ -212,11 +212,7 @@ public final class SourceDiscoveryService {
         }
     }
 
-    private static let forbiddenScanRoots: Set<String> = ["/", "/System", "/Users", "/Applications", "/Library", "/private", "/.Trash"]
-
     private func isValidScanRoot(_ url: URL) -> Bool {
-        let path = url.path
-        guard !Self.forbiddenScanRoots.contains(path) else { return false }
-        return true
+        TokenCostPathUtilities.isSafeScanRoot(url)
     }
 }

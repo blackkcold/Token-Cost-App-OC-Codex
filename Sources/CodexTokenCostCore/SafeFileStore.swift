@@ -34,6 +34,8 @@ public struct SafeFileStore {
     public func writeData(_ data: Data, to relativePath: String) throws {
         let url = try resolve(relativePath)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Re-validate after directory creation to prevent TOCTOU symlink substitution
+        _ = try validate(url)
         try data.write(to: url, options: [.atomic])
     }
 
@@ -65,6 +67,7 @@ public struct SafeFileStore {
 
     public func removeFile(_ relativePath: String) throws {
         let url = try resolve(relativePath)
+        _ = try validate(url)
         try FileManager.default.removeItem(at: url)
     }
 
@@ -77,8 +80,7 @@ public struct SafeFileStore {
         let components = relativePath.split(separator: "/", omittingEmptySubsequences: true)
         // Reject path traversal attempts early
         guard !components.contains(".."), !relativePath.hasPrefix("/") else {
-            // Return root to ensure validate() will catch it
-            return root.appendingPathComponent("..")
+            return root // validate() will throw outsideAllowedRoot for the resolved path
         }
         return components.reduce(root) { current, component in
             current.appendingPathComponent(String(component))

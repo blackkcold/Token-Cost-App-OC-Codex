@@ -7,11 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> 当前下一版目标为 `v0.9.3`，以下为相对 `v0.9.2` 的累计变更。
+> 当前下一版目标为 `v0.9.7`，以下为相对 `v0.9.6` 的累计变更。
+
+## [v0.9.6] - 2026-06-30
+
+> 相对 `v0.9.2` 的累计变更。
+
+### Changed
+
+- **菜单栏弹窗布局优化**：header 改为状态指示器（圆点+简短标签+tooltip），删除冗余数据源 block；balance 区 miniBar 弹性宽度适配多窗口场景（`MenuBarView.swift`）
+- **CodexSessionModel 来源发现重构**：移除内联的 `buildDiscoverySources()` 和 `refreshDiscoverySources()` 方法（约 300 行），来源发现逻辑统一由 `SourceDiscoveryService` 管理；新增扫描深度（1-12）和候选数（1-1000）边界校验；扫描根和手动路径增加 `isSafeScanRoot` 安全过滤（`CodexSessionModel.swift`）
+- **CodexSessionCollector 分块读取重构**：从 `readDataToEndOfFile` 全量读取改为 1MB 分块逐行扫描，支持超大 JSONL 文件；移除 `SessionLine` Codable 类型解码，统一使用 `JSONSerialization` 处理；新增 32MB 单行上限和超长行跳过警告；`ISO8601DateFormatter` 改为 static 单例避免重复创建（`CodexSessionCollector.swift`）
+- **SHA256 实现替换**：`BackupService` 中约 80 行自定义 SHA256 实现替换为 `CryptoKit.SHA256`；`performFullLayeredBackup` 新增 `backupLock`（`OSAllocatedUnfairLock`）线程安全保护（`BackupService.swift`）
+- **本地化语言切换线程安全**：`AppLocalization.currentLanguage` 从裸 `nonisolated(unsafe)` 改为 `OSAllocatedUnfairLock` 保护读写，消除 data race 风险（`Localization.swift`）
+- **余额刷新间隔支持秒级**：设置页余额刷新间隔新增秒级选项（`settings.balance.refreshIntervalSeconds`），支持更灵活的刷新频率（`BalanceSectionView.swift`、`Localizable.strings` 中英双语）
+- **总计页 Token 口径文案统一**：`overview.openCode.actualTokens` 和 `overview.summary.totalActualTokens` 从中英双语更新为「实际 Token / Actual Tokens」，subtitle 明确标注「输入+输出+推理，不含缓存」（`Localizable.strings` 中英双语）
+- **CI 升级至 macOS 26**：GitHub Actions runner 从 matrix 构建（macos-14/15）升级为单一 `macos-26`，适配 Liquid Glass SDK（`.github/workflows/ci.yml`）
+
+### Fixed
+
+- **Codex JSONL 长行误判不兼容**：`CodexSessionDiscoveryService` 的 Codex 文件探针从固定 4KB 预读改为有界分块逐行扫描，支持首个有效 JSONL 行超过 4KB、前导空行和坏行跳过，并将可读但无有效 JSON dictionary 的文件正确标记为 unsupported schema（`CodexSessionDiscoveryService.swift`）
+- **总计页日期格式化时区问题**：`TotalView` 中日期格式化器未设置 `timeZone`，可能导致 UTC 日期边界偏移；已显式设置为 `TimeZone(secondsFromGMT: 0)`（`TotalView.swift`）
+
+### Security
+
+- **SQL 注入防护**：`TokenDatabaseClient.buildUsageQuery()` 新增 `allowedSqlIdentifiers` 白名单（11 个合法列名）和 `isValidSqlIdentifierList()` 校验，拒绝非白名单列名和非法排序方向（`ASC`/`DESC` 以外），无效输入返回空结果集并触发 `assertionFailure`（`TokenDatabaseClient.swift`）
+- **扫描根安全白名单**：`PathUtilities` 新增 `forbiddenScanRoots`（`/`、`/System`、`/Users`、`/Applications`、`/Library`、`/private`、`/.Trash`）和 `isSafeScanRoot()` 方法；`CodexSessionModel` 在规范化来源路径时自动过滤禁止的扫描根（`PathUtilities.swift`、`CodexSessionModel.swift`）
 
 ### Added
 
-（待开发）
+- **Codex 模型分布本地化**：新增 `codex.models.*` 命名空间 key（中英双语），为 Codex 页面模型分布视图提供本地化支持（`Localizable.strings` 中英双语）
+- **Codex JSONL 探针测试覆盖**：新增 5 个测试用例覆盖首行超 4KB、前导空行跳过、无效首行后有效、全无效拒绝、超长行跳过等边界场景（`CodexTokenCostCoreTests.swift`）
 
 ## [v0.9.2] - 2026-06-12
 
@@ -353,6 +379,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
+[v0.9.6]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.2...v0.9.6
 [v0.9.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.1...v0.9.2
 [v0.9.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.0...v0.9.1
 [v0.9.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.8.5...v0.9.0

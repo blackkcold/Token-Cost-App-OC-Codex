@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public enum AppDisplayLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
     case zhHans = "zh-Hans"
@@ -21,7 +22,13 @@ public enum AppDisplayLanguage: String, Codable, CaseIterable, Identifiable, Sen
 }
 
 public enum AppLocalization {
-    nonisolated(unsafe) public static var currentLanguage: AppDisplayLanguage = .zhHans
+    private static let lock = OSAllocatedUnfairLock()
+    nonisolated(unsafe) private static var _currentLanguage: AppDisplayLanguage = .zhHans
+
+    public static var currentLanguage: AppDisplayLanguage {
+        get { lock.withLock { _currentLanguage } }
+        set { lock.withLock { _currentLanguage = newValue } }
+    }
 
     public static func setLanguage(_ language: AppDisplayLanguage) {
         currentLanguage = language

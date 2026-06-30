@@ -211,8 +211,40 @@ public final class TokenDatabaseClient {
         Int(sqlite3_column_int64(statement, index))
     }
 
+    private let allowedSqlIdentifiers: Set<String> = [
+        "usage_date", "model_id", "provider_id", "input_tokens", "output_tokens",
+        "reasoning_tokens", "cache_read", "cache_write", "total_tokens",
+        "cache_write_missing_count", "cache_write_reported_count"
+    ]
+
+    private func isValidSqlIdentifierList(_ value: String) -> Bool {
+        let entries = value
+            .components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !entries.isEmpty else { return false }
+
+        for entry in entries {
+            let parts = entry.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            guard let first = parts.first,
+                  allowedSqlIdentifiers.contains(first.lowercased()) else {
+                return false
+            }
+            if parts.count > 2 { return false }
+            if parts.count == 2 {
+                let dir = parts[1].uppercased()
+                guard dir == "ASC" || dir == "DESC" else { return false }
+            }
+        }
+        return true
+    }
+
     private func buildUsageQuery(includeDate: Bool, dateFiltered: Bool, groupBy: String, orderBy: String, includeCacheWriteStatus: Bool) -> String {
         let select = buildUsageSelect(includeDate: includeDate, includeCacheWriteStatus: includeCacheWriteStatus)
+        guard isValidSqlIdentifierList(groupBy), isValidSqlIdentifierList(orderBy) else {
+            assertionFailure("Invalid SQL identifiers — groupBy: \"\(groupBy)\", orderBy: \"\(orderBy)\"")
+            return "SELECT \(select) FROM message WHERE \(tokenRowFilter) AND 1=0"
+        }
         var query = """
         SELECT
             \(select)

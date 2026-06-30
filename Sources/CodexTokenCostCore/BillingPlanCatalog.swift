@@ -563,8 +563,8 @@ public extension AppPreferences {
                 continue
             }
             addCost(monthlyUSD)
-            coveredRawKeys.insert(provider.rawValue)
-            coveredRawKeys.insert(provider.legacySubscriptionKey)
+            coveredRawKeys.insert(provider.rawValue.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))
+            coveredRawKeys.insert(provider.legacySubscriptionKey.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))
         }
 
         let usageCosts = TokenCostDashboardAnalytics.providerUsageCosts(payload: payload)

@@ -779,7 +779,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
     }
 }
 
-    private enum TokenCostPricingCatalog {
+private enum TokenCostPricingCatalog {
     /// Legacy fallback subscription costs — used ONLY when billingOverridesByProviderKey
     /// does not provide a value for a given provider key. User billing plan selections
     /// (via AppPreferences.billingOverridesByProviderKey()) always take precedence.

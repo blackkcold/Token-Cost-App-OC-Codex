@@ -29,10 +29,10 @@ struct BalanceOverviewCard: View {
             }
         } else {
             TokenSectionCard(
-                title: "实时余额",
+                title: AppLocalization.text("balance.title"),
                 subtitle: lastRefreshTime.map {
-                    "上次刷新：\(TokenCostFormatters.localDateTime(ISO8601DateFormatter().string(from: $0)))"
-                } ?? "尚未刷新",
+                    AppLocalization.format("balance.lastRefresh", TokenCostFormatters.localDateTime(ISO8601DateFormatter().string(from: $0)))
+                } ?? AppLocalization.text("balance.notRefreshed"),
                 trailing: AnyView(
                     HStack(spacing: 8) {
                         Button {
@@ -87,12 +87,12 @@ struct BalanceOverviewCard: View {
                     }
                 } else if showCostOnly {
                     if let cost = snapshot.totalCostUSD {
-                        Text("90天累计 \(TokenCostFormatters.currency(cost))")
+                        Text(AppLocalization.format("balance.total90Days", TokenCostFormatters.currency(cost)))
                             .font(.caption)
                             .foregroundStyle(palette.subtitle)
                     }
                     if let avg = snapshot.avgCostPerDayUSD {
-                        Text("日均 \(TokenCostFormatters.currency(avg))")
+                        Text(AppLocalization.format("balance.dailyAverage", TokenCostFormatters.currency(avg)))
                             .font(.caption2)
                             .foregroundStyle(palette.subtitle)
                     }
@@ -121,7 +121,7 @@ struct BalanceOverviewCard: View {
 
             Spacer()
 
-            Text(showCostOnly || showValueEntries ? "余额" : snapshot.gradient.label)
+            Text(showCostOnly || showValueEntries ? AppLocalization.text("balance.balance") : snapshot.gradient.label)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(gradientColor(for: (showCostOnly || showValueEntries) ? .low : snapshot.gradient))
                 .padding(.horizontal, 10)
