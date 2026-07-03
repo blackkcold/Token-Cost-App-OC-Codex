@@ -206,6 +206,7 @@
 "settings.action.cancel" = "取消";
 "settings.action.close" = "关闭";
 "settings.action.continueImport" = "继续导入";
+"settings.action.delete" = "删除";
 "settings.action.refreshCodex" = "刷新 Codex";
 "settings.action.rescan" = "重新扫描";
 "settings.action.restoreCodexDefaults" = "恢复 Codex 默认设置";
@@ -428,6 +429,41 @@
 "settings.opencodeGo.import.success" = "已导入凭证";
 "settings.opencodeGo.import.noBrowser" = "未找到支持的浏览器数据，请确认已在浏览器中登录 opencode.ai";
 "settings.opencodeGo.import.partial" = "已导入 Cookie，请手动填写 Workspace ID";
+"settings.opencodeGo.help.configure" = "配置 OpenCode Go 凭证";
+
+"settings.ollama.credentials.title" = "通过 Keychain 存储 Ollama session cookie";
+"settings.ollama.credentials.subtitle" = "支持从浏览器自动导入，或手动输入裸 cookie 值/完整 Cookie header 格式";
+"settings.ollama.credentials.cookieLabel" = "Cookie";
+"settings.ollama.credentials.placeholder" = "输入 Ollama Cookie";
+"settings.ollama.credentials.saved" = "已保存到 Keychain";
+"settings.ollama.credentials.deleted" = "已删除";
+"settings.ollama.status.used" = "已用 %d%%";
+"settings.ollama.status.connected" = "已连接";
+"settings.ollama.help.configure" = "配置 Ollama Cloud cookie";
+"settings.ollama.import.title" = "从浏览器导入 Ollama Cookie";
+"settings.ollama.import.message" = "将尝试从 Edge / Chrome / Brave / Arc 浏览器中提取 ollama.com 的 session cookie。";
+"settings.ollama.import.success" = "导入成功";
+"settings.ollama.import.noCookie" = "未找到 Ollama Cookie";
+"settings.ollama.import.saveFailed" = "Cookie 提取成功，但保存到 Keychain 失败";
+"settings.ollama.test.success" = "连接成功";
+"settings.ollama.test.successMessage" = "成功获取 Ollama 余额快照。";
+"settings.ollama.test.failed" = "连接失败";
+"settings.ollama.test.noCookie" = "请先输入或保存 Ollama Cookie。";
+"settings.ollama.test.unknownError" = "未知错误";
+
+"balance.ollama.error.noCookie" = "未找到 Ollama cookie，请在设置中配置";
+"balance.ollama.error.invalidUrl" = "无效 URL";
+"balance.ollama.error.network" = "网络错误: %@";
+"balance.ollama.error.invalidResponse" = "无效响应";
+"balance.ollama.error.cookieExpiredRedirect" = "Cookie 可能已过期，请在设置中重新配置";
+"balance.ollama.error.cookieExpiredRedirectLogin" = "Cookie 已过期（重定向到登录页），请重新配置";
+"balance.ollama.error.cookieExpired" = "Cookie 已过期，请重新配置";
+"balance.ollama.error.parseFailed" = "无法解析页面";
+"balance.ollama.error.noUsageData" = "页面不含用量数据，可能 Ollama 页面格式已更新";
+"balance.ollama.window.session" = "5小时";
+"balance.ollama.window.weekly" = "7天";
+
+"balance.error.noAuthToken" = "未找到认证信息";
 
 /* Skills 管理面板 v0.7.0 */
 "tab.skills" = "Skills";
@@ -689,3 +725,17 @@
 "balance.dailyAverage" = "日均 %@";
 "balance.balance" = "余额";
 
+"balance.rate.pending" = "待预估";
+"balance.rate.countdown" = "剩 %@";
+"balance.rate.countdownSoon" = "即将重置";
+"balance.rate.perHour" = "约 %.1f%%/h";
+"balance.rate.perDay" = "约 %.1f%%/d";
+"balance.sort.quotaFirst" = "配额优先";
+"balance.sort.balanceFirst" = "余额优先";
+"balance.sort.byProvider" = "按 Provider";
+"balance.display.used" = "已用";
+"balance.display.remaining" = "剩余";
+"balance.error.recoveryHint" = "请检查凭证或网络连接";
+"balance.error.reimport" = "立即导入";
+"settings.opencodeGo.diagnosis.cookieExpired" = "Auth Cookie 已过期，请重新导入";
+"settings.opencodeGo.diagnosis.workspaceMismatch" = "Workspace ID 与 Cookie 不匹配";

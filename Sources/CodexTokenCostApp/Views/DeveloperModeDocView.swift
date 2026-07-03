@@ -124,6 +124,13 @@ struct DeveloperModeDocView: View {
             )
 
             featureRow(
+                icon: "cloud",
+                title: "Ollama Cloud 用量追踪",
+                description: "通过浏览器自动导入或手动输入 Cookie，在 Keychain 安全存储后用 HTTPS 查询 Ollama Cloud 余额与用量。",
+                status: .available
+            )
+
+            featureRow(
                 icon: "brain",
                 title: AppLocalization.text("settings.developerMode.aiAnalysisDisabled"),
                 description: AppLocalization.text("developerMode.doc.aiAnalysisDesc"),

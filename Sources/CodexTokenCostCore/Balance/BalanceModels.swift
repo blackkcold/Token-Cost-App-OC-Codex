@@ -8,6 +8,7 @@ public enum BalanceProviderKind: String, Codable, CaseIterable, Sendable {
     case opencodeZen = "opencode_zen"
     case codex = "codex"
     case deepseek = "deepseek"
+    case ollama = "ollama"
 
     /// Stable sort order for UI display (lower = first).
     public var sortOrder: Int {
@@ -16,6 +17,7 @@ public enum BalanceProviderKind: String, Codable, CaseIterable, Sendable {
         case .codex: return 1
         case .opencodeZen: return 2
         case .deepseek: return 3
+        case .ollama: return 4
         }
     }
 
@@ -25,6 +27,7 @@ public enum BalanceProviderKind: String, Codable, CaseIterable, Sendable {
         case .opencodeZen: return "OpenCode Zen"
         case .codex: return "Codex"
         case .deepseek: return "DeepSeek"
+        case .ollama: return "Ollama Cloud"
         }
     }
 }
@@ -96,17 +99,48 @@ public struct BalanceProviderError: Error, Codable, Hashable, Sendable {
     public let category: Category
     public let publicMessage: String
     public let underlyingCode: String?
+    public let recoveryHint: String
+    public let requiresReimport: Bool
 
     public init(
         provider: BalanceProviderKind,
         category: Category,
         publicMessage: String,
-        underlyingCode: String? = nil
+        underlyingCode: String? = nil,
+        recoveryHint: String = "",
+        requiresReimport: Bool = false
     ) {
         self.provider = provider
         self.category = category
         self.publicMessage = publicMessage
         self.underlyingCode = underlyingCode
+        self.recoveryHint = recoveryHint
+        self.requiresReimport = requiresReimport
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case provider, category, publicMessage
+        case underlyingCode, recoveryHint, requiresReimport
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.provider = try c.decode(BalanceProviderKind.self, forKey: .provider)
+        self.category = try c.decode(Category.self, forKey: .category)
+        self.publicMessage = try c.decode(String.self, forKey: .publicMessage)
+        self.underlyingCode = try c.decodeIfPresent(String.self, forKey: .underlyingCode)
+        self.recoveryHint = try c.decodeIfPresent(String.self, forKey: .recoveryHint) ?? ""
+        self.requiresReimport = try c.decodeIfPresent(Bool.self, forKey: .requiresReimport) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(provider, forKey: .provider)
+        try c.encode(category, forKey: .category)
+        try c.encode(publicMessage, forKey: .publicMessage)
+        try c.encodeIfPresent(underlyingCode, forKey: .underlyingCode)
+        try c.encode(recoveryHint, forKey: .recoveryHint)
+        try c.encode(requiresReimport, forKey: .requiresReimport)
     }
 }
 
@@ -114,7 +148,8 @@ public struct BalanceProviderError: Error, Codable, Hashable, Sendable {
 
 /// Runtime configuration for the balance subsystem.
 public struct BalanceConfiguration: Codable, Equatable, Sendable {
-    /// Providers enabled for querying. Default: all built-in except DeepSeek.
+    /// Providers enabled for querying.
+    /// Default: OpenCode Go, Codex, OpenCode Zen (DeepSeek and Ollama are opt-in).
     public var enabledBalanceProviders: [BalanceProviderKind]
     /// Allow reading credentials from environment variables (off by default).
     public var allowEnvironmentCredentials: Bool
@@ -128,6 +163,33 @@ public struct BalanceConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+// MARK: - Consumption rate
+
+public struct ConsumptionRate: Codable, Hashable, Sendable {
+    public let perHour: Double
+    public let perDay: Double
+    public let confidence: Double
+
+    public init(perHour: Double = 0, perDay: Double = 0, confidence: Double = 0) {
+        self.perHour = perHour
+        self.perDay = perDay
+        self.confidence = confidence
+    }
+}
+
+// MARK: - Sort / display preferences
+
+public enum BalanceSortOrder: String, Codable, CaseIterable, Sendable {
+    case quotaFirst
+    case balanceFirst
+    case byProvider
+}
+
+public enum BalanceDisplayMode: String, Codable, CaseIterable, Sendable {
+    case used
+    case remaining
+}
+
 // MARK: - Quota window
 
 /// A single time-based quota window (e.g. 5-hour rolling, weekly, monthly).
@@ -138,19 +200,22 @@ public struct BalanceQuotaWindow: Codable, Hashable, Identifiable, Sendable {
     public let remainingRatio: Double?
     public let resetAt: Date?
     public let windowSeconds: Int?
+    public let consumptionRate: ConsumptionRate?
 
     public init(
         label: String,
         usedRatio: Double? = nil,
         remainingRatio: Double? = nil,
         resetAt: Date? = nil,
-        windowSeconds: Int? = nil
+        windowSeconds: Int? = nil,
+        consumptionRate: ConsumptionRate? = nil
     ) {
         self.label = label
         self.usedRatio = usedRatio
         self.remainingRatio = remainingRatio
         self.resetAt = resetAt
         self.windowSeconds = windowSeconds
+        self.consumptionRate = consumptionRate
     }
 }
 
@@ -164,6 +229,8 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
     public let fetchedAt: Date
     public let isAvailable: Bool
     public let errorMessage: String?
+    public let errorRecoveryHint: String?
+    public let errorRequiresReimport: Bool
 
     // -- Generic fields --
     public let remainingCredits: Double?
@@ -202,6 +269,8 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
         fetchedAt: Date,
         isAvailable: Bool,
         errorMessage: String? = nil,
+        errorRecoveryHint: String? = nil,
+        errorRequiresReimport: Bool = false,
         remainingCredits: Double? = nil,
         totalCredits: Double? = nil,
         usedCredits: Double? = nil,
@@ -225,6 +294,8 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
         self.fetchedAt = fetchedAt
         self.isAvailable = isAvailable
         self.errorMessage = errorMessage
+        self.errorRecoveryHint = errorRecoveryHint
+        self.errorRequiresReimport = errorRequiresReimport
         self.remainingCredits = remainingCredits
         self.totalCredits = totalCredits
         self.usedCredits = usedCredits
@@ -245,17 +316,59 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
         self.valueEntries = valueEntries
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case provider, fetchedAt, isAvailable, errorMessage
+        case errorRecoveryHint, errorRequiresReimport
+        case remainingCredits, totalCredits, usedCredits, usagePercent, planType
+        case primaryWindowLabel, primaryWindowUsagePercent, primaryWindowResetAt
+        case secondaryWindowLabel, secondaryWindowUsagePercent, secondaryWindowResetAt
+        case tertiaryWindowLabel, tertiaryWindowUsagePercent, tertiaryWindowResetAt
+        case totalCostUSD, avgCostPerDayUSD, quotaWindows, valueEntries
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.provider = try c.decode(BalanceProviderKind.self, forKey: .provider)
+        self.fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
+        self.isAvailable = try c.decode(Bool.self, forKey: .isAvailable)
+        self.errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
+        self.errorRecoveryHint = try c.decodeIfPresent(String.self, forKey: .errorRecoveryHint)
+        self.errorRequiresReimport = try c.decodeIfPresent(Bool.self, forKey: .errorRequiresReimport) ?? false
+        self.remainingCredits = try c.decodeIfPresent(Double.self, forKey: .remainingCredits)
+        self.totalCredits = try c.decodeIfPresent(Double.self, forKey: .totalCredits)
+        self.usedCredits = try c.decodeIfPresent(Double.self, forKey: .usedCredits)
+        self.usagePercent = try c.decodeIfPresent(Double.self, forKey: .usagePercent)
+        self.planType = try c.decodeIfPresent(String.self, forKey: .planType)
+        self.primaryWindowLabel = try c.decodeIfPresent(String.self, forKey: .primaryWindowLabel)
+        self.primaryWindowUsagePercent = try c.decodeIfPresent(Double.self, forKey: .primaryWindowUsagePercent)
+        self.primaryWindowResetAt = try c.decodeIfPresent(Date.self, forKey: .primaryWindowResetAt)
+        self.secondaryWindowLabel = try c.decodeIfPresent(String.self, forKey: .secondaryWindowLabel)
+        self.secondaryWindowUsagePercent = try c.decodeIfPresent(Double.self, forKey: .secondaryWindowUsagePercent)
+        self.secondaryWindowResetAt = try c.decodeIfPresent(Date.self, forKey: .secondaryWindowResetAt)
+        self.tertiaryWindowLabel = try c.decodeIfPresent(String.self, forKey: .tertiaryWindowLabel)
+        self.tertiaryWindowUsagePercent = try c.decodeIfPresent(Double.self, forKey: .tertiaryWindowUsagePercent)
+        self.tertiaryWindowResetAt = try c.decodeIfPresent(Date.self, forKey: .tertiaryWindowResetAt)
+        self.totalCostUSD = try c.decodeIfPresent(Double.self, forKey: .totalCostUSD)
+        self.avgCostPerDayUSD = try c.decodeIfPresent(Double.self, forKey: .avgCostPerDayUSD)
+        self.quotaWindows = try c.decodeIfPresent([BalanceQuotaWindow].self, forKey: .quotaWindows)
+        self.valueEntries = try c.decodeIfPresent([BalanceValueEntry].self, forKey: .valueEntries)
+    }
+
     /// Creates a snapshot indicating the provider is unavailable.
     public static func unavailable(
         _ provider: BalanceProviderKind,
         reason: String? = nil,
+        recoveryHint: String? = nil,
+        requiresReimport: Bool = false,
         fetchedAt: Date = Date()
     ) -> BalanceSnapshot {
         BalanceSnapshot(
             provider: provider,
             fetchedAt: fetchedAt,
             isAvailable: false,
-            errorMessage: reason
+            errorMessage: reason,
+            errorRecoveryHint: recoveryHint,
+            errorRequiresReimport: requiresReimport
         )
     }
 
@@ -294,5 +407,13 @@ public struct BalanceSnapshot: Codable, Sendable, Identifiable {
             return "\(provider.displayName) \(parts.joined(separator: " "))"
         }
         return "\(provider.displayName) OK"
+    }
+
+    public var isQuotaType: Bool {
+        quotaWindows != nil || usagePercent != nil
+    }
+
+    public var isBalanceType: Bool {
+        valueEntries != nil || totalCostUSD != nil
     }
 }

@@ -42,6 +42,9 @@ struct CodexTokenCostApp: App {
             .onChange(of: appPreferencesModel.preferences.balanceConfig) { _, newConfig in
                 balanceManager.updateConfiguration(newConfig ?? BalanceConfiguration())
             }
+            .onChange(of: appPreferencesModel.preferences.developerMode) { _, _ in
+                balanceManager.updateConfiguration(appPreferencesModel.effectiveBalanceConfiguration)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .openMainWindow)) { _ in
                 openWindow(id: "main")
             }

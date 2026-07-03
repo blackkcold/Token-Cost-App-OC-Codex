@@ -6,6 +6,7 @@ public enum BillingProvider: String, Codable, CaseIterable, Identifiable, Sendab
     case minimax
     case xiaomiMimo = "xiaomi-mimo"
     case deepseek
+    case ollama
 
     public var id: String { rawValue }
 
@@ -16,6 +17,7 @@ public enum BillingProvider: String, Codable, CaseIterable, Identifiable, Sendab
         case .minimax: return "MiniMax"
         case .xiaomiMimo: return "Xiaomi MiMo"
         case .deepseek: return "DeepSeek"
+        case .ollama: return "Ollama Cloud"
         }
     }
 
@@ -26,6 +28,7 @@ public enum BillingProvider: String, Codable, CaseIterable, Identifiable, Sendab
         case .minimax: return "minimax-cn-coding-plan"
         case .xiaomiMimo: return "xiaomi-token-plan-cn"
         case .deepseek: return "deepseek-api-cn"
+        case .ollama: return "ollama-cloud"
         }
     }
 }
@@ -223,6 +226,9 @@ public enum BillingPlanCatalog {
             sourceNote: "DeepSeek API 官方定价（2026/06）。",
             usageNote: "V4-Flash: $0.14/$0.28 · V4-Pro: $0.435/$0.87/M tokens"
         ),
+        ollama(id: "ollama-free", name: "Ollama Free", price: 0, usage: "本地运行 + 轻量云端用量；单模型并发"),
+        ollama(id: "ollama-pro", name: "Ollama Pro", price: 20, usage: "50x Free 云端用量；3 模型并发；$200/年"),
+        ollama(id: "ollama-max", name: "Ollama Max", price: 100, usage: "5x Pro 云端用量；10 模型并发"),
         minimax(id: "minimax-starter-monthly", name: "Starter 标准版", cny: 29, usage: "M2.7 600 次请求/5小时"),
         minimax(id: "minimax-plus-monthly", name: "Plus 标准版", cny: 49, usage: "M2.7 1,500 次请求/5小时"),
         minimax(id: "minimax-max-monthly", name: "Max 标准版", cny: 119, usage: "M2.7 4,500 次请求/5小时"),
@@ -278,6 +284,8 @@ public enum BillingPlanCatalog {
             return BillingPlanSelection(presetID: "mimo-current-default")
         case .deepseek:
             return BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false)
+        case .ollama:
+            return BillingPlanSelection(presetID: "ollama-free", isSubscribed: false)
         }
     }
 
@@ -394,6 +402,21 @@ public enum BillingPlanCatalog {
             displayPrice: "¥\(trim(cny))/月",
             normalizedMonthlyUSD: cny * cnyToUSD,
             sourceNote: "MiniMax Token Plan 官方文档。",
+            usageNote: usage
+        )
+    }
+
+    private static func ollama(id: String, name: String, price: Double, usage: String) -> BillingPlanPreset {
+        BillingPlanPreset(
+            id: id,
+            provider: .ollama,
+            name: name,
+            kind: .fixedMonthly,
+            currencyCode: "USD",
+            price: price,
+            displayPrice: price == 0 ? "免费" : "$\(trim(price))/月",
+            normalizedMonthlyUSD: price,
+            sourceNote: "Ollama 官方定价页（2026/07）。",
             usageNote: usage
         )
     }

@@ -51,7 +51,7 @@ public enum BrowserKind: CaseIterable {
         appSupportURL.appendingPathComponent("\(profileDir)/History")
     }
 
-    private var appSupportURL: URL {
+    var appSupportURL: URL {
         let base: String
         switch self {
         case .edge: base = "Microsoft Edge"
@@ -87,6 +87,110 @@ public enum BrowserCookieExtractor {
             }
         }
         return (nil, nil)
+    }
+
+    // MARK: - Ollama cookie extraction
+
+    public static func extractOllamaCookie() -> String? {
+        for browser in BrowserKind.allCases {
+            for profileDir in browser.profileDirs {
+                let baseURL = browser.appSupportURL.appendingPathComponent(profileDir)
+                let dbCandidates: [URL] = [
+                    baseURL.appendingPathComponent("Network/Cookies"),
+                    baseURL.appendingPathComponent("Cookies")
+                ]
+                for dbURL in dbCandidates {
+                    guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
+                    guard let encryptionKey = fetchEncryptionKey(service: browser.keychainService),
+                          let header = decryptOllamaCookie(dbURL: dbURL, key: encryptionKey)
+                    else { continue }
+                    return header
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func decryptOllamaCookie(dbURL: URL, key: Data) -> String? {
+        let tempURL = secureTempDirectory()
+            .appendingPathComponent("ollama_cookies_\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        do {
+            try FileManager.default.copyItem(at: dbURL, to: tempURL)
+        } catch {
+            return nil
+        }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(tempURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let db else { return nil }
+        defer { sqlite3_close(db) }
+        let metaVersion = readMetaVersion(db: db)
+        var statement: OpaquePointer?
+        let sql = """
+            SELECT name, value, encrypted_value FROM cookies
+            WHERE host_key LIKE '%ollama.com'
+            AND name IN ('auth', '__Host-auth', '__Secure-auth', 'session', '__Host-session', '__Secure-session', 'sid', 'token')
+            ORDER BY last_access_utc DESC LIMIT 10
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else { return nil }
+        defer { sqlite3_finalize(statement) }
+        var candidates: [(name: String, value: String)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let namePtr = sqlite3_column_text(statement, 0) else { continue }
+            let name = String(cString: namePtr)
+            var foundValue: String?
+            if let valuePtr = sqlite3_column_text(statement, 1) {
+                let val = String(cString: valuePtr)
+                if !val.isEmpty { foundValue = val }
+            }
+            if foundValue == nil,
+               let blobPtr = sqlite3_column_blob(statement, 2) {
+                let blobLen = sqlite3_column_bytes(statement, 2)
+                let blobData = Data(bytes: blobPtr, count: Int(blobLen))
+                if let decrypted = decryptOllamaEncryptedValue(blobData: blobData, key: key, metaVersion: metaVersion) {
+                    foundValue = decrypted
+                }
+            }
+            if let val = foundValue { candidates.append((name, val)) }
+        }
+        let preferred: [String] = ["__Host-auth", "__Secure-auth", "auth", "__Host-session", "__Secure-session", "session", "sid", "token"]
+        for p in preferred {
+            if let match = candidates.first(where: { $0.name == p }) {
+                return "\(match.name)=\(match.value)"
+            }
+        }
+        return candidates.first.map { "\($0.name)=\($0.value)" }
+    }
+
+    private static func decryptOllamaEncryptedValue(blobData: Data, key: Data, metaVersion: Int) -> String? {
+        guard blobData.count > 3 else { return nil }
+        let prefix = String(data: blobData.prefix(3), encoding: .utf8) ?? ""
+        guard prefix.hasPrefix("v10") || prefix.hasPrefix("v1") else { return nil }
+        let ciphertext = blobData.dropFirst(3)
+        guard let plaintext = aescbcDecrypt(key: key, ciphertext: Data(ciphertext)),
+              plaintext.count > 32
+        else { return nil }
+        let skipBytes = metaVersion >= 24 ? 32 : 32
+        guard plaintext.count > skipBytes else { return nil }
+        let cookieValue = plaintext.dropFirst(skipBytes)
+        return String(data: cookieValue, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func aescbcDecrypt(key: Data, ciphertext: Data) -> Data? {
+        let iv = Data(repeating: 0x20, count: 16)
+        var outLen = ciphertext.count + 16
+        var out = [UInt8](repeating: 0, count: outLen)
+        let status = key.withUnsafeBytes { keyPtr in
+            iv.withUnsafeBytes { ivPtr in
+                ciphertext.withUnsafeBytes { ctPtr in
+                    cc_aescbc_decrypt(keyPtr.baseAddress, key.count, ivPtr.baseAddress, ctPtr.baseAddress, ciphertext.count, &out, &outLen)
+                }
+            }
+        }
+        guard status == 0 else { return nil }
+        return Data(out.prefix(outLen))
     }
 
     // MARK: - Keychain
@@ -243,6 +347,50 @@ public enum BrowserCookieExtractor {
             return Int(String(cString: textPtr)) ?? 0
         }
         return 0
+    }
+
+    // MARK: - Ollama cookie SQLite test helper
+
+    /// Queries a browser cookies SQLite DB for ollama.com plaintext cookie
+    /// entries.  This internal test helper does NOT require the macOS
+    /// Chromium Keychain encryption key.
+    ///
+    /// Returns the first matching entry as `name=value`, or `nil`.
+    static func findOllamaPlaintextCookieValue(dbURL: URL) -> String? {
+        let tempURL = secureTempDirectory()
+            .appendingPathComponent("ollama_test_\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        guard (try? FileManager.default.copyItem(at: dbURL, to: tempURL)) != nil
+        else { return nil }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(tempURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let db else { return nil }
+        defer { sqlite3_close(db) }
+
+        var statement: OpaquePointer?
+        let sql = """
+            SELECT name, value FROM cookies
+            WHERE host_key LIKE '%ollama.com'
+            AND value IS NOT NULL AND value != ''
+            ORDER BY last_access_utc DESC LIMIT 10
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else { return nil }
+        defer { sqlite3_finalize(statement) }
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let namePtr = sqlite3_column_text(statement, 0),
+                  let valuePtr = sqlite3_column_text(statement, 1)
+            else { continue }
+            let name = String(cString: namePtr)
+            let value = String(cString: valuePtr)
+            if !value.isEmpty {
+                return "\(name)=\(value)"
+            }
+        }
+        return nil
     }
 
     // MARK: - Workspace ID extraction

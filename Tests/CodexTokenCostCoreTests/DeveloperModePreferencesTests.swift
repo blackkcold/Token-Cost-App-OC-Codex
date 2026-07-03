@@ -78,4 +78,32 @@ final class DeveloperModePreferencesTests: XCTestCase {
         let decoded = try JSONDecoder().decode(DeveloperModePreferences.self, from: data)
         XCTAssertEqual(prefs, decoded)
     }
+
+    // MARK: - ollamaUsageTrackingEnabled
+
+    func testOldJSONWithoutOllamaFieldDecodesAsFalse() throws {
+        let json = """
+        {"isEnabled":true,"localGovernanceEnabled":false,"aiAnalysisEnabled":false}
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(DeveloperModePreferences.self, from: data)
+        XCTAssertFalse(decoded.ollamaUsageTrackingEnabled)
+        XCTAssertTrue(decoded.isEnabled)
+    }
+
+    func testOllamaUsageTrackingRoundtrip() throws {
+        let prefs = DeveloperModePreferences(
+            isEnabled: true,
+            ollamaUsageTrackingEnabled: true
+        )
+        let data = try JSONEncoder().encode(prefs)
+        let decoded = try JSONDecoder().decode(DeveloperModePreferences.self, from: data)
+        XCTAssertEqual(prefs, decoded)
+        XCTAssertTrue(decoded.ollamaUsageTrackingEnabled)
+    }
+
+    func testDefaultOllamaUsageTrackingIsFalse() {
+        let prefs = DeveloperModePreferences()
+        XCTAssertFalse(prefs.ollamaUsageTrackingEnabled)
+    }
 }

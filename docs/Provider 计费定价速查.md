@@ -78,6 +78,16 @@
 | ChatGPT Pro | $200/月 | 固定月费预设 |
 | Business Codex | 按量计费 | 无固定月费；如需纳入总成本，用自定义月费 |
 
+### Ollama Cloud
+
+| 档位 | 费用 | App 处理 |
+|---|---:|---|
+| Ollama Free | $0 | 默认口径；轻量云端用量 + 单模型并发 |
+| Ollama Pro | $20/月 | 50x Free 云端用量；3 模型并发；$200/年 |
+| Ollama Max | $100/月 | 5x Pro 云端用量；10 模型并发 |
+
+> Ollama 用量按 GPU 时间计费（非固定 token 数），有 5 小时 session + 7 天 weekly 双窗口限额。用量追踪门控在开发者模式下；启用后可在余额监控设置中从 Edge / Chrome / Brave / Arc 浏览器导入 session cookie，或手动输入 Cookie，并存储到系统 Keychain。
+
 ### MiniMax Token Plan
 
 | 档位 | 月费 | 额度 |

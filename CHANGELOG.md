@@ -7,7 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> 当前下一版目标为 `v0.9.7`，以下为相对 `v0.9.6` 的累计变更。
+> 当前下一版目标为 `v0.9.8`，以下为相对 `v0.9.7` 的累计变更。
+
+## [v0.9.7] - 2026-07-03
+
+> 相对 `v0.9.6` 的累计变更。
+
+### Added
+
+- **Ollama Cloud 用量监控与计费方案**：余额监控系统新增 Ollama Cloud 作为第 5 个 Provider；门控在开发者模式下，默认关闭；使用 ephemeral URLSession，cookie 不持久化、不打印、不上传（`OllamaBalanceProvider.swift`、`AuthTokenProvider.swift`、`BalanceModels.swift`、`BalanceManager.swift`、`DeveloperModePreferences.swift`）。计费系统新增 `Ollama Cloud` 作为第 6 个 BillingProvider，含 Free $0 / Pro $20/月 / Max $100/月 三个预设档位（`BillingPlanCatalog.swift`）
+- **Ollama session cookie 迁移至 Keychain**：Ollama 凭证从 `~/.config/ollama-quota/cookie` 文件读取迁移至系统 Keychain，通过 `SecureCredentialStore` 统一管理；新增 `saveOllamaCookie()` / `getOllamaCookie()` / `deleteOllamaCookie()` 方法，同时保留对裸 cookie 值和完整 `Cookie:` header 格式的向后兼容解析（`SecureCredentialStore.swift`、`AuthTokenProvider.swift`）
+- **Ollama 浏览器 Cookie 自动提取**：`BrowserCookieExtractor` 新增 `extractOllamaCookie()` 方法，从 Chrome / Edge / Brave / Arc 的 Chromium cookies SQLite 数据库中搜索 `ollama.com` 的 session cookie，优先读取明文 `value` 列，回退 AES-CBC 解密 `encrypted_value`；支持最新的 `Network/Cookies` 路径和传统 `Cookies` 路径（`BrowserCookieExtractor.swift`）
+- **Ollama 余额 Keychain 与浏览器提取测试覆盖**：新增 12 个测试用例覆盖 Keychain 隔离（UUID 独立 service 的 save/get/delete round-trip、跨 account 独立性、跨 service 独立性）、AuthTokenProvider Keychain 读取（空 Keychain 返回 nil、裸 cookie 值归一化为 `auth=`、完整 `name=value` header 保留、`Cookie:` 前缀剥离、分号路径截断）、以及 BrowserCookieExtractor SQLite 查询（匹配 ollama.com 域名、无匹配返回 nil、跳过空值）（`CodexTokenCostCoreTests.swift`）
+- **余额凭证卡片折叠重构**：OpenCode Go 和 Ollama Cloud 的凭证输入区从独立常驻卡片改为放在各自 Provider toggle 行后的可折叠区域，默认收起，点击钥匙图标展开，减少设置页视觉噪声（`BalanceSectionView.swift`）
+- **Ollama Cloud 5 小时 / 每周限额窗口解析**：`OllamaBalanceProvider` 新增 `aria-label="Session usage NN%"` 和 `aria-label="Weekly usage NN%"` 正则提取，解析 `data-time` ISO 8601 重置时间戳，构建双 `BalanceQuotaWindow`（5 小时 + 7 天）对齐 Codex 的 rate limit 展示能力；保留旧三重降级 fallback 应对 HTML 结构变更；新增 `balance.ollama.window.session` / `balance.ollama.window.weekly` 本地化 key（中英双语）（`OllamaBalanceProvider.swift`、`Localizable.strings`）
+- **余额窗口去重显示**：`BalanceSectionView` 的 `quotaWindows` 遍历新增去重逻辑，跳过与 `primaryWindowLabel` / `secondaryWindowLabel` / `tertiaryWindowLabel` 重复的条目，同时为 `quotaWindows` 增加 `resetAt` 时间显示；此修复惠及 Codex 和 Ollama 两个 Provider（`BalanceSectionView.swift`）
+- **余额消耗速率功能**：从 v0.9.5 分支移植 `ConsumptionRateCalculator`，基于历史快照的线性回归估算配额消耗速率（%/h、%/d），支持 fallback 窗口内估算和置信度输出；`BalanceManager.refresh()` 每次刷新后自动计算并存储采样（`ConsumptionRateCalculator.swift`、`BalanceModels.swift`、`BalanceManager.swift`）
+- **余额用量预估显性占位**：当消耗速率样本不足时，`BalanceOverviewCard` 和 `MenuBarView` 的配额窗口进度条下方显示「待预估」占位文字，替代此前默默不显示的行为（`BalanceOverviewCard.swift`、`MenuBarView.swift`）
+- **余额统一日志系统**：新增 `BalanceLog` 基于 `os.Logger` 的分级日志（debug/info/notice/error/fault），覆盖刷新、速率计算、窗口重置、Provider 错误等关键事件，替代零散的 `#if DEBUG print`（`BalanceLog.swift`、`BalanceManager.swift`、`ConsumptionRateCalculator.swift`）
+- **菜单栏余额卡片网格**：`MenuBarView` 余额区从垂直列表改为 `LazyVGrid` 双列卡片布局，支持 `balanceSortOrder`（配额优先/余额优先/按 Provider）和 `balanceDisplayMode`（已用/剩余）偏好设置（`MenuBarView.swift`、`AppPreferences.swift`、`AppPreferencesModel.swift`）
+- **Ollama Plan 名称解析**：从 HTML 中 `Cloud usage` 标签后的 `<span>` 提取 plan 名称（free/pro/max），写入 `BalanceSnapshot.planType`（`OllamaBalanceProvider.swift`）
+- **Ollama 解析失败日志改用 BalanceLog.notice**：不再 `#if DEBUG print`，改为统一 `BalanceLog.provider.notice`，且不输出 HTML 原文，仅输出长度（`OllamaBalanceProvider.swift`）
+
+### Changed
+
+- **Ollama cookie 存储方式**：从文件存储 `~/.config/ollama-quota/cookie` 改为系统 Keychain，配置入口从手动放置文件改为设置页可折叠凭证区 + 浏览器自动导入。README 已更新移除文件路径引用，改为 Keychain 和浏览器导入描述（`README.md`）
+
+### Removed
+
+- **Ollama 旧文件回退**：移除 `AuthTokenProvider.readOllamaCookie()` 中读取 `~/.config/ollama-quota/cookie` 的文件回退逻辑，所有 Ollama 凭证读取现仅通过 Keychain。已废弃的 `ollamaCookieURL` 属性保留标记为 `@available(*, deprecated)` 以兼容外部 UI 引用（`AuthTokenProvider.swift`）
+
+### Fixed
+
+- **余额监控空 Provider 时 backoff 误递增**：`BalanceManager.refresh()` 在 `checkers` 为空时不再执行 task group，避免 `consecutiveFailures` 无限递增导致后续刷新被永久阻塞（`BalanceManager.swift`）
+- **余额 Provider 默认启用逻辑**：`BalanceSectionView` 中 Provider toggle 的默认值从硬编码 `kind != .deepseek` 改为查询 `BalanceConfiguration()` 默认列表，新增 Provider 不再被错误默认启用（`BalanceSectionView.swift`）
+- **Ollama Keychain 写入静默失败**：`SecureCredentialStore` 中 Ollama 专用 Keychain CRUD 使用 `kSecUseDataProtectionKeychain: true`（DPK domain），在未启用 FileVault 或无 entitlements 的 Mac 上 `SecItemAdd` 静默失败但 UI 仍显示「已保存」。已移除 DPK flag，统一使用 file-based Keychain domain（与 OpenCode Go 凭证一致），并保留 legacy DPK 只读迁移以兼容旧用户数据（`SecureCredentialStore.swift`）
+- **Ollama cookie 保存状态 UI 误报**：`saveOllamaCookie` 返回 `Bool`，手动输入和浏览器导入后 UI 根据返回值设置 `ollamaCookieSaved`，保存失败时不再显示「已保存到 Keychain」（`SecureCredentialStore.swift`、`BalanceSectionView.swift`、`SettingsView.swift`）
+- **Ollama Cookie header 过度截断**：`normalizeOllamaCookieHeader` 此前只保留第一个 `name=value` pair，丢失 `session`/`csrf` 等多 cookie。已改为保留所有 `name=value` pair，仅剥离 `path`/`domain`/`expires`/`max-age`/`samesite`/`secure`/`httponly`/`priority` 等 Set-Cookie 属性（`AuthTokenProvider.swift`）
+- **OllamaBalanceProvider 错误消息硬编码中文**：9 条 provider 级别错误消息全部替换为 `AppLocalization.text()` 调用，新增 `balance.ollama.error.*` 命名空间 key（中英双语）（`OllamaBalanceProvider.swift`、`Localizable.strings`）
+- **BalanceSectionView 重复 onAppear**：`ollamaCredentialInputArea` 上的 `.onAppear` 与 `SettingsView` 的 `.onAppear` 重复读取 Keychain cookie，已移除 `BalanceSectionView` 中的重复（`BalanceSectionView.swift`）
+- **Ollama HTML 正则无法匹配 `used` 后缀**：`aria-label="Session usage 51% used"` 中的 ` used` 后缀导致 Strategy 1 正则 `%"` 静默失败，降级为 Strategy 4 单窗口模式（丢失 Weekly 窗口和时间戳）。已修正正则为 `%[^"]*"` 允许 `%` 与 `"` 间有任意非引号字符，同时保持对旧格式 `aria-label="Session usage 51%"` 的向后兼容（`OllamaBalanceProvider.swift`）
 
 ## [v0.9.6] - 2026-06-30
 
@@ -379,6 +418,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
+[v0.9.7]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.6...v0.9.7
 [v0.9.6]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.2...v0.9.6
 [v0.9.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.1...v0.9.2
 [v0.9.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.0...v0.9.1

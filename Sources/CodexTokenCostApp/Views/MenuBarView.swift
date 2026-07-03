@@ -268,68 +268,41 @@ struct MenuBarView: View {
 
     // MARK: - Balance Summary
 
+    private var sortedSnapshots: [BalanceSnapshot] {
+        let order = appPreferencesModel.preferences.balanceSortOrder
+        return balanceManager.snapshots.sorted { a, b in
+            switch order {
+            case .quotaFirst:
+                if a.isQuotaType != b.isQuotaType { return a.isQuotaType }
+                return a.provider.sortOrder < b.provider.sortOrder
+            case .balanceFirst:
+                if a.isBalanceType != b.isBalanceType { return a.isBalanceType }
+                return a.provider.sortOrder < b.provider.sortOrder
+            case .byProvider:
+                return a.provider.sortOrder < b.provider.sortOrder
+            }
+        }
+    }
+
     private var balanceSummary: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("实时余额")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(palette.subtitle)
 
-            ForEach(balanceManager.snapshots) { snapshot in
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(gradientColor(for: snapshot.gradient))
-                            .frame(width: 5, height: 5)
-                        Text(snapshot.provider.displayName)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(palette.title)
-                    }
-
-                    if let windows = snapshot.quotaWindows, !windows.isEmpty {
-                        HStack(spacing: 4) {
-                            ForEach(windows) { w in
-                                miniBar(label: w.label, pct: w.usedRatio ?? 0)
-                            }
-                        }
-                    } else if let entries = snapshot.valueEntries, !entries.isEmpty {
-                        ForEach(entries) { entry in
-                            HStack(spacing: 4) {
-                                Text(entry.currencyCode ?? "")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(palette.accent)
-                                Text(String(format: "%.2f", entry.amount))
-                                    .font(.caption2)
-                                    .foregroundStyle(palette.title)
-                            }
-                        }
-                    } else if snapshot.primaryWindowUsagePercent != nil {
-                        HStack(spacing: 4) {
-                            if let pct = snapshot.primaryWindowUsagePercent {
-                                miniBar(label: snapshot.primaryWindowLabel, pct: pct)
-                            }
-                            if let pct = snapshot.secondaryWindowUsagePercent {
-                                miniBar(label: snapshot.secondaryWindowLabel, pct: pct)
-                            }
-                            if let pct = snapshot.tertiaryWindowUsagePercent {
-                                miniBar(label: snapshot.tertiaryWindowLabel, pct: pct)
-                            }
-                        }
-                    } else if let cost = snapshot.totalCostUSD {
-                        Text("$\(String(format: "%.2f", cost)) 累计")
-                            .font(.caption2)
-                            .foregroundStyle(palette.subtitle)
-                    } else {
-                        Text(snapshot.shortSummary)
-                            .font(.caption2)
-                            .foregroundStyle(palette.subtitle)
-                    }
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 6),
+                GridItem(.flexible(), spacing: 6)
+            ], spacing: 6) {
+                ForEach(sortedSnapshots) { snapshot in
+                    balanceCard(snapshot)
                 }
             }
 
             HStack {
                 Spacer()
                 Button {
-                    Task { await balanceManager.refresh() }
+                    Task { await balanceManager.refresh(force: true) }
                 } label: {
                     HStack(spacing: 4) {
                         if balanceManager.isRefreshing {
@@ -348,32 +321,189 @@ struct MenuBarView: View {
         }
     }
 
-    private func miniBar(label: String?, pct: Double) -> some View {
-        HStack(spacing: 2) {
-            if let label {
-                Text(label)
+    private func balanceCard(_ snapshot: BalanceSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(snapshot.isAvailable ? gradientColor(for: snapshot.gradient) : Color.gray.opacity(0.5))
+                    .frame(width: 5, height: 5)
+                Text(snapshot.provider.displayName)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(palette.title)
+                    .lineLimit(1)
+            }
+
+            if snapshot.isAvailable {
+                if let windows = snapshot.quotaWindows, !windows.isEmpty {
+                    ForEach(windows) { w in
+                        cardBar(
+                            label: w.label,
+                            pct: displayRatio(for: w),
+                            resetAt: w.resetAt,
+                            windowSeconds: w.windowSeconds,
+                            consumptionRate: w.consumptionRate
+                        )
+                    }
+                } else if let entries = snapshot.valueEntries, !entries.isEmpty {
+                    ForEach(entries) { entry in
+                        HStack(spacing: 3) {
+                            if let code = entry.currencyCode, !code.isEmpty {
+                                Text(code)
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(gradientColor(for: .low))
+                            }
+                            Text(String(format: "%.2f", entry.amount))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(palette.title)
+                                .lineLimit(1)
+                            if let granted = entry.grantedAmount {
+                                Text("(赠\(String(format: "%.0f", granted)))")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(palette.subtitle)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                } else if let primaryPct = snapshot.primaryWindowUsagePercent {
+                    cardBar(label: snapshot.primaryWindowLabel, pct: displayRatio(for: primaryPct))
+                    if let pct = snapshot.secondaryWindowUsagePercent {
+                        cardBar(label: snapshot.secondaryWindowLabel, pct: displayRatio(for: pct))
+                    }
+                    if let pct = snapshot.tertiaryWindowUsagePercent {
+                        cardBar(label: snapshot.tertiaryWindowLabel, pct: displayRatio(for: pct))
+                    }
+                } else if let cost = snapshot.totalCostUSD {
+                    Text("$\(String(format: "%.2f", cost)) 累计")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(palette.title)
+                    if let avg = snapshot.avgCostPerDayUSD {
+                        Text("日均 $\(String(format: "%.2f", avg))")
+                            .font(.system(size: 8))
+                            .foregroundStyle(palette.subtitle)
+                    }
+                } else if let pct = snapshot.usagePercent {
+                    cardBar(label: nil, pct: displayRatio(for: pct))
+                }
+            } else {
+                Text(snapshot.errorMessage ?? "不可用")
                     .font(.system(size: 9))
                     .foregroundStyle(palette.subtitle)
-                    .frame(minWidth: 28, idealWidth: 36, alignment: .leading)
-                    .layoutPriority(1)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(palette.cardFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(palette.cardStroke.opacity(0.6), lineWidth: 1)
+                )
+        )
+    }
+
+    private func cardBar(
+        label: String?,
+        pct: Double,
+        resetAt: Date? = nil,
+        windowSeconds: Int? = nil,
+        consumptionRate: ConsumptionRate? = nil
+    ) -> some View {
+        let isShortWindow: Bool = {
+            guard let ws = windowSeconds else { return false }
+            return ws < 86400
+        }()
+        let countdownText: String? = {
+            guard isShortWindow, let resetAt else { return nil }
+            let remaining = max(0, resetAt.timeIntervalSinceNow)
+            if remaining <= 0 { return "即将" }
+            if remaining < 60 { return "<1m" }
+            let hours = Int(remaining) / 3600
+            let minutes = (Int(remaining) % 3600) / 60
+            if hours > 0 { return "\(hours)h\(minutes)m" }
+            return "\(minutes)m"
+        }()
+        let rateText: String? = {
+            guard isShortWindow,
+                  let consumptionRate,
+                  consumptionRate.confidence > 0 else { return nil }
+            return String(format: "~%.1f%%/h", consumptionRate.perHour)
+        }()
+        let showPending = isShortWindow && (consumptionRate == nil || consumptionRate?.confidence == 0)
+
+        return HStack(spacing: 2) {
+            if let label {
+                Text(label)
+                    .font(.system(size: 8))
+                    .foregroundStyle(palette.subtitle)
+                    .frame(width: 24, alignment: .leading)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                         .fill(palette.trackBackground)
-                        .frame(height: 5)
+                        .frame(height: 4)
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(gradientColor(for: pct < 0.5 ? .low : pct < 0.8 ? .moderate : pct < 0.95 ? .high : .critical))
-                        .frame(width: geo.size.width * CGFloat(min(pct, 1.0)), height: 5)
+                        .fill(cardBarColor(for: pct))
+                        .frame(width: geo.size.width * CGFloat(min(pct, 1.0)), height: 4)
                 }
             }
-            .frame(minWidth: 20, idealWidth: 32, minHeight: 5, idealHeight: 5, maxHeight: 5)
-            Text("\(Int(pct * 100))%")
-                .font(.system(size: 9))
+            .frame(height: 4)
+            Text(pct >= 0.995 ? "满" : "\(Int(pct * 100))")
+                .font(.system(size: 8))
                 .foregroundStyle(palette.subtitle)
-                .frame(minWidth: 16, idealWidth: 20, alignment: .trailing)
-        Spacer(minLength: 0)
+                .frame(width: 16, alignment: .trailing)
+                .minimumScaleFactor(0.6)
+            if let countdownText {
+                Text(countdownText)
+                    .font(.system(size: 7, weight: .medium))
+                    .foregroundStyle(palette.subtitle.opacity(0.6))
+                    .minimumScaleFactor(0.6)
+            }
+            if let rateText {
+                Text(rateText)
+                    .font(.system(size: 7, weight: .medium))
+                    .foregroundStyle(palette.accent.opacity(0.75))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+            } else if showPending {
+                Text(AppLocalization.text("balance.rate.pending"))
+                    .font(.system(size: 7))
+                    .foregroundStyle(palette.subtitle.opacity(0.4))
+                    .minimumScaleFactor(0.6)
+            }
+        }
     }
+
+    private func cardBarColor(for pct: Double) -> Color {
+        if appPreferencesModel.preferences.balanceDisplayMode == .remaining {
+            if pct > 0.5 { return gradientColor(for: .low) }
+            if pct > 0.2 { return gradientColor(for: .moderate) }
+            if pct > 0.05 { return gradientColor(for: .high) }
+            return gradientColor(for: .critical)
+        }
+        if pct < 0.5 { return gradientColor(for: .low) }
+        if pct < 0.8 { return gradientColor(for: .moderate) }
+        if pct < 0.95 { return gradientColor(for: .high) }
+        return gradientColor(for: .critical)
+    }
+
+    private func displayRatio(for window: BalanceQuotaWindow) -> Double {
+        let mode = appPreferencesModel.preferences.balanceDisplayMode
+        switch mode {
+        case .used: return window.usedRatio ?? 0
+        case .remaining: return window.remainingRatio ?? (1.0 - (window.usedRatio ?? 0))
+        }
+    }
+
+    private func displayRatio(for pct: Double) -> Double {
+        switch appPreferencesModel.preferences.balanceDisplayMode {
+        case .used: return pct
+        case .remaining: return 1.0 - pct
+        }
     }
 
     private func statusIndicator(

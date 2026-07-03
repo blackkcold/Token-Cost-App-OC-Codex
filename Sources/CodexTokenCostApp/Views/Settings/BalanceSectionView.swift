@@ -9,17 +9,21 @@ struct BalanceSectionView: View {
     @Binding var goCookieInput: String
     @Binding var goCookieSaved: Bool
     @Binding var isTestingGoConnection: Bool
-    @Binding var showGoTestResultAlert: Bool
-    @Binding var goTestResultAlertTitle: String
-    @Binding var goTestResultAlertMessage: String
+    @Binding var isTestingOllamaConnection: Bool
     @Binding var showBrowserImportAlert: Bool
     @Binding var browserImportMessage: String?
     @Binding var isImportingFromBrowser: Bool
+    @Binding var showOllamaBrowserImportAlert: Bool
+    @Binding var ollamaBrowserImportMessage: String?
+    @Binding var isImportingOllamaFromBrowser: Bool
+    @Binding var ollamaCookieInput: String
+    @Binding var ollamaCookieSaved: Bool
+
+    @State private var expandedCredentialFor: BalanceProviderKind?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             balanceToggleCard
-            goCredentialsCard
             providerStatusCard
         }
     }
@@ -203,30 +207,11 @@ struct BalanceSectionView: View {
 
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(BalanceProviderKind.allCases, id: \.self) { kind in
-                            let enabled = appPreferencesModel.preferences.balanceConfig?.enabledBalanceProviders.contains(kind) ?? (kind != .deepseek)
-                            HStack(spacing: 8) {
-                                Toggle("", isOn: Binding(
-                                    get: { enabled },
-                                    set: { newValue in
-                                        appPreferencesModel.updateBalanceConfiguration { config in
-                                            if newValue {
-                                                if !config.enabledBalanceProviders.contains(kind) {
-                                                    config.enabledBalanceProviders.append(kind)
-                                                }
-                                            } else {
-                                                config.enabledBalanceProviders.removeAll { $0 == kind }
-                                            }
-                                        }
-                                    }
-                                ))
-                                .toggleStyle(.checkbox)
-                                .labelsHidden()
-
-                                Text(verbatim: kind.displayName)
-                                    .font(.caption)
-                                    .foregroundStyle(palette.title)
-
-                                Spacer()
+                            if kind == .ollama,
+                               !appPreferencesModel.preferences.developerMode.ollamaUsageTrackingEnabled {
+                                EmptyView()
+                            } else {
+                                providerToggleRow(for: kind)
                             }
                         }
                     }
@@ -305,21 +290,34 @@ struct BalanceSectionView: View {
                 }
 
                 if let quotaWindows = snapshot.quotaWindows {
+                    let dedupLabels: Set<String> = [
+                        snapshot.primaryWindowLabel,
+                        snapshot.secondaryWindowLabel,
+                        snapshot.tertiaryWindowLabel
+                    ].compactMap { $0 }.reduce(into: Set<String>()) { $0.insert($1) }
+
                     ForEach(quotaWindows) { window in
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(window.usedRatio.map(usageColor) ?? palette.subtitle)
-                                .frame(width: 5, height: 5)
-                            Text(verbatim: window.label)
-                                .font(.system(size: 9))
-                                .foregroundStyle(palette.subtitle)
-                            if let used = window.usedRatio {
-                                Text("\(Int(used * 100))%")
-                                    .font(.system(size: 9).monospacedDigit())
-                                    .foregroundStyle(usageColor(used))
+                        if dedupLabels.contains(window.label) { EmptyView() } else {
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(window.usedRatio.map(usageColor) ?? palette.subtitle)
+                                    .frame(width: 5, height: 5)
+                                Text(verbatim: window.label)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(palette.subtitle)
+                                if let used = window.usedRatio {
+                                    Text("\(Int(used * 100))%")
+                                        .font(.system(size: 9).monospacedDigit())
+                                        .foregroundStyle(usageColor(used))
+                                }
+                                if let resetAt = window.resetAt {
+                                    Text("(\(formattedTime(resetAt)))")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(palette.subtitle.opacity(0.6))
+                                }
                             }
+                            .padding(.leading, 20)
                         }
-                        .padding(.leading, 20)
                     }
                 }
 
@@ -349,6 +347,301 @@ struct BalanceSectionView: View {
             }
         }
         .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
+    }
+
+    // MARK: - Provider toggle row (with collapsible credential input)
+
+    @ViewBuilder
+    private func providerToggleRow(for kind: BalanceProviderKind) -> some View {
+        let defaultEnabled = BalanceConfiguration().enabledBalanceProviders
+        let enabled = appPreferencesModel.preferences.balanceConfig?.enabledBalanceProviders.contains(kind)
+            ?? defaultEnabled.contains(kind)
+        let hasCredentialInput = kind == .opencodeGo || kind == .ollama
+
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Toggle("", isOn: Binding(
+                    get: { enabled },
+                    set: { newValue in
+                        appPreferencesModel.updateBalanceConfiguration { config in
+                            if newValue {
+                                if !config.enabledBalanceProviders.contains(kind) {
+                                    config.enabledBalanceProviders.append(kind)
+                                }
+                            } else {
+                                config.enabledBalanceProviders.removeAll { $0 == kind }
+                            }
+                        }
+                    }
+                ))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
+                Text(verbatim: kind.displayName)
+                    .font(.caption)
+                    .foregroundStyle(palette.title)
+
+                Spacer()
+
+                if hasCredentialInput {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            expandedCredentialFor = expandedCredentialFor == kind ? nil : kind
+                        }
+                    } label: {
+                        Image(systemName: expandedCredentialFor == kind ? "chevron.up" : "key.fill")
+                            .font(.caption2)
+                            .foregroundStyle(palette.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help(kind == .opencodeGo
+                          ? "settings.opencodeGo.help.configure".localized
+                          : "settings.ollama.help.configure".localized)
+                }
+            }
+
+            if hasCredentialInput, expandedCredentialFor == kind {
+                if kind == .opencodeGo {
+                    goCredentialInputArea
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                } else if kind == .ollama {
+                    ollamaCredentialInputArea
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    // MARK: - OpenCode Go credential input (collapsible)
+
+    private var goCredentialInputArea: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("settings.opencodeGo.credentials.workspaceID".localized)
+                    .font(.caption)
+                    .foregroundStyle(palette.title)
+                    .frame(width: 100, alignment: .leading)
+                TextField(
+                    AppLocalization.text("settings.opencodeGo.credentials.workspaceID"),
+                    text: appPreferencesModel.opencodeGoWorkspaceIDBinding
+                )
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+            }
+
+            HStack(spacing: 8) {
+                Text("settings.opencodeGo.credentials.authCookie".localized)
+                    .font(.caption)
+                    .foregroundStyle(palette.title)
+                    .frame(width: 100, alignment: .leading)
+                SecureField(
+                    AppLocalization.text("settings.opencodeGo.credentials.authCookie"),
+                    text: $goCookieInput
+                )
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+            }
+
+            if goCookieSaved {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                    Text("settings.opencodeGo.credentials.saved".localized)
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    isTestingGoConnection = true
+                } label: {
+                    Label("settings.action.testConnection".localized, systemImage: "network")
+                }
+                .settingsGlassButtonStyle(prominent: true)
+                .controlSize(.small)
+                .disabled(isTestingGoConnection)
+
+                Button {
+                    showBrowserImportAlert = true
+                } label: {
+                    Label("settings.opencodeGo.importFromBrowser".localized, systemImage: "safari")
+                }
+                .settingsGlassButtonStyle(prominent: false)
+                .controlSize(.small)
+                .disabled(isImportingFromBrowser)
+
+                if isImportingFromBrowser {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 20, height: 20)
+                }
+            }
+
+            if let importMsg = browserImportMessage {
+                Text(verbatim: importMsg)
+                    .font(.caption2)
+                    .foregroundStyle(palette.subtitle)
+                    .padding(.top, 2)
+            }
+        }
+        .padding(.leading, 28)
+        .padding(.trailing, 4)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
+    }
+
+    // MARK: - Ollama credential input (collapsible)
+
+    private var ollamaCredentialInputArea: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(palette.accent)
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("settings.ollama.credentials.title".localized)
+                        .font(.caption)
+                        .foregroundStyle(palette.title)
+                    Text("settings.ollama.credentials.subtitle".localized)
+                        .font(.caption2)
+                        .foregroundStyle(palette.subtitle)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text("settings.ollama.credentials.cookieLabel".localized)
+                    .font(.caption)
+                    .foregroundStyle(palette.title)
+                    .frame(width: 50, alignment: .leading)
+                SecureField(
+                    AppLocalization.text("settings.ollama.credentials.placeholder"),
+                    text: $ollamaCookieInput
+                )
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+                .onChange(of: ollamaCookieInput) { _, newValue in
+                    if newValue.isEmpty {
+                        SecureCredentialStore.shared.deleteOllamaCookie()
+                        ollamaCookieSaved = false
+                    } else {
+                        let saved = SecureCredentialStore.shared.saveOllamaCookie(newValue)
+                        ollamaCookieSaved = saved
+                    }
+                }
+            }
+
+            if ollamaCookieSaved {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                    Text("settings.ollama.credentials.saved".localized)
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    isTestingOllamaConnection = true
+                } label: {
+                    Label("settings.action.testConnection".localized, systemImage: "network")
+                }
+                .settingsGlassButtonStyle(prominent: true)
+                .controlSize(.small)
+                .disabled(isTestingOllamaConnection || balanceManager.isRefreshing)
+
+                Button {
+                    showOllamaBrowserImportAlert = true
+                } label: {
+                    Label("settings.opencodeGo.importFromBrowser".localized, systemImage: "safari")
+                }
+                .settingsGlassButtonStyle(prominent: false)
+                .controlSize(.small)
+                .disabled(isImportingOllamaFromBrowser)
+
+                Button {
+                    SecureCredentialStore.shared.deleteOllamaCookie()
+                    ollamaCookieInput = ""
+                    ollamaCookieSaved = false
+                    ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.credentials.deleted")
+                } label: {
+                    Label("settings.action.delete".localized, systemImage: "trash")
+                }
+                .settingsGlassButtonStyle(prominent: false)
+                .controlSize(.small)
+
+                if balanceManager.isRefreshing || isTestingOllamaConnection || isImportingOllamaFromBrowser {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .frame(width: 20, height: 20)
+                }
+            }
+
+            if let importMsg = ollamaBrowserImportMessage {
+                Text(verbatim: importMsg)
+                    .font(.caption2)
+                    .foregroundStyle(palette.subtitle)
+                    .padding(.top, 2)
+            }
+
+            if let ollamaSnapshot = balanceManager.snapshots.first(where: { $0.provider == .ollama }) {
+                if !ollamaSnapshot.isAvailable, let error = ollamaSnapshot.errorMessage {
+                    Text(verbatim: error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                } else if ollamaSnapshot.isAvailable {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.green)
+                            if let pct = ollamaSnapshot.usagePercent {
+                                Text(String(format: "settings.ollama.status.used".localized, Int(pct * 100)))
+                                    .font(.caption2)
+                                    .foregroundStyle(usageColor(pct))
+                            } else {
+                                Text("settings.ollama.status.connected".localized)
+                                    .font(.caption2)
+                                    .foregroundStyle(.green)
+                            }
+                        }
+
+                        if let windows = ollamaSnapshot.quotaWindows, !windows.isEmpty {
+                            ForEach(windows) { window in
+                                HStack(spacing: 4) {
+                                    Circle()
+                                        .fill(window.usedRatio.map(usageColor) ?? palette.subtitle)
+                                        .frame(width: 5, height: 5)
+                                    Text(verbatim: window.label)
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(palette.subtitle)
+                                    if let used = window.usedRatio {
+                                        Text("\(Int(used * 100))%")
+                                            .font(.system(size: 9).monospacedDigit())
+                                            .foregroundStyle(usageColor(used))
+                                    }
+                                    if let resetAt = window.resetAt {
+                                        Text("(\(formattedTime(resetAt)))")
+                                            .font(.system(size: 8))
+                                            .foregroundStyle(palette.subtitle.opacity(0.6))
+                                    }
+                                }
+                                .padding(.leading, 20)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.leading, 28)
+        .padding(.trailing, 4)
         .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
     }

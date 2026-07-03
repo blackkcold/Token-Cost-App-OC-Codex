@@ -20,3 +20,14 @@ int cc_pbkdf2_sha1(
     return CCKeyDerivationPBKDF(kCCPBKDF2, pw, pwLen,
         salt, saltLen, kCCPRFHmacAlgSHA1, rounds, dk, dkLen);
 }
+
+int cc_aescbc_decrypt(
+    const void *key, size_t keyLen,
+    const void *iv,
+    const void *ct, size_t ctLen,
+    void *pt, size_t *ptLen)
+{
+    return CCCrypt(kCCDecrypt, kCCAlgorithmAES, kCCOptionPKCS7Padding,
+                   key, keyLen, iv, ct, ctLen,
+                   pt, *ptLen, ptLen);
+}

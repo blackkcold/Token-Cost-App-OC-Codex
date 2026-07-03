@@ -206,6 +206,7 @@
 "settings.action.cancel" = "Cancel";
 "settings.action.close" = "Close";
 "settings.action.continueImport" = "Continue Import";
+"settings.action.delete" = "Delete";
 "settings.action.refreshCodex" = "Refresh Codex";
 "settings.action.rescan" = "Rescan";
 "settings.action.restoreCodexDefaults" = "Restore Codex defaults";
@@ -428,6 +429,41 @@
 "settings.opencodeGo.import.success" = "Credentials imported";
 "settings.opencodeGo.import.noBrowser" = "No supported browser data found. Make sure you are logged in to opencode.ai in your browser";
 "settings.opencodeGo.import.partial" = "Cookie imported. Please enter Workspace ID manually";
+"settings.opencodeGo.help.configure" = "Configure OpenCode Go credentials";
+
+"settings.ollama.credentials.title" = "Store Ollama session cookie in Keychain";
+"settings.ollama.credentials.subtitle" = "Supports browser auto-import, or manually enter raw cookie value / full Cookie header format";
+"settings.ollama.credentials.cookieLabel" = "Cookie";
+"settings.ollama.credentials.placeholder" = "Enter Ollama Cookie";
+"settings.ollama.credentials.saved" = "Saved to Keychain";
+"settings.ollama.credentials.deleted" = "Deleted";
+"settings.ollama.status.used" = "Used %d%%";
+"settings.ollama.status.connected" = "Connected";
+"settings.ollama.help.configure" = "Configure Ollama Cloud cookie";
+"settings.ollama.import.title" = "Import Ollama Cookie from Browser";
+"settings.ollama.import.message" = "Will attempt to extract ollama.com session cookie from Edge / Chrome / Brave / Arc.";
+"settings.ollama.import.success" = "Import successful";
+"settings.ollama.import.noCookie" = "No Ollama Cookie found";
+"settings.ollama.import.saveFailed" = "Cookie extracted, but failed to save to Keychain";
+"settings.ollama.test.success" = "Connection Successful";
+"settings.ollama.test.successMessage" = "Successfully fetched Ollama balance snapshot.";
+"settings.ollama.test.failed" = "Connection Failed";
+"settings.ollama.test.noCookie" = "Please enter or save an Ollama Cookie first.";
+"settings.ollama.test.unknownError" = "Unknown error";
+
+"balance.ollama.error.noCookie" = "Ollama cookie not found, please configure in Settings";
+"balance.ollama.error.invalidUrl" = "Invalid URL";
+"balance.ollama.error.network" = "Network error: %@";
+"balance.ollama.error.invalidResponse" = "Invalid response";
+"balance.ollama.error.cookieExpiredRedirect" = "Cookie may have expired, please reconfigure in Settings";
+"balance.ollama.error.cookieExpiredRedirectLogin" = "Cookie expired (redirected to login page), please reconfigure";
+"balance.ollama.error.cookieExpired" = "Cookie expired, please reconfigure";
+"balance.ollama.error.parseFailed" = "Unable to parse page";
+"balance.ollama.error.noUsageData" = "Page does not contain usage data, Ollama page format may have changed";
+"balance.ollama.window.session" = "5h";
+"balance.ollama.window.weekly" = "Weekly";
+
+"balance.error.noAuthToken" = "No auth token found";
 
 /* Skills Panel v0.7.0 */
 "tab.skills" = "Skills";
@@ -689,3 +725,17 @@
 "balance.dailyAverage" = "Daily avg %@";
 "balance.balance" = "Balance";
 
+"balance.rate.pending" = "Estimating";
+"balance.rate.countdown" = "%@ left";
+"balance.rate.countdownSoon" = "Resetting soon";
+"balance.rate.perHour" = "~%.1f%%/h";
+"balance.rate.perDay" = "~%.1f%%/d";
+"balance.sort.quotaFirst" = "Quota first";
+"balance.sort.balanceFirst" = "Balance first";
+"balance.sort.byProvider" = "By provider";
+"balance.display.used" = "Used";
+"balance.display.remaining" = "Remaining";
+"balance.error.recoveryHint" = "Check credentials or network";
+"balance.error.reimport" = "Import now";
+"settings.opencodeGo.diagnosis.cookieExpired" = "Auth Cookie expired. Please re-import.";
+"settings.opencodeGo.diagnosis.workspaceMismatch" = "Workspace ID does not match the cookie";

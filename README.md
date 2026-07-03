@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.6)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.7)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
@@ -13,7 +13,7 @@
 
 A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
 
-> **Latest**: [v0.9.6](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.6) — Codex JSONL streaming parser, SQL injection hardening, menu bar redesign, and CI upgrade to macOS 26
+> **Latest**: [v0.9.7](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.7) — Ollama Cloud balance monitoring, Keychain credential migration, consumption rate estimation, menu bar balance grid
 
 ### Why Token Cost App?
 
@@ -32,7 +32,7 @@ AI coding tools charge by token — but most developers have no idea what they'r
 - **Bilingual UI** — Switch between Chinese and English; terminology stays consistent
 - **Multi-Theme** — Bay Blue, Forest Green, Twilight Orange, Aurora Purple
 - **CNY/USD Toggle** — All prices dynamically switch with currency; custom monthly fees auto-convert
-- **Balance Monitoring** — Real-time balance queries for OpenCode Go / Codex / OpenCode Zen / DeepSeek, with multi-window quota and balance-entry visualization
+- **Balance Monitoring** — Real-time balance queries for OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud, with multi-window quota and balance-entry visualization (Ollama gated under Developer Mode, requires session cookie stored in system Keychain; supports browser-based auto-import from Chrome/Edge/Brave/Arc and one-click connection testing)
 - **Responsive Settings Panel** — Module-based collapsible settings with adaptive horizontal layout for faster desktop scanning
 - **Desktop-Friendly Window Behavior** — Closing the main window hides the Dock icon while keeping the MenuBar workflow active
 - **Update Checker** — Silent check on launch + manual trigger; auto-downloads updates
@@ -79,7 +79,7 @@ In the **Settings panel** you can:
 - Adjust scan depth and snapshot retention
 - Switch UI language and OpenCode pricing mode on the overview page
 - Manage provider billing plans: OpenCode Go / Zen, ChatGPT Plus / Pro / Business Codex, MiniMax Token Plan, Xiaomi MiMo Token Plan, or enter custom USD monthly fees
-- Configure OpenCode Go credentials (Workspace ID + Auth Cookie) with a "Test Connection" button; also supports auto-import from Edge / Chrome / Brave / Arc
+- Configure OpenCode Go credentials (Workspace ID + Auth Cookie) and Ollama Cloud cookie with "Test Connection" buttons; both support auto-import from Edge / Chrome / Brave / Arc where available
 - Open the built-in read-only pricing reference document to view current billing rates offline
 - Switch UI theme
 - Manage Codex session sources
@@ -117,7 +117,7 @@ MIT License — see [LICENSE](LICENSE)
 
 一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
 
-> **最新版本**: [v0.9.6](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.6) — Codex JSONL 流式解析、SQL 注入加固、菜单栏重构和 CI 升级至 macOS 26
+> **最新版本**: [v0.9.7](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.7) — Ollama Cloud 余额监控、Keychain 凭证迁移、消耗速率预估、菜单栏余额网格
 
 ### 为什么需要它？
 
@@ -136,7 +136,7 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 - **中英双语** — 界面可在中文 / 英语之间切换，术语保持一致
 - **多主题** — 海湾蓝、森林绿、暮光橙、极光紫 4 种主题色
 - **人民币/美元计价切换** — 所有价格展示随币种动态切换，自定义月费自动换算
-- **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek 余额实时查询，并展示多窗口配额与余额条目
+- **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud 余额实时查询，并展示多窗口配额与余额条目（Ollama 需在开发者模式下启用，session cookie 存储在系统 Keychain 中；支持从 Chrome/Edge/Brave/Arc 浏览器自动导入和一键测试连接）
 - **响应式设置页** — 模块化折叠设置面板，短控件采用横向自适应布局，桌面端浏览更高效
 - **桌面窗口行为优化** — 关闭主窗口后自动隐藏 Dock 图标，保留 MenuBar 工作流
 - **版本更新检查** — 启动时静默检查 + 手动触发，自动下载更新包
@@ -183,7 +183,7 @@ swift build
 - 调整扫描深度和快照保留数
 - 切换界面语言和总览页 OpenCode 计价口径
 - 管理各 Provider 计费方案：OpenCode Go / Zen、ChatGPT Plus / Pro / Business Codex、MiniMax Token Plan、Xiaomi MiMo Token Plan，或输入自定义 USD 月费
-- 配置 OpenCode Go 凭证（Workspace ID + Auth Cookie），并用「测试连接」按钮校验当前配置；也支持从 Edge / Chrome / Brave / Arc 自动导入凭证
+- 配置 OpenCode Go 凭证（Workspace ID + Auth Cookie）和 Ollama Cloud Cookie，并用「测试连接」按钮校验当前配置；也支持从 Edge / Chrome / Brave / Arc 自动导入凭证
 - 打开内置只读计费参考文档，离线查看当前内置价格口径
 - 切换界面主题
 - 管理 Codex session 来源

@@ -54,6 +54,7 @@
 - Release 日志净化（v0.6.0+）：`UpdateChecker` 中所有文件路径/状态输出仅 DEBUG 构建可见
 - Keychain 静默读取（v0.6.0+）：`SecItemCopyMatching` 使用 `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，已有"Always Allow"授权静默返回，无授权不弹窗；`discoverCredentials()` 添加内存缓存避免同 session 重复 Keychain 访问；自动刷新链路只读凭证，不自动写入 Keychain，不触发浏览器 Cookie 导入
 - Keychain 设备锁定（v0.6.0+）：`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`，凭证不跨设备 iCloud 同步
+- Ollama Cloud 用量监控：余额监控系统的 Provider 扩展（门控在开发者模式下），Cookie 通过用户主动从浏览器导入或手动输入后存入系统 Keychain（file-based domain，与 OpenCode Go 凭证使用同一 Keychain 域），通过 HTTPS 访问 `ollama.com/settings` 解析 HTML 获取用量百分比。该功能属于余额监控系统的 Provider 扩展（与 OpenCode Go / Codex / OpenCode Zen / DeepSeek 同层），不是开发者模式本地只读能力，不受开发者模式网络禁令约束；开发者模式 gate 仅控制该 Provider 在 UI 中的可见性。使用 ephemeral URLSession，Cookie 不持久化到磁盘、不写入日志、不上传第三方服务；旧版 `~/.config/ollama-quota/cookie` 文件回退已移除；`saveOllamaCookie` 返回 `Bool` 确认写入结果，UI 根据返回值显示保存状态。
 
 ## 开发者模式安全边界（v0.9.0+）
 

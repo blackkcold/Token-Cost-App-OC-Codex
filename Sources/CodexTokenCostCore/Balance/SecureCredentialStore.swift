@@ -12,6 +12,8 @@ public final class SecureCredentialStore: @unchecked Sendable {
     private let service = "com.yanghaoran.CodexTokenCost.opencode-go"
     private let workspaceIDAccount = "workspace-id"
     private let authCookieAccount = "auth-cookie"
+    private let ollamaCookieService = "com.yanghaoran.CodexTokenCost.ollama"
+    private let ollamaCookieAccount = "ollama-cookie"
 
     private let lock = NSLock()
     private var cachedWorkspaceID: String?
@@ -47,6 +49,40 @@ public final class SecureCredentialStore: @unchecked Sendable {
 
     public func getAuthCookie() -> String? {
         read(account: authCookieAccount)
+    }
+
+    /// Saves the Ollama cookie to the standard macOS Keychain (file-based domain).
+    /// Returns `true` on success, `false` on failure.
+    @discardableResult
+    public func saveOllamaCookie(_ cookie: String) -> Bool {
+        let saved = save(account: ollamaCookieAccount, value: cookie, service: ollamaCookieService)
+        if saved {
+            // Best-effort cleanup of any legacy DPK-domain item from prior versions.
+            deleteLegacyDPKOllamaKeychain()
+        }
+        return saved
+    }
+
+    public func getOllamaCookie() -> String? {
+        // Primary: read from standard file-based Keychain domain.
+        if let cookie = read(account: ollamaCookieAccount, service: ollamaCookieService) {
+            return cookie
+        }
+        // Fallback: read from legacy Data Protection Keychain domain and migrate.
+        if let legacy = readLegacyDPKOllamaKeychain() {
+            // Migrate: save to standard domain, then delete legacy.
+            if save(account: ollamaCookieAccount, value: legacy, service: ollamaCookieService) {
+                deleteLegacyDPKOllamaKeychain()
+            }
+            return legacy
+        }
+        return nil
+    }
+
+    public func deleteOllamaCookie() {
+        delete(account: ollamaCookieAccount, service: ollamaCookieService)
+        // Best-effort cleanup of any legacy DPK-domain item.
+        deleteLegacyDPKOllamaKeychain()
     }
 
     public func discoverCredentials(allowEnvironment: Bool = false) -> (workspaceID: String?, cookie: String?) {
@@ -120,6 +156,19 @@ public final class SecureCredentialStore: @unchecked Sendable {
         delete(account: workspaceIDAccount, service: service)
     }
 
+    @discardableResult
+    func saveOllamaCookie(_ cookie: String, service: String) -> Bool {
+        save(account: ollamaCookieAccount, value: cookie, service: service)
+    }
+
+    func getOllamaCookie(service: String) -> String? {
+        read(account: ollamaCookieAccount, service: service)
+    }
+
+    func deleteOllamaCookie(service: String) {
+        delete(account: ollamaCookieAccount, service: service)
+    }
+
     func discoverCredentialsForTesting(
         allowEnvironment: Bool,
         service: String,
@@ -143,9 +192,46 @@ public final class SecureCredentialStore: @unchecked Sendable {
         return (nil, nil)
     }
 
+    // MARK: - Private: Legacy DPK-domain helpers (migration only)
+
+    private func readLegacyDPKOllamaKeychain() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: ollamaCookieService,
+            kSecAttrAccount as String: ollamaCookieAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecAttrSynchronizable as String: false,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let string = String(data: data, encoding: .utf8)
+        else { return nil }
+
+        return string
+    }
+
+    private func deleteLegacyDPKOllamaKeychain() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: ollamaCookieService,
+            kSecAttrAccount as String: ollamaCookieAccount,
+            kSecAttrSynchronizable as String: false,
+            kSecUseDataProtectionKeychain as String: true
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
     // MARK: - Private: Keychain CRUD (no UserDefaults guard)
 
-    private func save(account: String, value: String, service: String? = nil) {
+    @discardableResult
+    private func save(account: String, value: String, service: String? = nil) -> Bool {
         let svc = service ?? self.service
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -160,13 +246,13 @@ public final class SecureCredentialStore: @unchecked Sendable {
         ]
 
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if updateStatus == errSecSuccess { return }
+        if updateStatus == errSecSuccess { return true }
 
         if updateStatus != errSecItemNotFound {
 #if DEBUG
             print("[SecureCredentialStore] Warning: failed to update keychain item for '\(account)': status \(updateStatus)")
 #endif
-            return
+            return false
         }
 
         var addQuery = query
@@ -178,7 +264,9 @@ public final class SecureCredentialStore: @unchecked Sendable {
 #if DEBUG
             print("[SecureCredentialStore] Warning: failed to add keychain item for '\(account)': status \(addStatus)")
 #endif
+            return false
         }
+        return true
     }
 
     private func delete(account: String, service: String? = nil) {

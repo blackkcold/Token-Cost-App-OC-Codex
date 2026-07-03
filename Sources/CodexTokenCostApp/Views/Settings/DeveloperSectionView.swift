@@ -14,6 +14,7 @@ struct DeveloperSectionView: View {
             developerModeToggle
             optimizeSection
             localGovernanceSection
+            ollamaUsageTrackingSection
             aiAnalysisSection
             docButton
         }
@@ -196,6 +197,34 @@ struct DeveloperSectionView: View {
                 .foregroundStyle(palette.subtitle)
         }
         .padding(.horizontal, 4)
+    }
+
+    // MARK: - Ollama 用量追踪 gate
+
+    @ViewBuilder
+    private var ollamaUsageTrackingSection: some View {
+        if appPreferencesModel.preferences.developerMode.isEnabled {
+            SettingsSurfaceCard(
+                title: "Ollama Cloud 用量追踪",
+                subtitle: "实验性功能：通过 Keychain 存储的 cookie 查询 ollama.com/settings 用量",
+                role: .secondary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(
+                        "启用 Ollama 用量追踪",
+                        isOn: appPreferencesModel.developerModeToggleBinding(for: \.ollamaUsageTrackingEnabled)
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(palette.title)
+
+                    Text("启用后在余额监控设置中可见 Ollama Cloud 行，并支持从浏览器自动导入 cookie。")
+                        .font(.caption)
+                        .foregroundStyle(palette.subtitle)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     // MARK: - AI 分析

@@ -23,6 +23,8 @@ public enum AuthTokenProvider {
             return readCodexAuthToken()
         case .deepseek:
             return readDeepSeekAuthToken()
+        case .ollama:
+            return readOllamaCookie()
         }
     }
 
@@ -128,5 +130,73 @@ public enum AuthTokenProvider {
     public static var codexAuthURL: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home.appendingPathComponent(".codex/auth.json")
+    }
+
+    /// Deprecated legacy Ollama cookie file path. Ollama credentials are now
+    /// stored in Keychain and this URL is retained only for source compatibility.
+    @available(*, deprecated, message: "Ollama cookie is stored in Keychain; the file fallback is no longer used.")
+    public static var ollamaCookieURL: URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent(".config/ollama-quota/cookie")
+    }
+
+    // MARK: - Ollama cookie (Keychain-backed)
+
+    /// Keychain service identifier used for Ollama cookie storage.
+    static let ollamaKeychainService = "com.yanghaoran.CodexTokenCost.ollama"
+
+    private static func readOllamaCookie() -> String? {
+        guard let raw = SecureCredentialStore.shared.getOllamaCookie()?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty
+        else { return nil }
+
+        return normalizeOllamaCookieHeader(raw)
+    }
+
+    /// Internal variant with explicit service for test isolation.
+    static func readOllamaCookie(service: String) -> String? {
+        guard let raw = SecureCredentialStore.shared.getOllamaCookie(service: service)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty
+        else { return nil }
+
+        return normalizeOllamaCookieHeader(raw)
+    }
+
+    private static func normalizeOllamaCookieHeader(_ raw: String) -> String? {
+        let stripped: String
+        if raw.lowercased().hasPrefix("cookie:") {
+            stripped = String(raw.dropFirst("cookie:".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            stripped = raw
+        }
+
+        let setCookieAttrs: Set<String> = [
+            "path", "domain", "expires", "max-age", "samesite",
+            "secure", "httponly", "priority"
+        ]
+
+        let pairs = stripped
+            .components(separatedBy: ";")
+            .compactMap { pair -> String? in
+                let trimmed = pair.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                if let eqIdx = trimmed.firstIndex(of: "=") {
+                    let name = String(trimmed[..<eqIdx]).lowercased()
+                    if setCookieAttrs.contains(name) { return nil }
+                } else {
+                    if setCookieAttrs.contains(trimmed.lowercased()) { return nil }
+                }
+                return trimmed
+            }
+
+        guard !pairs.isEmpty else { return nil }
+
+        if pairs.count == 1, !pairs[0].contains("=") {
+            return "auth=\(pairs[0])"
+        }
+        return pairs.joined(separator: "; ")
     }
 }

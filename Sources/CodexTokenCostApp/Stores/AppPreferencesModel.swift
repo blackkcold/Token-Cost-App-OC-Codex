@@ -185,7 +185,15 @@ final class AppPreferencesModel: ObservableObject {
     }
 
     var effectiveBalanceConfiguration: BalanceConfiguration {
-        preferences.balanceConfig ?? BalanceConfiguration()
+        var config = preferences.balanceConfig ?? BalanceConfiguration()
+        let ollamaEnabled = preferences.developerMode.ollamaUsageTrackingEnabled
+        let hasOllama = config.enabledBalanceProviders.contains(.ollama)
+        if ollamaEnabled, !hasOllama {
+            config.enabledBalanceProviders.append(.ollama)
+        } else if !ollamaEnabled, hasOllama {
+            config.enabledBalanceProviders.removeAll { $0 == .ollama }
+        }
+        return config
     }
 
     var taskClassificationEnabledBinding: Binding<Bool> {
@@ -227,6 +235,28 @@ final class AppPreferencesModel: ObservableObject {
             set: { newValue in
                 self.updatePreferences { prefs in
                     prefs.modelCompareEnabled = newValue
+                }
+            }
+        )
+    }
+
+    var balanceSortOrderBinding: Binding<BalanceSortOrder> {
+        Binding(
+            get: { self.preferences.balanceSortOrder },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.balanceSortOrder = newValue
+                }
+            }
+        )
+    }
+
+    var balanceDisplayModeBinding: Binding<BalanceDisplayMode> {
+        Binding(
+            get: { self.preferences.balanceDisplayMode },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.balanceDisplayMode = newValue
                 }
             }
         )

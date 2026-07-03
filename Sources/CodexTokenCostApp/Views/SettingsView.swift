@@ -21,12 +21,18 @@ struct SettingsView: View {
     @State private var goCookieInput: String = ""
     @State private var goCookieSaved: Bool = false
     @State private var isTestingGoConnection = false
-    @State private var showGoTestResultAlert = false
-    @State private var goTestResultAlertTitle = ""
-    @State private var goTestResultAlertMessage = ""
+    @State private var isTestingOllamaConnection = false
+    @State private var testConnectionAlert: TestConnectionAlert?
+    @State private var goConnectionTestTask: Task<Void, Never>?
+    @State private var ollamaConnectionTestTask: Task<Void, Never>?
     @State private var showBrowserImportAlert = false
     @State private var browserImportMessage: String?
     @State private var isImportingFromBrowser = false
+    @State private var showOllamaBrowserImportAlert = false
+    @State private var ollamaBrowserImportMessage: String?
+    @State private var isImportingOllamaFromBrowser = false
+    @State private var ollamaCookieInput: String = ""
+    @State private var ollamaCookieSaved: Bool = false
 
     private let listPageSize = 10
 
@@ -49,6 +55,20 @@ struct SettingsView: View {
         var id: String { rawValue }
     }
 
+    private struct TestConnectionAlert: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+
+        static func go(title: String, message: String) -> TestConnectionAlert {
+            TestConnectionAlert(title: title, message: message)
+        }
+
+        static func ollama(title: String, message: String) -> TestConnectionAlert {
+            TestConnectionAlert(title: title, message: message)
+        }
+    }
+
     var body: some View {
         ZStack {
             palette.pageBackground
@@ -62,6 +82,12 @@ struct SettingsView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 780, minHeight: 600)
+        .onAppear {
+            if let savedOllamaCookie = SecureCredentialStore.shared.getOllamaCookie(), !savedOllamaCookie.isEmpty {
+                ollamaCookieInput = savedOllamaCookie
+                ollamaCookieSaved = true
+            }
+        }
         .sheet(isPresented: $isPricingDocPresented) {
             PricingDocView(palette: palette)
         }
@@ -70,32 +96,74 @@ struct SettingsView: View {
         }
         .onChange(of: isTestingGoConnection) { _, newValue in
             guard newValue else { return }
-            Task {
+            goConnectionTestTask?.cancel()
+            goConnectionTestTask = Task {
                 let allowEnv = appPreferencesModel.preferences.balanceConfig?.allowEnvironmentCredentials ?? false
                 let checker = OpenCodeGoBalanceChecker(allowEnvironmentCredentials: allowEnv)
                 guard let apiKey = AuthTokenProvider.token(for: .opencodeGo) else {
-                    goTestResultAlertTitle = AppLocalization.text("settings.opencodeGo.test.failed")
-                    goTestResultAlertMessage = AppLocalization.text("settings.opencodeGo.test.noApiKey")
-                    showGoTestResultAlert = true
+                    guard !Task.isCancelled else { return }
+                    testConnectionAlert = .go(
+                        title: AppLocalization.text("settings.opencodeGo.test.failed"),
+                        message: AppLocalization.text("settings.opencodeGo.test.noApiKey")
+                    )
                     isTestingGoConnection = false
                     return
                 }
                 let snapshot = await balanceManager.testSnapshot(for: checker, authToken: apiKey)
+                guard !Task.isCancelled else { return }
                 if snapshot.isAvailable {
-                    goTestResultAlertTitle = AppLocalization.text("settings.opencodeGo.test.success")
-                    goTestResultAlertMessage = AppLocalization.text("settings.opencodeGo.test.successMessage")
+                    testConnectionAlert = .go(
+                        title: AppLocalization.text("settings.opencodeGo.test.success"),
+                        message: AppLocalization.text("settings.opencodeGo.test.successMessage")
+                    )
                 } else {
-                    goTestResultAlertTitle = AppLocalization.text("settings.opencodeGo.test.failed")
-                    goTestResultAlertMessage = snapshot.errorMessage ?? AppLocalization.text("settings.opencodeGo.test.unknownError")
+                    testConnectionAlert = .go(
+                        title: AppLocalization.text("settings.opencodeGo.test.failed"),
+                        message: snapshot.errorMessage ?? AppLocalization.text("settings.opencodeGo.test.unknownError")
+                    )
                 }
-                showGoTestResultAlert = true
                 isTestingGoConnection = false
             }
         }
-        .alert(goTestResultAlertTitle, isPresented: $showGoTestResultAlert) {
-            Button(AppLocalization.text("settings.action.close"), role: .cancel) {}
-        } message: {
-            Text(goTestResultAlertMessage)
+        .onChange(of: isTestingOllamaConnection) { _, newValue in
+            guard newValue else { return }
+            ollamaConnectionTestTask?.cancel()
+            ollamaConnectionTestTask = Task {
+                let checker = OllamaBalanceChecker()
+                guard let cookie = AuthTokenProvider.token(for: .ollama) else {
+                    guard !Task.isCancelled else { return }
+                    testConnectionAlert = .ollama(
+                        title: AppLocalization.text("settings.ollama.test.failed"),
+                        message: AppLocalization.text("settings.ollama.test.noCookie")
+                    )
+                    isTestingOllamaConnection = false
+                    return
+                }
+
+                let snapshot = await balanceManager.testSnapshot(for: checker, authToken: cookie)
+                guard !Task.isCancelled else { return }
+                balanceManager.upsertSnapshot(snapshot)
+
+                if snapshot.isAvailable {
+                    testConnectionAlert = .ollama(
+                        title: AppLocalization.text("settings.ollama.test.success"),
+                        message: AppLocalization.text("settings.ollama.test.successMessage")
+                    )
+                } else {
+                    testConnectionAlert = .ollama(
+                        title: AppLocalization.text("settings.ollama.test.failed"),
+                        message: snapshot.errorMessage ?? AppLocalization.text("settings.ollama.test.unknownError")
+                    )
+                }
+                isTestingOllamaConnection = false
+            }
+        }
+        .alert(item: $testConnectionAlert) { item in
+            Alert(
+                title: Text(item.title),
+                message: Text(item.message),
+                dismissButton: .cancel(Text(AppLocalization.text("settings.action.close")))
+            )
         }
         .confirmationDialog(
             AppLocalization.text("settings.opencodeGo.import.confirmTitle"),
@@ -104,7 +172,7 @@ struct SettingsView: View {
         ) {
             Button(AppLocalization.text("settings.action.continueImport")) {
                 isImportingFromBrowser = true
-                Task.detached {
+                Task.detached(priority: .userInitiated) {
                     let result = BrowserCookieExtractor.extractCredentials()
                     await MainActor.run {
                         if let cookie = result.cookie, !cookie.isEmpty {
@@ -130,6 +198,37 @@ struct SettingsView: View {
             Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {}
         } message: {
             Text(AppLocalization.text("settings.opencodeGo.import.confirmMessage"))
+        }
+        .confirmationDialog(
+            AppLocalization.text("settings.ollama.import.title"),
+            isPresented: $showOllamaBrowserImportAlert,
+            titleVisibility: .visible
+        ) {
+            Button(AppLocalization.text("settings.action.continueImport")) {
+                isImportingOllamaFromBrowser = true
+                Task.detached(priority: .userInitiated) {
+                    let cookie = BrowserCookieExtractor.extractOllamaCookie()
+                    await MainActor.run {
+                        if let cookie = cookie, !cookie.isEmpty {
+                            ollamaCookieInput = cookie
+                            let saved = SecureCredentialStore.shared.saveOllamaCookie(cookie)
+                            ollamaCookieSaved = saved
+                            if saved {
+                                ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.import.success")
+                                isTestingOllamaConnection = true
+                            } else {
+                                ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.import.saveFailed")
+                            }
+                        } else {
+                            ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.import.noCookie")
+                        }
+                        isImportingOllamaFromBrowser = false
+                    }
+                }
+            }
+            Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {}
+        } message: {
+            Text(AppLocalization.text("settings.ollama.import.message"))
         }
     }
 
@@ -250,12 +349,15 @@ struct SettingsView: View {
                 goCookieInput: $goCookieInput,
                 goCookieSaved: $goCookieSaved,
                 isTestingGoConnection: $isTestingGoConnection,
-                showGoTestResultAlert: $showGoTestResultAlert,
-                goTestResultAlertTitle: $goTestResultAlertTitle,
-                goTestResultAlertMessage: $goTestResultAlertMessage,
+                isTestingOllamaConnection: $isTestingOllamaConnection,
                 showBrowserImportAlert: $showBrowserImportAlert,
                 browserImportMessage: $browserImportMessage,
-                isImportingFromBrowser: $isImportingFromBrowser
+                isImportingFromBrowser: $isImportingFromBrowser,
+                showOllamaBrowserImportAlert: $showOllamaBrowserImportAlert,
+                ollamaBrowserImportMessage: $ollamaBrowserImportMessage,
+                isImportingOllamaFromBrowser: $isImportingOllamaFromBrowser,
+                ollamaCookieInput: $ollamaCookieInput,
+                ollamaCookieSaved: $ollamaCookieSaved
             )
         case .opencode:
             OpenCodeSectionView(

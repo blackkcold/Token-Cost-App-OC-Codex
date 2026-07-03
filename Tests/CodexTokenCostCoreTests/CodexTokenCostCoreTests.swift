@@ -568,6 +568,268 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(credentials.cookie, "cookie_env_enabled")
     }
 
+    // MARK: - ConsumptionRateCalculator
+
+    func testConsumptionRateFallbackUsesWindowStartAndPercentagePoints() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let windowStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetAt = windowStart.addingTimeInterval(3_600)
+        let snapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(900),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "5小时",
+                    usedRatio: 0.25,
+                    remainingRatio: 0.75,
+                    resetAt: resetAt,
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [snapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+
+        XCTAssertNotNil(rate)
+        XCTAssertEqual(rate?.perHour ?? 0, 100, accuracy: 0.001)
+        XCTAssertEqual(rate?.perDay ?? 0, 2_400, accuracy: 0.001)
+        XCTAssertEqual(rate?.confidence ?? 0, 0.2, accuracy: 0.001)
+    }
+
+    func testConsumptionRateUsesPriorHistoryAndCurrentSnapshot() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let windowStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetAt = windowStart.addingTimeInterval(3_600)
+        let firstSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(600),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "5小时",
+                    usedRatio: 0.10,
+                    remainingRatio: 0.90,
+                    resetAt: resetAt,
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+        ConsumptionRateCalculator.store([firstSnapshot])
+
+        let secondSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(1_200),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "5小时",
+                    usedRatio: 0.20,
+                    remainingRatio: 0.80,
+                    resetAt: resetAt,
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [secondSnapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+
+        XCTAssertNotNil(rate)
+        XCTAssertEqual(rate?.perHour ?? 0, 60, accuracy: 0.001)
+        XCTAssertEqual(rate?.perDay ?? 0, 1_440, accuracy: 0.001)
+        XCTAssertEqual(rate?.confidence ?? 0, 0.4, accuracy: 0.001)
+    }
+
+    func testConsumptionRateNilWhenNoUsedRatio() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let snapshot = BalanceSnapshot(
+            provider: .codex,
+            fetchedAt: Date(),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "窗口",
+                    usedRatio: nil,
+                    remainingRatio: nil,
+                    resetAt: Date().addingTimeInterval(3_600),
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [snapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+        XCTAssertNil(rate)
+    }
+
+    func testConsumptionRateNilWhenNoResetAt() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let snapshot = BalanceSnapshot(
+            provider: .codex,
+            fetchedAt: Date(),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "窗口",
+                    usedRatio: 0.5,
+                    remainingRatio: 0.5,
+                    resetAt: nil,
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [snapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+        XCTAssertNil(rate)
+    }
+
+    func testConsumptionRateWindowResetClearsHistory() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let oldReset = Date().addingTimeInterval(3_600)
+        let oldSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: Date().addingTimeInterval(-1_200),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "5小时",
+                    usedRatio: 0.30,
+                    remainingRatio: 0.70,
+                    resetAt: oldReset,
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+        ConsumptionRateCalculator.store([oldSnapshot])
+
+        let newReset = oldReset.addingTimeInterval(3_600)
+        let newWindowStart = newReset.addingTimeInterval(-3_600)
+        let newSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: newWindowStart.addingTimeInterval(900),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(
+                    label: "5小时",
+                    usedRatio: 0.05,
+                    remainingRatio: 0.95,
+                    resetAt: newReset,
+                    windowSeconds: 3_600
+                )
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [newSnapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+        XCTAssertNotNil(rate)
+        // After reset, old samples have different resetAt → filtered out; only current point → fallback confidence 0.2
+        XCTAssertEqual(rate?.confidence ?? 0, 0.2, accuracy: 0.001)
+    }
+
+    func testConsumptionRateDebounceMinInterval() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let now = Date()
+        let resetAt = now.addingTimeInterval(3_600)
+        let snapshot1 = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: now,
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5小时", usedRatio: 0.10, remainingRatio: 0.90, resetAt: resetAt, windowSeconds: 3_600)
+            ]
+        )
+        ConsumptionRateCalculator.store([snapshot1])
+
+        let snapshot2 = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: now.addingTimeInterval(300),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5小时", usedRatio: 0.15, remainingRatio: 0.85, resetAt: resetAt, windowSeconds: 3_600)
+            ]
+        )
+        ConsumptionRateCalculator.store([snapshot2])
+
+        // The second store within 10 minutes should be debounced — only 1 sample in history
+        let computed = ConsumptionRateCalculator.compute(current: [snapshot2])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+        XCTAssertNotNil(rate)
+        // 1 stored sample + current snapshot = 2 pairs → confidence 0.4
+        XCTAssertEqual(rate?.confidence ?? 0, 0.4, accuracy: 0.001)
+    }
+
+    func testBalanceModelsDecodeOldFormat() throws {
+        let oldJSON = """
+        {"provider":"opencode_go","fetchedAt":1700000000,"isAvailable":true}
+        """
+        let data = Data(oldJSON.utf8)
+        let snapshot = try JSONDecoder().decode(BalanceSnapshot.self, from: data)
+        XCTAssertTrue(snapshot.isAvailable)
+        XCTAssertNil(snapshot.errorRecoveryHint)
+        XCTAssertFalse(snapshot.errorRequiresReimport)
+    }
+
+    func testComputePreservesAllSnapshotFields() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let original = BalanceSnapshot(
+            provider: .ollama,
+            fetchedAt: Date(),
+            isAvailable: true,
+            remainingCredits: 100,
+            totalCredits: 200,
+            usedCredits: 50,
+            usagePercent: 0.5,
+            planType: "pro",
+            primaryWindowLabel: "5h",
+            primaryWindowUsagePercent: 0.4,
+            primaryWindowResetAt: Date().addingTimeInterval(3600),
+            secondaryWindowLabel: "7d",
+            secondaryWindowUsagePercent: 0.6,
+            secondaryWindowResetAt: Date().addingTimeInterval(86400),
+            totalCostUSD: 42.5,
+            avgCostPerDayUSD: 1.5,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5h", usedRatio: 0.4, remainingRatio: 0.6, resetAt: Date().addingTimeInterval(3600), windowSeconds: 18000)
+            ],
+            valueEntries: [BalanceValueEntry(label: "余额", currencyCode: "CNY", amount: 100)]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [original]).first!
+
+        XCTAssertEqual(computed.provider, original.provider)
+        XCTAssertEqual(computed.fetchedAt, original.fetchedAt)
+        XCTAssertEqual(computed.isAvailable, original.isAvailable)
+        XCTAssertEqual(computed.remainingCredits, original.remainingCredits)
+        XCTAssertEqual(computed.totalCredits, original.totalCredits)
+        XCTAssertEqual(computed.usedCredits, original.usedCredits)
+        XCTAssertEqual(computed.usagePercent, original.usagePercent)
+        XCTAssertEqual(computed.planType, original.planType)
+        XCTAssertEqual(computed.primaryWindowLabel, original.primaryWindowLabel)
+        XCTAssertEqual(computed.primaryWindowUsagePercent, original.primaryWindowUsagePercent)
+        XCTAssertEqual(computed.secondaryWindowLabel, original.secondaryWindowLabel)
+        XCTAssertEqual(computed.secondaryWindowUsagePercent, original.secondaryWindowUsagePercent)
+        XCTAssertEqual(computed.totalCostUSD, original.totalCostUSD)
+        XCTAssertEqual(computed.avgCostPerDayUSD, original.avgCostPerDayUSD)
+        XCTAssertEqual(computed.valueEntries?.count, original.valueEntries?.count)
+    }
+
     // MARK: - BalanceManager testSnapshot with mock checker
 
     @MainActor
@@ -1341,5 +1603,633 @@ private final class TokenCapturingMockChecker: BalanceChecker, @unchecked Sendab
             fetchedAt: Date(),
             isAvailable: true
         )
+    }
+}
+
+// MARK: - Ollama BalanceProvider tests
+
+@MainActor
+final class OllamaBalanceProviderTests: XCTestCase {
+    func testOllamaProviderKindRoundtrip() throws {
+        XCTAssertEqual(BalanceProviderKind.ollama.rawValue, "ollama")
+        XCTAssertEqual(BalanceProviderKind.ollama.displayName, "Ollama Cloud")
+        XCTAssertEqual(BalanceProviderKind.ollama.sortOrder, 4)
+        let encoded = try JSONEncoder().encode(BalanceProviderKind.ollama)
+        let decoded = try JSONDecoder().decode(BalanceProviderKind.self, from: encoded)
+        XCTAssertEqual(decoded, .ollama)
+    }
+
+    func testOllamaBalanceCheckerNoCookieReturnsUnavailable() async {
+        let checker = OllamaBalanceChecker()
+        do {
+            let snapshot = try await checker.fetch(authToken: "")
+            XCTAssertFalse(snapshot.isAvailable)
+            XCTAssertEqual(snapshot.provider, .ollama)
+            XCTAssertNotNil(snapshot.errorMessage)
+        } catch {
+            XCTFail("Should return unavailable snapshot, not throw: \(error)")
+        }
+    }
+
+    func testOllamaHTMLRegexAriaLabel() {
+        let html = #"<div data-usage-track aria-label="65%">usage</div>"#
+        let pct = Self.extractFirstPercent(from: html, pattern: #"data-usage-track[^>]*aria-label="([^"]*%)""#)
+        XCTAssertEqual(pct ?? -1, 0.65, accuracy: 0.001)
+    }
+
+    func testOllamaHTMLRegexUsageMeterFill() {
+        let html = #"<div class="usage-meter__fill" style="width: 80%"></div>"#
+        let pct = Self.extractFirstPercent(from: html, pattern: #"usage-meter__fill[^>]*style="[^"]*width:\s*(\d+(?:\.\d+)?)%""#)
+        XCTAssertEqual(pct ?? -1, 0.80, accuracy: 0.001)
+    }
+
+    func testOllamaHTMLRegexGenericPercent() {
+        let html = #"<span>45% used</span>"#
+        let pct = Self.extractFirstPercent(from: html, pattern: #"(\d+(?:\.\d+)?)%\s*(?:used|已用)"#)
+        XCTAssertEqual(pct ?? -1, 0.45, accuracy: 0.001)
+    }
+
+    func testOllamaHTMLRegexNoDataReturnsNil() {
+        let html = "<html><body><h1>Welcome to Ollama</h1></body></html>"
+        XCTAssertNil(Self.extractFirstPercent(from: html, pattern: #"data-usage-track[^>]*aria-label="([^"]*%)""#))
+    }
+
+    func testOllamaRealHTMLSessionAndWeeklyWithUsedSuffix() {
+        let html = """
+        <html><body>
+        <h2 class="text-xl font-medium flex items-center space-x-2">
+            <span>Cloud usage</span>
+            <span class="text-xs font-normal px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 capitalize">pro</span>
+        </h2>
+        <div data-usage-track="" aria-label="Session usage 51% used"></div>
+        <div data-time="2026-07-03T07:00:00Z"></div>
+        <div data-usage-track="" aria-label="Weekly usage 57.3% used"></div>
+        <div data-time="2026-07-06T00:00:00Z"></div>
+        </body></html>
+        """
+        let snapshot = OllamaBalanceChecker().parseUsageForTesting(from: html)
+        XCTAssertTrue(snapshot.isAvailable)
+        XCTAssertEqual(snapshot.primaryWindowUsagePercent ?? -1, 0.51, accuracy: 0.001)
+        XCTAssertEqual(snapshot.secondaryWindowUsagePercent ?? -1, 0.573, accuracy: 0.001)
+        XCTAssertNotNil(snapshot.primaryWindowResetAt)
+        XCTAssertNotNil(snapshot.secondaryWindowResetAt)
+    }
+
+    func testOllamaRealHTMLPlanTypePro() {
+        let html = #"<h2><span>Cloud usage</span><span class="capitalize">pro</span></h2><div aria-label="Session usage 10% used"></div><div data-time="2026-07-03T07:00:00Z"></div>"#
+        let snapshot = OllamaBalanceChecker().parseUsageForTesting(from: html)
+        XCTAssertEqual(snapshot.planType, "pro")
+    }
+
+    func testOllamaRealHTMLPlanTypeFree() {
+        let html = #"<h2><span>Cloud usage</span><span class="capitalize">free</span></h2><div aria-label="Session usage 10% used"></div><div data-time="2026-07-03T07:00:00Z"></div>"#
+        let snapshot = OllamaBalanceChecker().parseUsageForTesting(from: html)
+        XCTAssertEqual(snapshot.planType, "free")
+    }
+
+    func testOllamaRealHTMLPlanTypeMax() {
+        let html = #"<h2><span>Cloud usage</span><span class="capitalize">max</span></h2><div aria-label="Session usage 10% used"></div><div data-time="2026-07-03T07:00:00Z"></div>"#
+        let snapshot = OllamaBalanceChecker().parseUsageForTesting(from: html)
+        XCTAssertEqual(snapshot.planType, "max")
+    }
+
+    func testOllamaHTMLWithoutUsedSuffix() {
+        let html = """
+        <div data-usage-track="" aria-label="Session usage 51%"></div>
+        <div data-time="2026-07-03T07:00:00Z"></div>
+        <div data-usage-track="" aria-label="Weekly usage 57%"></div>
+        <div data-time="2026-07-06T00:00:00Z"></div>
+        """
+        let snapshot = OllamaBalanceChecker().parseUsageForTesting(from: html)
+        XCTAssertTrue(snapshot.isAvailable)
+        XCTAssertEqual(snapshot.primaryWindowUsagePercent ?? -1, 0.51, accuracy: 0.001)
+        XCTAssertEqual(snapshot.secondaryWindowUsagePercent ?? -1, 0.57, accuracy: 0.001)
+    }
+
+    func testOllamaRealHTMLQuotaWindowsComplete() {
+        let html = """
+        <div data-usage-track="" aria-label="Session usage 51% used"></div>
+        <div data-time="2026-07-03T07:00:00Z"></div>
+        <div data-usage-track="" aria-label="Weekly usage 57.3% used"></div>
+        <div data-time="2026-07-06T00:00:00Z"></div>
+        """
+        let snapshot = OllamaBalanceChecker().parseUsageForTesting(from: html)
+        guard let windows = snapshot.quotaWindows, windows.count == 2 else {
+            XCTFail("Expected 2 quota windows, got \(snapshot.quotaWindows?.count ?? 0)")
+            return
+        }
+        XCTAssertEqual(windows[0].usedRatio ?? -1, 0.51, accuracy: 0.001)
+        XCTAssertEqual(windows[1].usedRatio ?? -1, 0.573, accuracy: 0.001)
+        XCTAssertNotNil(windows[0].resetAt)
+        XCTAssertNotNil(windows[1].resetAt)
+    }
+
+    func testBalanceManagerWithOllamaRebuilds() {
+        let config = BalanceConfiguration(enabledBalanceProviders: [.ollama])
+        let manager = BalanceManager(configuration: config)
+        XCTAssertEqual(manager.activeProviderKinds, [.ollama])
+    }
+
+    func testBalanceManagerEmptyProvidersDoesNotIncrementBackoff() async {
+        let manager = BalanceManager(configuration: BalanceConfiguration(
+            enabledBalanceProviders: []
+        ))
+        await manager.refresh()
+        XCTAssertNil(manager.lastRefreshTime)
+    }
+
+    func testUpsertSnapshotReplacesExistingForSameProvider() {
+        let manager = BalanceManager()
+        let old = BalanceSnapshot(provider: .ollama, fetchedAt: Date(), isAvailable: true, usagePercent: 0.3)
+        let new = BalanceSnapshot(provider: .ollama, fetchedAt: Date(), isAvailable: true, usagePercent: 0.8)
+
+        manager.upsertSnapshot(old)
+        manager.upsertSnapshot(new)
+
+        let ollamaSnapshots = manager.snapshots.filter { $0.provider == .ollama }
+        XCTAssertEqual(ollamaSnapshots.count, 1)
+        XCTAssertEqual(ollamaSnapshots.first?.usagePercent, 0.8)
+    }
+
+    func testUpsertSnapshotSortsByProviderSortOrder() {
+        let manager = BalanceManager()
+
+        manager.upsertSnapshot(BalanceSnapshot(provider: .ollama, fetchedAt: Date(), isAvailable: true))
+        manager.upsertSnapshot(BalanceSnapshot(provider: .codex, fetchedAt: Date(), isAvailable: true))
+        manager.upsertSnapshot(BalanceSnapshot(provider: .opencodeGo, fetchedAt: Date(), isAvailable: true))
+
+        XCTAssertEqual(manager.snapshots.map(\.provider), [.opencodeGo, .codex, .ollama])
+    }
+
+    func testUpsertSnapshotUpdatesLastRefreshTime() {
+        let manager = BalanceManager()
+        XCTAssertNil(manager.lastRefreshTime)
+
+        manager.upsertSnapshot(BalanceSnapshot(provider: .ollama, fetchedAt: Date(), isAvailable: true))
+
+        XCTAssertNotNil(manager.lastRefreshTime)
+    }
+
+    func testUpsertSnapshotWithFailedSnapshotAlsoWrites() {
+        let manager = BalanceManager()
+        let failed = BalanceSnapshot.unavailable(.ollama, reason: "test error")
+
+        manager.upsertSnapshot(failed)
+
+        XCTAssertEqual(manager.snapshots.count, 1)
+        XCTAssertEqual(manager.snapshots.first?.provider, .ollama)
+        XCTAssertFalse(manager.snapshots.first?.isAvailable ?? true)
+        XCTAssertEqual(manager.snapshots.first?.errorMessage, "test error")
+    }
+
+    func testUpsertSnapshotDoesNotAffectRefreshWithEmptyCheckers() async {
+        let manager = BalanceManager(configuration: BalanceConfiguration(enabledBalanceProviders: []))
+
+        manager.upsertSnapshot(BalanceSnapshot(provider: .ollama, fetchedAt: Date(), isAvailable: true))
+        await manager.refresh()
+
+        XCTAssertEqual(manager.snapshots.map(\.provider), [.ollama])
+    }
+
+    private static func extractFirstPercent(from html: String, pattern: String) -> Double? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: html)
+        else { return nil }
+        let captured = String(html[range]).replacingOccurrences(of: "%", with: "")
+        guard let value = Double(captured), value.isFinite, value >= 0, value <= 100
+        else { return nil }
+        return value / 100.0
+    }
+
+    // MARK: - Ollama Keychain save / get / delete isolation
+
+    func testOllamaCookieRoundTripWithIsolatedService() throws {
+        let testService = "com.test.ollama-cookie-rt-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        XCTAssertNil(SecureCredentialStore.shared.getOllamaCookie(service: testService))
+
+        SecureCredentialStore.shared.saveOllamaCookie("ollama-session-val", service: testService)
+        XCTAssertEqual(SecureCredentialStore.shared.getOllamaCookie(service: testService), "ollama-session-val")
+
+        SecureCredentialStore.shared.saveOllamaCookie("ollama-session-updated", service: testService)
+        XCTAssertEqual(SecureCredentialStore.shared.getOllamaCookie(service: testService), "ollama-session-updated")
+
+        SecureCredentialStore.shared.deleteOllamaCookie(service: testService)
+        XCTAssertNil(SecureCredentialStore.shared.getOllamaCookie(service: testService))
+    }
+
+    func testOllamaCookieDeleteDoesNotAffectOtherAccounts() throws {
+        let testService = "com.test.ollama-isolate-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        SecureCredentialStore.shared.saveOllamaCookie("ollama-only", service: testService)
+        SecureCredentialStore.shared.saveWorkspaceID("ws-other", service: testService)
+
+        SecureCredentialStore.shared.deleteOllamaCookie(service: testService)
+
+        XCTAssertNil(SecureCredentialStore.shared.getOllamaCookie(service: testService))
+        XCTAssertEqual(SecureCredentialStore.shared.getWorkspaceID(service: testService), "ws-other",
+                       "Deleting the Ollama cookie should not affect the workspace ID entry")
+    }
+
+    func testOllamaCookieIsolationBetweenServices() throws {
+        let serviceA = "com.test.ollama-iso-a-\(UUID().uuidString)"
+        let serviceB = "com.test.ollama-iso-b-\(UUID().uuidString)"
+        defer {
+            for svc in [serviceA, serviceB] {
+                let query: [String: Any] = [
+                    kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrService as String: svc
+                ]
+                SecItemDelete(query as CFDictionary)
+            }
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: serviceA)
+
+        SecureCredentialStore.shared.saveOllamaCookie("value-a", service: serviceA)
+        SecureCredentialStore.shared.saveOllamaCookie("value-b", service: serviceB)
+
+        XCTAssertEqual(SecureCredentialStore.shared.getOllamaCookie(service: serviceA), "value-a")
+        XCTAssertEqual(SecureCredentialStore.shared.getOllamaCookie(service: serviceB), "value-b")
+
+        SecureCredentialStore.shared.deleteOllamaCookie(service: serviceA)
+        XCTAssertNil(SecureCredentialStore.shared.getOllamaCookie(service: serviceA))
+        XCTAssertEqual(SecureCredentialStore.shared.getOllamaCookie(service: serviceB), "value-b",
+                       "Deleting service A should not affect service B")
+    }
+
+    // MARK: - AuthTokenProvider: Keychain-backed (no old-file fallback)
+
+    func testAuthTokenProviderReadsOllamaCookieFromKeychain() throws {
+        let testService = "com.test.ollama-provider-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        SecureCredentialStore.shared.saveOllamaCookie("auth=secret-ollama-token", service: testService)
+
+        let result = AuthTokenProvider.readOllamaCookie(service: testService)
+        XCTAssertEqual(result, "auth=secret-ollama-token", "Should keep the full name=value Cookie header fragment")
+    }
+
+    func testAuthTokenProviderReturnsNilWhenKeychainEmpty() throws {
+        let testService = "com.test.ollama-empty-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        XCTAssertNil(AuthTokenProvider.readOllamaCookie(service: testService),
+                     "Should return nil when no Ollama cookie is stored in Keychain")
+    }
+
+    func testAuthTokenProviderReadsRawCookieValue() throws {
+        let testService = "com.test.ollama-raw-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        SecureCredentialStore.shared.saveOllamaCookie("raw-cookie-value-42", service: testService)
+
+        let result = AuthTokenProvider.readOllamaCookie(service: testService)
+        XCTAssertEqual(result, "auth=raw-cookie-value-42",
+                       "A legacy raw cookie value should be normalized to an auth= fragment")
+    }
+
+    // MARK: - Cookie header parsing
+
+    func testAuthTokenProviderParsesCookieHeaderPrefix() throws {
+        let testService = "com.test.ollama-header-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        SecureCredentialStore.shared.saveOllamaCookie("Cookie: auth=header-value-123", service: testService)
+
+        let result = AuthTokenProvider.readOllamaCookie(service: testService)
+        XCTAssertEqual(result, "auth=header-value-123",
+                       "Should strip 'Cookie: ' prefix and keep the first name=value fragment")
+    }
+
+    func testAuthTokenProviderParsesCookieHeaderWithPath() throws {
+        let testService = "com.test.ollama-path-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        SecureCredentialStore.shared.saveOllamaCookie("auth=val123; path=/; domain=ollama.com", service: testService)
+
+        let result = AuthTokenProvider.readOllamaCookie(service: testService)
+        XCTAssertEqual(result, "auth=val123", "Should keep auth name and stop at the first semicolon")
+    }
+
+    func testAuthTokenProviderReturnsFullCookieHeaderWhenNoAuthParam() throws {
+        let testService = "com.test.ollama-noauth-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        SecureCredentialStore.shared.saveOllamaCookie("session=xyz789", service: testService)
+
+        let result = AuthTokenProvider.readOllamaCookie(service: testService)
+        XCTAssertEqual(result, "session=xyz789",
+                       "A cookie without 'auth=' should be returned as-is")
+    }
+
+    func testAuthTokenProviderPreservesMultipleCookiePairs() throws {
+        let testService = "com.test.ollama-multi-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        SecureCredentialStore.shared.saveOllamaCookie("auth=xxx; session=yyy", service: testService)
+
+        let result = AuthTokenProvider.readOllamaCookie(service: testService)
+        XCTAssertEqual(result, "auth=xxx; session=yyy",
+                       "Multiple name=value pairs in a Cookie header should be preserved")
+    }
+
+    func testAuthTokenProviderStripsSetCookieAttributes() throws {
+        let testService = "com.test.ollama-attrs-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        SecureCredentialStore.shared.saveOllamaCookie("auth=val123; path=/; domain=ollama.com; expires=Wed, 01 Jan 2027 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax", service: testService)
+
+        let result = AuthTokenProvider.readOllamaCookie(service: testService)
+        XCTAssertEqual(result, "auth=val123",
+                       "Set-Cookie attributes (path, domain, expires, Secure, HttpOnly, SameSite) should be stripped, leaving only name=value pairs")
+    }
+
+    func testAuthTokenProviderPreservesMultiplePairsAndStripsAttributes() throws {
+        let testService = "com.test.ollama-mixed-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        SecureCredentialStore.shared.saveOllamaCookie("auth=abc; session=def; path=/; max-age=3600", service: testService)
+
+        let result = AuthTokenProvider.readOllamaCookie(service: testService)
+        XCTAssertEqual(result, "auth=abc; session=def",
+                       "Should preserve multiple cookie pairs while stripping Set-Cookie attributes")
+    }
+
+    func testSaveOllamaCookieReturnsTrueOnSuccess() throws {
+        let testService = "com.test.ollama-savebool-\(UUID().uuidString)"
+        defer {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: testService
+            ]
+            SecItemDelete(query as CFDictionary)
+        }
+
+        try skipIfIsolatedOllamaKeychainUnavailable(service: testService)
+
+        let saved = SecureCredentialStore.shared.saveOllamaCookie("test-cookie-value", service: testService)
+        XCTAssertTrue(saved, "saveOllamaCookie should return true on successful Keychain write")
+    }
+
+    // MARK: - BrowserCookieExtractor SQLite (ollama.com)
+
+    func testFindOllamaPlaintextCookieValue() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ollama_cookie_test_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("Cookies")
+        var db: OpaquePointer?
+        guard sqlite3_open(dbURL.path, &db) == SQLITE_OK, let db else { XCTFail("cannot open db"); return }
+        sqlite3_exec(db, "CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, last_access_utc INTEGER)", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO cookies VALUES ('ollama.com', 'auth', 'plaintext-auth-val', X'', 100)", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO cookies VALUES ('www.ollama.com', 'session', 'plaintext-session-val', X'', 99)", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO cookies VALUES ('example.com', 'auth', 'noise', X'', 98)", nil, nil, nil)
+        sqlite3_close(db)
+
+        let result = BrowserCookieExtractor.findOllamaPlaintextCookieValue(dbURL: dbURL)
+        XCTAssertEqual(result, "auth=plaintext-auth-val",
+                       "Should find the first ollama.com plaintext cookie with non-empty value")
+    }
+
+    func testFindOllamaPlaintextCookieValueNoMatch() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ollama_cookie_nomatch_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("Cookies")
+        var db: OpaquePointer?
+        guard sqlite3_open(dbURL.path, &db) == SQLITE_OK, let db else { XCTFail("cannot open db"); return }
+        sqlite3_exec(db, "CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, last_access_utc INTEGER)", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO cookies VALUES ('example.com', 'auth', 'some-val', X'', 100)", nil, nil, nil)
+        sqlite3_close(db)
+
+        let result = BrowserCookieExtractor.findOllamaPlaintextCookieValue(dbURL: dbURL)
+        XCTAssertNil(result, "Should return nil when no ollama.com cookies exist")
+    }
+
+    func testFindOllamaPlaintextCookieValueSkipsEmptyValues() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ollama_cookie_empty_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("Cookies")
+        var db: OpaquePointer?
+        guard sqlite3_open(dbURL.path, &db) == SQLITE_OK, let db else { XCTFail("cannot open db"); return }
+        sqlite3_exec(db, "CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, last_access_utc INTEGER)", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO cookies VALUES ('ollama.com', 'auth', '', X'', 100)", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO cookies VALUES ('ollama.com', 'session', 'real-val', X'', 99)", nil, nil, nil)
+        sqlite3_close(db)
+
+        let result = BrowserCookieExtractor.findOllamaPlaintextCookieValue(dbURL: dbURL)
+        XCTAssertEqual(result, "session=real-val",
+                       "Should skip empty values and find the next non-empty cookie")
+    }
+
+    // MARK: - Keychain availability helper
+
+    private func skipIfIsolatedOllamaKeychainUnavailable(service: String) throws {
+        SecureCredentialStore.shared.saveOllamaCookie("probe-ollama", service: service)
+        defer { SecureCredentialStore.shared.deleteOllamaCookie(service: service) }
+
+        guard SecureCredentialStore.shared.getOllamaCookie(service: service) == "probe-ollama" else {
+            throw XCTSkip("Ollama Keychain round-trip is unavailable in this test environment")
+        }
+    }
+
+    // MARK: - Ollama Session/Weekly window parsing
+
+    func testOllamaHTMLParsesSessionAndWeeklyUsage() {
+        let html = """
+        <div class="usage-section">
+            <div data-usage-track aria-label="Session usage 42%"></div>
+            <div data-usage-track aria-label="Weekly usage 65%"></div>
+        </div>
+        <span data-time="2026-07-02T12:00:00Z">Resets in 3h</span>
+        <span data-time="2026-07-09T00:00:00Z">Resets in 7d</span>
+        """
+        let snapshot = Self.parseOllamaHTML(html)
+        XCTAssertTrue(snapshot.isAvailable)
+        XCTAssertEqual(snapshot.primaryWindowUsagePercent ?? -1, 0.42, accuracy: 0.001)
+        XCTAssertEqual(snapshot.secondaryWindowUsagePercent ?? -1, 0.65, accuracy: 0.001)
+        XCTAssertEqual(snapshot.usagePercent ?? -1, 0.65, accuracy: 0.001)
+    }
+
+    func testOllamaHTMLParsesResetTimestamps() {
+        let html = """
+        <div aria-label="Session usage 10%"></div>
+        <div aria-label="Weekly usage 20%"></div>
+        <span data-time="2026-07-02T12:00:00Z">Resets in 3h</span>
+        <span data-time="2026-07-09T00:00:00Z">Resets in 7d</span>
+        """
+        let snapshot = Self.parseOllamaHTML(html)
+        let cal = Calendar(identifier: .gregorian)
+        guard let reset = snapshot.primaryWindowResetAt else {
+            XCTFail("primaryWindowResetAt should not be nil")
+            return
+        }
+        XCTAssertEqual(cal.component(.year, from: reset), 2026)
+        XCTAssertEqual(cal.component(.month, from: reset), 7)
+        XCTAssertEqual(cal.component(.day, from: reset), 2)
+        XCTAssertNotNil(snapshot.secondaryWindowResetAt)
+    }
+
+    func testOllamaHTMLSessionOnlyWithoutWeekly() {
+        let html = """
+        <div aria-label="Session usage 30%"></div>
+        <span data-time="2026-07-02T12:00:00Z">Resets in 3h</span>
+        """
+        let snapshot = Self.parseOllamaHTML(html)
+        XCTAssertTrue(snapshot.isAvailable)
+        XCTAssertEqual(snapshot.primaryWindowUsagePercent ?? -1, 0.30, accuracy: 0.001)
+        XCTAssertNil(snapshot.secondaryWindowUsagePercent)
+        XCTAssertEqual(snapshot.usagePercent ?? -1, 0.30, accuracy: 0.001)
+        XCTAssertNotNil(snapshot.primaryWindowResetAt)
+        XCTAssertNil(snapshot.secondaryWindowResetAt)
+    }
+
+    func testOllamaHTMLLegacyFallbackDataUsageTrack() {
+        let html = #"<div data-usage-track aria-label="55%">usage</div>"#
+        let snapshot = Self.parseOllamaHTML(html)
+        XCTAssertTrue(snapshot.isAvailable)
+        XCTAssertEqual(snapshot.usagePercent ?? -1, 0.55, accuracy: 0.001)
+        XCTAssertNil(snapshot.primaryWindowUsagePercent)
+        XCTAssertNil(snapshot.secondaryWindowUsagePercent)
+    }
+
+    func testOllamaHTMLLegacyFallbackUsageMeterFill() {
+        let html = #"<div class="usage-meter__fill" style="width: 75%"></div>"#
+        let snapshot = Self.parseOllamaHTML(html)
+        XCTAssertTrue(snapshot.isAvailable)
+        XCTAssertEqual(snapshot.usagePercent ?? -1, 0.75, accuracy: 0.001)
+    }
+
+    func testOllamaHTMLNoUsageDataReturnsUnavailable() {
+        let html = "<html><body><h1>Welcome to Ollama</h1></body></html>"
+        let snapshot = Self.parseOllamaHTML(html)
+        XCTAssertFalse(snapshot.isAvailable)
+        XCTAssertNotNil(snapshot.errorMessage)
+    }
+
+    func testOllamaHTMLQuotaWindowsContainSessionAndWeekly() {
+        let html = """
+        <div aria-label="Session usage 40%"></div>
+        <div aria-label="Weekly usage 55%"></div>
+        <span data-time="2026-07-02T12:00:00Z"></span>
+        <span data-time="2026-07-09T00:00:00Z"></span>
+        """
+        let snapshot = Self.parseOllamaHTML(html)
+        guard let windows = snapshot.quotaWindows else {
+            XCTFail("quotaWindows should not be nil")
+            return
+        }
+        XCTAssertEqual(windows.count, 2)
+        XCTAssertEqual(windows[0].usedRatio ?? -1, 0.40, accuracy: 0.001)
+        XCTAssertEqual(windows[1].usedRatio ?? -1, 0.55, accuracy: 0.001)
+        XCTAssertNotNil(windows[0].resetAt)
+        XCTAssertNotNil(windows[1].resetAt)
+        XCTAssertEqual(windows[0].windowSeconds, 18_000)
+        XCTAssertEqual(windows[1].windowSeconds, 604_800)
+    }
+
+    private static func parseOllamaHTML(_ html: String) -> BalanceSnapshot {
+        let checker = OllamaBalanceChecker()
+        return checker.parseUsageForTesting(from: html)
     }
 }
