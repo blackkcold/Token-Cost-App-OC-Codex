@@ -8,8 +8,6 @@ struct SettingsView: View {
     @ObservedObject var balanceManager: BalanceManager
     @Environment(\.dismiss) private var dismiss
 
-    @State private var isPricingDocPresented = false
-    @State private var isDeveloperDocPresented = false
     @State private var selectedSection: SettingsSection = .overview
 
     @State private var scanRootsPageIndex = 0
@@ -87,12 +85,6 @@ struct SettingsView: View {
                 ollamaCookieInput = savedOllamaCookie
                 ollamaCookieSaved = true
             }
-        }
-        .sheet(isPresented: $isPricingDocPresented) {
-            PricingDocView(palette: palette)
-        }
-        .sheet(isPresented: $isDeveloperDocPresented) {
-            DeveloperModeDocView(palette: palette)
         }
         .onChange(of: isTestingGoConnection) { _, newValue in
             guard newValue else { return }
@@ -337,8 +329,7 @@ struct SettingsView: View {
         case .billing:
             BillingSectionView(
                 appPreferencesModel: appPreferencesModel,
-                palette: palette,
-                isPricingDocPresented: $isPricingDocPresented
+                palette: palette
             )
         case .balance:
             BalanceSectionView(
@@ -389,8 +380,7 @@ struct SettingsView: View {
         case .developer:
             DeveloperSectionView(
                 appPreferencesModel: appPreferencesModel,
-                palette: palette,
-                isDeveloperDocPresented: $isDeveloperDocPresented
+                palette: palette
             )
         case .backup:
             BackupSectionView(

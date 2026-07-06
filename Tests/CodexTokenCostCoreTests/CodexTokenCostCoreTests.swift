@@ -773,6 +773,83 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(rate?.confidence ?? 0, 0.4, accuracy: 0.001)
     }
 
+    func testConsumptionRateNilForShortHighConsumptionWindow() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let windowStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetAt = windowStart.addingTimeInterval(3_600)
+        let snapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(10),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5小时", usedRatio: 0.50, remainingRatio: 0.50, resetAt: resetAt, windowSeconds: 3_600)
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [snapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+
+        XCTAssertNil(rate)
+    }
+
+    func testConsumptionRateCapsFallbackAtMaxPerHour() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let windowStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetAt = windowStart.addingTimeInterval(3_600)
+        let snapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(300),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5小时", usedRatio: 0.50, remainingRatio: 0.50, resetAt: resetAt, windowSeconds: 3_600)
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [snapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+
+        XCTAssertNotNil(rate)
+        XCTAssertEqual(rate?.perHour ?? 0, 200, accuracy: 0.001)
+        XCTAssertEqual(rate?.perDay ?? 0, 4_800, accuracy: 0.001)
+    }
+
+    func testConsumptionRateCapsRegressionAtMaxPerHour() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let windowStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let resetAt = windowStart.addingTimeInterval(3_600)
+        let firstSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(600),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5小时", usedRatio: 0.10, remainingRatio: 0.90, resetAt: resetAt, windowSeconds: 3_600)
+            ]
+        )
+        ConsumptionRateCalculator.store([firstSnapshot])
+
+        let secondSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: windowStart.addingTimeInterval(1_200),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5小时", usedRatio: 0.90, remainingRatio: 0.10, resetAt: resetAt, windowSeconds: 3_600)
+            ]
+        )
+
+        let computed = ConsumptionRateCalculator.compute(current: [secondSnapshot])
+        let rate = computed.first?.quotaWindows?.first?.consumptionRate
+
+        XCTAssertNotNil(rate)
+        XCTAssertEqual(rate?.perHour ?? 0, 200, accuracy: 0.001)
+        XCTAssertEqual(rate?.perDay ?? 0, 4_800, accuracy: 0.001)
+    }
+
     func testBalanceModelsDecodeOldFormat() throws {
         let oldJSON = """
         {"provider":"opencode_go","fetchedAt":1700000000,"isAvailable":true}

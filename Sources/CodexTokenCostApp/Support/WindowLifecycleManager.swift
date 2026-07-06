@@ -10,7 +10,7 @@ final class WindowLifecycleManager {
 
     private var mainWindowOpen = false
     private var settingsWindowOpen = false
-    private var observationToken: ObservationTokenBox?
+    private var observationTokens: [ObservationTokenBox] = []
 
     init(
         setPolicy: @escaping @MainActor @Sendable (NSApplication.ActivationPolicy) -> Void,
@@ -25,7 +25,7 @@ final class WindowLifecycleManager {
     }
 
     deinit {
-        if let token = observationToken {
+        for token in observationTokens {
             NotificationCenter.default.removeObserver(token.rawValue)
         }
     }
@@ -37,7 +37,7 @@ final class WindowLifecycleManager {
     func windowDidOpen(identifier: String) {
         if identifier == "main" {
             mainWindowOpen = true
-        } else if isSettingsWindow(identifier: identifier) {
+        } else if isTrackedSupplementaryWindow(identifier: identifier) {
             settingsWindowOpen = true
         }
         if shouldShowDockIcon {
@@ -48,7 +48,7 @@ final class WindowLifecycleManager {
     func windowWillClose(identifier: String) {
         if identifier == "main" {
             mainWindowOpen = false
-        } else if isSettingsWindow(identifier: identifier) {
+        } else if isTrackedSupplementaryWindow(identifier: identifier) {
             settingsWindowOpen = false
         }
         if !shouldShowDockIcon {
@@ -68,11 +68,29 @@ final class WindowLifecycleManager {
         applyPolicyWithRetry(.accessory)
     }
 
-    func startObservingWindowClose(
-        onWillClose: @escaping @MainActor @Sendable (NSWindow) -> Void
+    func syncDockPolicy() {
+        if hasVisibleUserWindow() {
+            showInDock()
+        } else {
+            hideFromDock()
+        }
+    }
+
+    func syncDockPolicyAfterWindowClose() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            self.syncDockPolicy()
+        }
+    }
+
+    func startObservingWindows(
+        onWillClose: @escaping @MainActor @Sendable (NSWindow) -> Void,
+        onDidBecomeKey: @escaping @MainActor @Sendable (NSWindow) -> Void
     ) {
         stopObserving()
-        observationToken = ObservationTokenBox(
+        observationTokens = [
+            ObservationTokenBox(
             NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: nil,
@@ -83,18 +101,46 @@ final class WindowLifecycleManager {
                 onWillClose(window)
             }
         }
-        )
+        ),
+            ObservationTokenBox(
+                NotificationCenter.default.addObserver(
+                    forName: NSWindow.didBecomeKeyNotification,
+                    object: nil,
+                    queue: .main
+                ) { notification in
+                    guard let window = notification.object as? NSWindow else { return }
+                    Task { @MainActor in
+                        onDidBecomeKey(window)
+                    }
+                }
+            )
+        ]
+    }
+
+    func startObservingWindowClose(
+        onWillClose: @escaping @MainActor @Sendable (NSWindow) -> Void
+    ) {
+        startObservingWindows(onWillClose: onWillClose, onDidBecomeKey: { _ in })
     }
 
     func stopObserving() {
-        if let token = observationToken {
+        for token in observationTokens {
             NotificationCenter.default.removeObserver(token.rawValue)
-            observationToken = nil
         }
+        observationTokens = []
     }
 
-    private func isSettingsWindow(identifier: String) -> Bool {
-        identifier.contains("Settings") || identifier.contains("settings")
+    private func isTrackedSupplementaryWindow(identifier: String) -> Bool {
+        identifier.contains("Settings")
+            || identifier.contains("settings")
+            || identifier.contains("pricing-doc")
+            || identifier.contains("dev-doc")
+    }
+
+    private func hasVisibleUserWindow() -> Bool {
+        NSApp.windows.contains { window in
+            window.isVisible && !window.isMiniaturized && window.canBecomeKey
+        }
     }
 
     private func applyPolicyWithRetry(_ target: NSApplication.ActivationPolicy) {

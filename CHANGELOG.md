@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> 当前下一版目标为 `v0.9.8`，以下为相对 `v0.9.7` 的累计变更。
+> 当前下一版目标为 `v0.9.9`。
+
+## [v0.9.8] - 2026-07-06
+
+> 相对 `v0.9.7` 的累计变更。
+
+### Added
+
+- **菜单栏余额显示模式设置入口**：余额监控设置新增「菜单栏余额显示模式」分段控件，可在已使用 / 剩余额度口径间切换；该设置仅影响菜单栏余额卡片颜色和百分比，不改变总览页与设置页原始已用百分比显示（`BalanceSectionView.swift`、`MenuBarView.swift`、`Localizable.strings`）。
+- **应用生命周期级余额刷新调度器**：新增 `BalanceRefreshScheduler`，在主窗口关闭后仍按既有 `balanceEnabled`、刷新间隔、`BalanceManager` backoff 与 `isRefreshing` 守卫刷新余额（`BalanceRefreshScheduler.swift`、`TokenCostApp.swift`）。
+
+### Changed
+
+- **计费与开发者文档改为独立窗口**：`PricingDocView` 与 `DeveloperModeDocView` 从设置页 sheet 改为 `Window` scene，可独立移动并与设置窗口并行使用（`TokenCostApp.swift`、`SettingsView.swift`、`BillingSectionView.swift`、`DeveloperSectionView.swift`）。
+- **窗口生命周期策略改为实际窗口同步**：窗口关闭后基于 `NSApp.windows` 的可见用户窗口同步 Dock 图标策略，并追踪窗口成为 key 的事件以覆盖运行时打开的 settings/doc 窗口（`WindowLifecycleManager.swift`、`AppDelegate.swift`）。
+
+### Fixed
+
+- **主窗口重复创建风险**：`Cmd+1` 与菜单栏「打开主窗口」统一使用 `showOrRevealMainWindow`，优先前置已有主窗口，仅在不存在时对 `WindowGroup(id: "main")` 调用 `openWindow`；同时移除 `Notification.Name.openMainWindow` 中转链路（`WindowOpeningSupport.swift`、`TokenCostCommands.swift`、`MenuBarView.swift`、`TokenCostApp.swift`、`AppDelegate.swift`）。
+- **设置窗口 API 语义不一致**：`ContentView` 与菜单栏设置入口从 `openSettings()` 改为 `openWindow(id: "settings")`，匹配项目实际使用的 `Window("Settings", id: "settings")` scene（`ContentView.swift`、`MenuBarView.swift`）。
+- **短时间窗口消费速率异常放大**：`ConsumptionRateCalculator` 对线性回归与 fallback 路径均要求至少 300 秒有效跨度，并将速率上限限制为 200%/h，避免短窗口显示数千百分比每小时；新增 3 个边界测试（`ConsumptionRateCalculator.swift`、`CodexTokenCostCoreTests.swift`）。
 
 ## [v0.9.7] - 2026-07-03
 
@@ -419,6 +439,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
 [v0.9.7]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.6...v0.9.7
+[v0.9.8]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.7...v0.9.8
 [v0.9.6]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.2...v0.9.6
 [v0.9.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.1...v0.9.2
 [v0.9.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.0...v0.9.1

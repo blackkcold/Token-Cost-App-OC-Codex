@@ -59,6 +59,23 @@ struct BalanceSectionView: View {
                             .frame(maxWidth: 160)
                         }
                     }
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        SettingsInlineControlRow(
+                            title: "settings.balance.menuBarDisplayMode".localized,
+                            palette: palette
+                        ) {
+                            Picker("", selection: appPreferencesModel.balanceDisplayModeBinding) {
+                                Text("settings.balance.displayMode.used".localized)
+                                    .tag(BalanceDisplayMode.used)
+                                Text("settings.balance.displayMode.remaining".localized)
+                                    .tag(BalanceDisplayMode.remaining)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 160)
+                        }
+                    }
                 }
 
                 if appPreferencesModel.preferences.balanceEnabled {

@@ -1,8 +1,8 @@
+import AppKit
 import SwiftUI
 import CodexTokenCostCore
 
 struct DeveloperModeDocView: View {
-    @Environment(\.dismiss) private var dismiss
     let palette: TokenCostPalette
 
     var body: some View {
@@ -23,12 +23,15 @@ struct DeveloperModeDocView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(AppLocalization.text("settings.action.close")) {
-                        dismiss()
+                        NSApp.keyWindow?.close()
                     }
                 }
             }
         }
-        .modifier(AdaptiveSheetSizing())
+        .frame(minWidth: 680, minHeight: 520)
+        .onAppear {
+            NSApp.setActivationPolicy(.regular)
+        }
     }
 
     // MARK: - Overview

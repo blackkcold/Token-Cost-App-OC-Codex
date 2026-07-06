@@ -4,7 +4,7 @@ import CodexTokenCostCore
 struct BillingSectionView: View {
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     let palette: TokenCostPalette
-    @Binding var isPricingDocPresented: Bool
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         SettingsSurfaceCard(
@@ -21,7 +21,7 @@ struct BillingSectionView: View {
                 Divider().opacity(0.3)
 
                 Button {
-                    isPricingDocPresented = true
+                    WindowOpeningSupport.openSingletonWindow(id: "pricing-doc", openWindow: openWindow)
                 } label: {
                     Label(
                         AppLocalization.text("settings.billing.viewPricingDoc"),

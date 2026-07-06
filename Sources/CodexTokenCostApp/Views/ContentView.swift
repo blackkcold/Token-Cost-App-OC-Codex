@@ -17,7 +17,7 @@ struct ContentView: View {
     @ObservedObject var balanceManager: BalanceManager
     @ObservedObject var updateChecker: UpdateCheckerModel
     @ObservedObject var skillsModel: OpenCodeSkillsModel
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedPage: CodexDashboardPage = .total
     @State private var didOpenCodexSourcePrompt = false
@@ -94,11 +94,6 @@ struct ContentView: View {
                     guard shouldPrompt else { return }
                     openCodexSourcePromptIfNeeded()
                 }
-                .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
-                    guard appPreferencesModel.preferences.balanceEnabled else { return }
-                    guard balanceManager.shouldRefresh(intervalSeconds: appPreferencesModel.preferences.balanceRefreshSeconds) else { return }
-                    Task { await balanceManager.refresh() }
-                }
             }
         }
         .toolbar {
@@ -121,6 +116,10 @@ struct ContentView: View {
                 appPreferencesModel.persistPreferences()
                 openCodeModel.persistSettings()
                 codexModel.persistSettings()
+            } else if newPhase == .active,
+                      appPreferencesModel.preferences.balanceEnabled,
+                      balanceManager.shouldRefresh(intervalSeconds: appPreferencesModel.preferences.balanceRefreshSeconds) {
+                Task { await balanceManager.refresh() }
             }
         }
     }
@@ -267,6 +266,6 @@ struct ContentView: View {
             return
         }
         didOpenCodexSourcePrompt = true
-        openSettings()
+        WindowOpeningSupport.openSingletonWindow(id: "settings", openWindow: openWindow)
     }
 }

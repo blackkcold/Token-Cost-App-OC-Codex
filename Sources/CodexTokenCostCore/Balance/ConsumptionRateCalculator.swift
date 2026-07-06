@@ -5,6 +5,8 @@ enum ConsumptionRateCalculator {
     private static let historyKey = "com.token-cost-app.balance-history"
     private static let maxSamplesPerWindow = 200
     private static let minSampleInterval: TimeInterval = 600
+    private static let minEffectiveSpanSeconds: TimeInterval = 300
+    private static let maxPerHour = 200.0
 
     private struct History: Codable {
         var samplesByKey: [String: [WindowSample]] = [:]
@@ -149,20 +151,24 @@ enum ConsumptionRateCalculator {
             guard let windowSec = window.windowSeconds, windowSec > 0 else { return nil }
             let windowStart = resetAt.addingTimeInterval(-Double(windowSec))
             let elapsed = now.timeIntervalSince(windowStart)
-            guard elapsed > 0 else { return nil }
+            guard elapsed >= minEffectiveSpanSeconds else { return nil }
             let elapsedHours = elapsed / 3600
-            let elapsedDays = elapsed / 86400
             guard elapsedHours > 0 else { return nil }
+            let rawPerHour = (usedRatio * 100) / elapsedHours
+            let perHour = min(rawPerHour, maxPerHour)
             let fallback = ConsumptionRate(
-                perHour: (usedRatio * 100) / elapsedHours,
-                perDay: (usedRatio * 100) / max(elapsedDays, 0.01),
+                perHour: perHour,
+                perDay: perHour * 24,
                 confidence: min(1.0 / 5.0, 0.2)
             )
             BalanceLog.calculator.notice("Fallback rate for window: perHour=\(fallback.perHour, privacy: .public) (single sample)")
             return fallback
         }
 
-        let baseX = pairs.first?.x ?? 0
+        guard let firstX = pairs.first?.x, let lastX = pairs.last?.x,
+              lastX - firstX >= minEffectiveSpanSeconds else { return nil }
+
+        let baseX = firstX
         pairs = pairs.map { (x: $0.x - baseX, y: $0.y) }
 
         let n = Double(pairs.count)
@@ -176,8 +182,9 @@ enum ConsumptionRateCalculator {
 
         let slopePerSecond = (n * sumXY - sumX * sumY) / denominator
 
-        let perHour = max(0, slopePerSecond * 3600)
-        let perDay = max(0, slopePerSecond * 86400)
+        let rawPerHour = max(0, slopePerSecond * 3600)
+        let perHour = min(rawPerHour, maxPerHour)
+        let perDay = perHour * 24
         let confidence = min(Double(pairs.count) / 5.0, 1.0)
 
         BalanceLog.calculator.debug("Linear regression: \(pairs.count, privacy: .public) points, slope/s=\(slopePerSecond, privacy: .public)")
