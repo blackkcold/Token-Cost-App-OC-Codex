@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import CodexTokenCostCore
 
@@ -18,14 +19,14 @@ struct CodexTokenCostCommands: Commands {
             Divider()
 
             Button(AppLocalization.text("menu.openMainWindow")) {
-                openWindow(id: "main")
+                WindowOpeningSupport.showOrRevealMainWindow(openWindow: openWindow)
             }
             .keyboardShortcut("1", modifiers: [.command])
         }
 
         CommandGroup(replacing: .appSettings) {
             Button(AppLocalization.text("menu.openSettings")) {
-                openWindow(id: "settings")
+                WindowOpeningSupport.openSingletonWindow(id: "settings", openWindow: openWindow)
             }
             .keyboardShortcut(",", modifiers: [.command])
         }

@@ -9,7 +9,7 @@ struct MenuBarView: View {
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     @ObservedObject var balanceManager: BalanceManager
     let palette: TokenCostPalette
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let cost = combinedCost
@@ -55,8 +55,7 @@ struct MenuBarView: View {
             .disabled(openCodeModel.isBootstrapping || openCodeModel.isRefreshing || codexModel.isBootstrapping || codexModel.isRefreshing)
 
             Button {
-                NSApp.setActivationPolicy(.regular)
-                openSettings()
+                WindowOpeningSupport.openSingletonWindow(id: "settings", openWindow: openWindow)
             } label: {
                 Label(AppLocalization.text("menu.openSettings"), systemImage: "gearshape")
             }
@@ -255,15 +254,7 @@ struct MenuBarView: View {
     }
 
     private func activateMainWindow() {
-        NSApp.setActivationPolicy(.regular)
-        DispatchQueue.main.async {
-            NSApp.activate(ignoringOtherApps: true)
-            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) {
-                window.makeKeyAndOrderFront(nil)
-            } else {
-                NotificationCenter.default.post(name: .openMainWindow, object: nil)
-            }
-        }
+        WindowOpeningSupport.showOrRevealMainWindow(openWindow: openWindow)
     }
 
     // MARK: - Balance Summary
@@ -286,7 +277,7 @@ struct MenuBarView: View {
 
     private var balanceSummary: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("实时余额")
+            Text(AppLocalization.text("balance.title"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(palette.subtitle)
 
@@ -357,7 +348,7 @@ struct MenuBarView: View {
                                 .foregroundStyle(palette.title)
                                 .lineLimit(1)
                             if let granted = entry.grantedAmount {
-                                Text("(赠\(String(format: "%.0f", granted)))")
+                                Text(AppLocalization.format("balance.value.grantedShort", String(format: "%.0f", granted)))
                                     .font(.system(size: 8))
                                     .foregroundStyle(palette.subtitle)
                                     .lineLimit(1)
@@ -373,11 +364,11 @@ struct MenuBarView: View {
                         cardBar(label: snapshot.tertiaryWindowLabel, pct: displayRatio(for: pct))
                     }
                 } else if let cost = snapshot.totalCostUSD {
-                    Text("$\(String(format: "%.2f", cost)) 累计")
+                    Text(AppLocalization.format("balance.cost.total", String(format: "%.2f", cost)))
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(palette.title)
                     if let avg = snapshot.avgCostPerDayUSD {
-                        Text("日均 $\(String(format: "%.2f", avg))")
+                        Text(AppLocalization.format("balance.cost.dailyAverage", String(format: "%.2f", avg)))
                             .font(.system(size: 8))
                             .foregroundStyle(palette.subtitle)
                     }
@@ -385,7 +376,7 @@ struct MenuBarView: View {
                     cardBar(label: nil, pct: displayRatio(for: pct))
                 }
             } else {
-                Text(snapshot.errorMessage ?? "不可用")
+                Text(snapshot.errorMessage ?? AppLocalization.text("common.unavailable"))
                     .font(.system(size: 9))
                     .foregroundStyle(palette.subtitle)
                     .lineLimit(2)
@@ -417,7 +408,7 @@ struct MenuBarView: View {
         let countdownText: String? = {
             guard isShortWindow, let resetAt else { return nil }
             let remaining = max(0, resetAt.timeIntervalSinceNow)
-            if remaining <= 0 { return "即将" }
+            if remaining <= 0 { return AppLocalization.text("balance.rate.countdownSoon") }
             if remaining < 60 { return "<1m" }
             let hours = Int(remaining) / 3600
             let minutes = (Int(remaining) % 3600) / 60
@@ -428,7 +419,7 @@ struct MenuBarView: View {
             guard isShortWindow,
                   let consumptionRate,
                   consumptionRate.confidence > 0 else { return nil }
-            return String(format: "~%.1f%%/h", consumptionRate.perHour)
+            return AppLocalization.format("balance.rate.perHour", consumptionRate.perHour)
         }()
         let showPending = isShortWindow && (consumptionRate == nil || consumptionRate?.confidence == 0)
 
@@ -452,7 +443,7 @@ struct MenuBarView: View {
                 }
             }
             .frame(height: 4)
-            Text(pct >= 0.995 ? "满" : "\(Int(pct * 100))")
+            Text(pct >= 0.995 ? AppLocalization.text("balance.rate.fullShort") : "\(Int(pct * 100))")
                 .font(.system(size: 8))
                 .foregroundStyle(palette.subtitle)
                 .frame(width: 16, alignment: .trailing)

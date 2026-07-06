@@ -299,18 +299,16 @@ final class AppPreferencesModel: ObservableObject {
 #endif
         }
     }
-
-
-        var developerModeIsEnabledBinding: Binding<Bool> {
-            Binding(
-                get: { self.preferences.developerMode.isEnabled },
-                set: { newValue in
-                    self.updatePreferences { prefs in
-                        prefs.developerMode.isEnabled = newValue
-                    }
+    var developerModeIsEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.developerMode.isEnabled },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.developerMode.isEnabled = newValue
                 }
-            )
-        }
+            }
+        )
+    }
 
     func developerModeToggleBinding(for keyPath: WritableKeyPath<DeveloperModePreferences, Bool>) -> Binding<Bool> {
         Binding(

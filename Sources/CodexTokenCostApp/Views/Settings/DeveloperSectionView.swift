@@ -4,7 +4,7 @@ import CodexTokenCostCore
 struct DeveloperSectionView: View {
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     let palette: TokenCostPalette
-    @Binding var isDeveloperDocPresented: Bool
+    @Environment(\.openWindow) private var openWindow
 
     @State private var optimizeFindings: [DeveloperFinding] = []
     @State private var hasScanned = false
@@ -262,7 +262,7 @@ struct DeveloperSectionView: View {
         HStack {
             Spacer()
             Button {
-                isDeveloperDocPresented = true
+                WindowOpeningSupport.openSingletonWindow(id: "dev-doc", openWindow: openWindow)
             } label: {
                 Label(AppLocalization.text("settings.developerMode.doc.button"), systemImage: "doc.text")
             }
