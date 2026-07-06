@@ -30,26 +30,35 @@ resolve_release_tag() {
     return
   fi
 
-  if [[ "$MODE" != "release" ]] && [[ -f "$ROOT_DIR/CHANGELOG.md" ]]; then
-    local changelog_tag=""
-    changelog_tag="$(sed -n 's/^## \[\(v[0-9.]*\)\] - Unreleased.*/\1/p' "$ROOT_DIR/CHANGELOG.md" | head -1)"
-    if [[ -n "$changelog_tag" ]]; then
-      printf '%s\n' "$changelog_tag"
+  if [[ "$MODE" != "release" ]]; then
+    # Prefer the nearest already-released git tag (e.g. v0.9.8) over the
+    # CHANGELOG "Unreleased" entry, which tracks the in-development target
+    # version and would otherwise inflate the local build version. Also
+    # preferred over scanning local release directories, which may lag
+    # behind when releases are built via CI and their artifacts were never
+    # synced locally.
+    tag="$(git -C "$ROOT_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+    if [[ -n "$tag" ]]; then
+      printf '%s\n' "$tag"
       return
     fi
-  fi
 
-  if [[ "$MODE" != "release" ]]; then
+    # Fall back to CHANGELOG "Unreleased" only when no git tag exists at all
+    # (e.g. a brand-new repo before the first release). Conforms to Keep a
+    # Changelog convention.
+    if [[ -f "$ROOT_DIR/CHANGELOG.md" ]]; then
+      local changelog_tag=""
+      changelog_tag="$(sed -n 's/^## \[\(v[0-9.]*\)\] - Unreleased.*/\1/p' "$ROOT_DIR/CHANGELOG.md" | head -1)"
+      if [[ -n "$changelog_tag" ]]; then
+        printf '%s\n' "$changelog_tag"
+        return
+      fi
+    fi
+
     local release_tag=""
     release_tag="$(resolve_latest_release_tag)"
     if [[ -n "$release_tag" ]]; then
       printf '%s\n' "$release_tag"
-      return
-    fi
-
-    tag="$(git -C "$ROOT_DIR" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
-    if [[ -n "$tag" ]]; then
-      printf '%s\n' "$tag"
       return
     fi
 
