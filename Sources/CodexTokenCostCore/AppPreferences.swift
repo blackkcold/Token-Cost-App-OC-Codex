@@ -61,6 +61,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var modelCompareEnabled: Bool
     public var balanceSortOrder: BalanceSortOrder
     public var balanceDisplayMode: BalanceDisplayMode
+    public var balanceCustomOrder: [BalanceProviderKind]
+    public var balanceOrderLocked: Bool
 
     public init(
         language: AppDisplayLanguage = .zhHans,
@@ -79,7 +81,9 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         multiCurrencyEnabled: Bool = true,
         modelCompareEnabled: Bool = true,
         balanceSortOrder: BalanceSortOrder = .quotaFirst,
-        balanceDisplayMode: BalanceDisplayMode = .used
+        balanceDisplayMode: BalanceDisplayMode = .used,
+        balanceCustomOrder: [BalanceProviderKind] = [],
+        balanceOrderLocked: Bool = true
     ) {
         self.language = language
         self.billingSelectionsByProvider = billingSelectionsByProvider
@@ -98,6 +102,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.modelCompareEnabled = modelCompareEnabled
         self.balanceSortOrder = balanceSortOrder
         self.balanceDisplayMode = balanceDisplayMode
+        self.balanceCustomOrder = balanceCustomOrder
+        self.balanceOrderLocked = balanceOrderLocked
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -119,6 +125,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case modelCompareEnabled = "model_compare_enabled"
         case balanceSortOrder = "balance_sort_order"
         case balanceDisplayMode = "balance_display_mode"
+        case balanceCustomOrder = "balance_custom_order"
+        case balanceOrderLocked = "balance_order_locked"
     }
 
     private enum DecodingKeys: String, CodingKey {
@@ -140,6 +148,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case modelCompareEnabled
         case balanceSortOrder
         case balanceDisplayMode
+        case balanceCustomOrder
+        case balanceOrderLocked
     }
 
     public init(from decoder: Decoder) throws {
@@ -209,6 +219,12 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.balanceDisplayMode = try container.decodeIfPresent(BalanceDisplayMode.self, forKey: .balanceDisplayMode)
             ?? legacyContainer?.decodeIfPresent(BalanceDisplayMode.self, forKey: .balanceDisplayMode)
             ?? .used
+        self.balanceCustomOrder = try container.decodeIfPresent([BalanceProviderKind].self, forKey: .balanceCustomOrder)
+            ?? legacyContainer?.decodeIfPresent([BalanceProviderKind].self, forKey: .balanceCustomOrder)
+            ?? []
+        self.balanceOrderLocked = try container.decodeIfPresent(Bool.self, forKey: .balanceOrderLocked)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .balanceOrderLocked)
+            ?? true
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -230,6 +246,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(modelCompareEnabled, forKey: .modelCompareEnabled)
         try container.encode(balanceSortOrder, forKey: .balanceSortOrder)
         try container.encode(balanceDisplayMode, forKey: .balanceDisplayMode)
+        try container.encode(balanceCustomOrder, forKey: .balanceCustomOrder)
+        try container.encode(balanceOrderLocked, forKey: .balanceOrderLocked)
     }
 
     /// Returns a copy of preferences with the given balanceConfig applied.
