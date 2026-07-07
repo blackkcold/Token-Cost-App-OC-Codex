@@ -746,3 +746,33 @@
 "balance.error.reimport" = "立即导入";
 "settings.opencodeGo.diagnosis.cookieExpired" = "Auth Cookie 已过期，请重新导入";
 "settings.opencodeGo.diagnosis.workspaceMismatch" = "Workspace ID 与 Cookie 不匹配";
+
+/* Developer Mode Force Update (§2.5) */
+"settings.developerMode.forceUpdate.title" = "强制更新（开发者模式例外）";
+"settings.developerMode.forceUpdate.subtitle" = "绕过版本检查，强制下载 GitHub 最新 release。仅开发者模式下可见。";
+"settings.developerMode.forceUpdate.enableToggle" = "启用强制更新";
+"settings.developerMode.forceUpdate.download" = "下载最新版本";
+"settings.developerMode.forceUpdate.checking" = "正在检查最新 release…";
+"settings.developerMode.forceUpdate.downloading" = "正在下载… %d%%";
+"settings.developerMode.forceUpdate.complete" = "下载完成";
+"settings.developerMode.forceUpdate.openApp" = "打开下载的应用";
+"settings.developerMode.forceUpdate.noRelease" = "未找到 release 信息";
+"settings.developerMode.forceUpdate.noAsset" = "release 中无可用 zip 资源";
+"settings.developerMode.forceUpdate.fetchFailed" = "获取 release 失败，请检查网络";
+
+/* Balance Ordering */
+"settings.balance.order.title" = "余额排序";
+"settings.balance.order.subtitle" = "自定义余额卡片显示顺序。解锁后拖拽排序，锁定后恢复固定顺序。";
+"settings.balance.order.locked" = "锁定顺序";
+"settings.balance.order.reset" = "恢复默认";
+"balance.order.lock" = "锁定顺序";
+
+/* Balance Empty / Unavailable States */
+"balance.empty.title" = "实时余额";
+"balance.empty.subtitle" = "暂未拉取余额数据。请前往设置开启余额监控并点击刷新。";
+"balance.empty.body" = "余额数据将在首次刷新后显示。";
+"balance.unavailable" = "不可用";
+
+/* Update Errors */
+"update.error.noDownloadUrl" = "无可用下载链接";
+"update.error.appNotFound" = "未找到已下载的应用";

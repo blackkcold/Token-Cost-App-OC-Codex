@@ -746,3 +746,33 @@
 "balance.error.reimport" = "Import now";
 "settings.opencodeGo.diagnosis.cookieExpired" = "Auth Cookie expired. Please re-import.";
 "settings.opencodeGo.diagnosis.workspaceMismatch" = "Workspace ID does not match the cookie";
+
+/* Developer Mode Force Update (§2.5) */
+"settings.developerMode.forceUpdate.title" = "Force Update (Developer Mode Exception)";
+"settings.developerMode.forceUpdate.subtitle" = "Bypass version check and force-download the latest GitHub release. Visible only in Developer Mode.";
+"settings.developerMode.forceUpdate.enableToggle" = "Enable force update";
+"settings.developerMode.forceUpdate.download" = "Download Latest";
+"settings.developerMode.forceUpdate.checking" = "Checking latest release…";
+"settings.developerMode.forceUpdate.downloading" = "Downloading… %d%%";
+"settings.developerMode.forceUpdate.complete" = "Download complete";
+"settings.developerMode.forceUpdate.openApp" = "Open Downloaded App";
+"settings.developerMode.forceUpdate.noRelease" = "No release information found";
+"settings.developerMode.forceUpdate.noAsset" = "No downloadable zip asset in release";
+"settings.developerMode.forceUpdate.fetchFailed" = "Failed to fetch release. Check network.";
+
+/* Balance Ordering */
+"settings.balance.order.title" = "Balance Ordering";
+"settings.balance.order.subtitle" = "Customize the display order of balance cards. Unlock to drag-and-drop reorder.";
+"settings.balance.order.locked" = "Lock Order";
+"settings.balance.order.reset" = "Reset to Default";
+"balance.order.lock" = "Lock Order";
+
+/* Balance Empty / Unavailable States */
+"balance.empty.title" = "Live Balance";
+"balance.empty.subtitle" = "No balance data fetched yet. Enable balance monitoring in Settings and refresh.";
+"balance.empty.body" = "Balance data will appear after the first refresh.";
+"balance.unavailable" = "Unavailable";
+
+/* Update Errors */
+"update.error.noDownloadUrl" = "No download URL available";
+"update.error.appNotFound" = "Downloaded app not found";
