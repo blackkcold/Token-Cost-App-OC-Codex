@@ -15,6 +15,13 @@ A native macOS dashboard for visualizing token usage and cost across AI coding t
 
 > **Latest**: [v0.9.9](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.9) — developer mode force update, balance custom ordering, OpenCode detail Ollama balance display, drag-sort crash fixes
 
+### What's New in v0.9.9
+
+- **Force update** — Developer Mode can now download the latest GitHub release on demand.
+- **Balance ordering** — unlock, reorder, and sync custom balance order across views.
+- **Detail view** — show Ollama balances in Developer Mode.
+- **Stability** — fixed the drag-sort crash when the saved order is shorter than the visible provider list.
+
 ### Why Token Cost App?
 
 AI coding tools charge by token — but most developers have no idea what they're actually spending. This app gives you:
@@ -118,6 +125,13 @@ MIT License — see [LICENSE](LICENSE)
 一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
 
 > **最新版本**: [v0.9.9](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.9) — 开发者模式强制更新、余额自定义排序、OpenCode 详情页 Ollama 余额展示、拖拽排序崩溃修复
+
+### v0.9.9 更新
+
+- **强制更新** — 开发者模式可按需下载最新 GitHub release。
+- **余额排序** — 支持解锁、自定义拖拽排序，并在各视图间统一。
+- **详情页** — 开发者模式下可显示 Ollama 余额。
+- **稳定性** — 修复自定义排序短于可见 Provider 列表时的拖拽崩溃。
 
 ### 为什么需要它？
 
