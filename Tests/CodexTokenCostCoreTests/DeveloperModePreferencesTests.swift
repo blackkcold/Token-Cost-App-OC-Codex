@@ -106,4 +106,32 @@ final class DeveloperModePreferencesTests: XCTestCase {
         let prefs = DeveloperModePreferences()
         XCTAssertFalse(prefs.ollamaUsageTrackingEnabled)
     }
+
+    // MARK: - forceUpdateFromGitHub
+
+    func testForceUpdateFromGitHubDefaultsToFalse() {
+        let prefs = DeveloperModePreferences()
+        XCTAssertFalse(prefs.forceUpdateFromGitHub)
+    }
+
+    func testForceUpdateFromGitHubRoundtrip() throws {
+        let prefs = DeveloperModePreferences(
+            isEnabled: true,
+            forceUpdateFromGitHub: true
+        )
+        let data = try JSONEncoder().encode(prefs)
+        let decoded = try JSONDecoder().decode(DeveloperModePreferences.self, from: data)
+        XCTAssertEqual(prefs, decoded)
+        XCTAssertTrue(decoded.forceUpdateFromGitHub)
+    }
+
+    func testOldJSONWithoutForceUpdateFieldDecodesAsFalse() throws {
+        let json = """
+        {"isEnabled":true,"localGovernanceEnabled":false,"aiAnalysisEnabled":false,"ollamaUsageTrackingEnabled":false}
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(DeveloperModePreferences.self, from: data)
+        XCTAssertFalse(decoded.forceUpdateFromGitHub)
+        XCTAssertTrue(decoded.isEnabled)
+    }
 }

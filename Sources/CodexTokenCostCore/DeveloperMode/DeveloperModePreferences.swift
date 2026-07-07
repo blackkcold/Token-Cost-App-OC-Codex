@@ -5,17 +5,20 @@ public struct DeveloperModePreferences: Codable, Equatable, Sendable {
     public var localGovernanceEnabled: Bool = false
     public var aiAnalysisEnabled: Bool = false  // Phase 4 前始终 false
     public var ollamaUsageTrackingEnabled: Bool = false
+    public var forceUpdateFromGitHub: Bool = false  // §2.5 开发者模式手动强制更新例外
 
     public init(
         isEnabled: Bool = false,
         localGovernanceEnabled: Bool = false,
         aiAnalysisEnabled: Bool = false,
-        ollamaUsageTrackingEnabled: Bool = false
+        ollamaUsageTrackingEnabled: Bool = false,
+        forceUpdateFromGitHub: Bool = false
     ) {
         self.isEnabled = isEnabled
         self.localGovernanceEnabled = localGovernanceEnabled
         self.aiAnalysisEnabled = aiAnalysisEnabled
         self.ollamaUsageTrackingEnabled = ollamaUsageTrackingEnabled
+        self.forceUpdateFromGitHub = forceUpdateFromGitHub
     }
 
     // MARK: - Custom Codable (backward compat: missing new field → false)
@@ -25,6 +28,7 @@ public struct DeveloperModePreferences: Codable, Equatable, Sendable {
         case localGovernanceEnabled
         case aiAnalysisEnabled
         case ollamaUsageTrackingEnabled
+        case forceUpdateFromGitHub
     }
 
     public init(from decoder: Decoder) throws {
@@ -33,6 +37,7 @@ public struct DeveloperModePreferences: Codable, Equatable, Sendable {
         self.localGovernanceEnabled = try container.decodeIfPresent(Bool.self, forKey: .localGovernanceEnabled) ?? false
         self.aiAnalysisEnabled = try container.decodeIfPresent(Bool.self, forKey: .aiAnalysisEnabled) ?? false
         self.ollamaUsageTrackingEnabled = try container.decodeIfPresent(Bool.self, forKey: .ollamaUsageTrackingEnabled) ?? false
+        self.forceUpdateFromGitHub = try container.decodeIfPresent(Bool.self, forKey: .forceUpdateFromGitHub) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -41,5 +46,6 @@ public struct DeveloperModePreferences: Codable, Equatable, Sendable {
         try container.encode(localGovernanceEnabled, forKey: .localGovernanceEnabled)
         try container.encode(aiAnalysisEnabled, forKey: .aiAnalysisEnabled)
         try container.encode(ollamaUsageTrackingEnabled, forKey: .ollamaUsageTrackingEnabled)
+        try container.encode(forceUpdateFromGitHub, forKey: .forceUpdateFromGitHub)
     }
 }
