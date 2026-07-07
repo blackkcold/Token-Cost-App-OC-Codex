@@ -6,6 +6,7 @@ struct SettingsView: View {
     @ObservedObject var codexModel: CodexSessionModel
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     @ObservedObject var balanceManager: BalanceManager
+    @ObservedObject var updateCheckerModel: UpdateCheckerModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedSection: SettingsSection = .overview
@@ -380,6 +381,7 @@ struct SettingsView: View {
         case .developer:
             DeveloperSectionView(
                 appPreferencesModel: appPreferencesModel,
+                updateCheckerModel: updateCheckerModel,
                 palette: palette
             )
         case .backup:

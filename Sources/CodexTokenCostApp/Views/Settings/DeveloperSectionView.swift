@@ -3,6 +3,7 @@ import CodexTokenCostCore
 
 struct DeveloperSectionView: View {
     @ObservedObject var appPreferencesModel: AppPreferencesModel
+    @ObservedObject var updateCheckerModel: UpdateCheckerModel
     let palette: TokenCostPalette
     @Environment(\.openWindow) private var openWindow
 
@@ -15,6 +16,7 @@ struct DeveloperSectionView: View {
             optimizeSection
             localGovernanceSection
             ollamaUsageTrackingSection
+            forceUpdateSection
             aiAnalysisSection
             docButton
         }
@@ -224,6 +226,88 @@ struct DeveloperSectionView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+    }
+
+    // MARK: - 强制更新（§2.5 开发者模式例外）
+
+    @ViewBuilder
+    private var forceUpdateSection: some View {
+        if appPreferencesModel.preferences.developerMode.isEnabled {
+            SettingsSurfaceCard(
+                title: AppLocalization.text("settings.developerMode.forceUpdate.title"),
+                subtitle: AppLocalization.text("settings.developerMode.forceUpdate.subtitle"),
+                role: .secondary,
+                palette: palette
+            ) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(
+                        AppLocalization.text("settings.developerMode.forceUpdate.enableToggle"),
+                        isOn: appPreferencesModel.developerModeToggleBinding(for: \.forceUpdateFromGitHub)
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(palette.title)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            updateCheckerModel.forceDownloadLatest()
+                        } label: {
+                            Label(AppLocalization.text("settings.developerMode.forceUpdate.download"), systemImage: "arrow.down.circle")
+                        }
+                        .settingsGlassButtonStyle(prominent: true)
+                        .controlSize(.small)
+                        .disabled(!appPreferencesModel.preferences.developerMode.forceUpdateFromGitHub || isDownloading)
+
+                        if isDownloading {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(width: 20, height: 20)
+                        }
+                    }
+
+                    forceUpdateStatusText
+                }
+            }
+        }
+    }
+
+    private var isDownloading: Bool {
+        if case .downloading = updateCheckerModel.state { return true }
+        if case .checking = updateCheckerModel.state { return true }
+        return false
+    }
+
+    @ViewBuilder
+    private var forceUpdateStatusText: some View {
+        switch updateCheckerModel.state {
+        case .checking:
+            Text(AppLocalization.text("settings.developerMode.forceUpdate.checking"))
+                .font(.caption2)
+                .foregroundStyle(palette.subtitle)
+        case .downloading(let progress):
+            Text(AppLocalization.format("settings.developerMode.forceUpdate.downloading", Int(progress * 100)))
+                .font(.caption2)
+                .foregroundStyle(palette.accent)
+        case .downloadComplete:
+            HStack(spacing: 8) {
+                Text(AppLocalization.text("settings.developerMode.forceUpdate.complete"))
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                Button {
+                    updateCheckerModel.openDownloadedApp()
+                } label: {
+                    Label(AppLocalization.text("settings.developerMode.forceUpdate.openApp"), systemImage: "app.badge")
+                }
+                .buttonStyle(.borderless)
+                .font(.caption2)
+                .foregroundStyle(palette.accent)
+            }
+        case .error(let msg):
+            Text(verbatim: msg)
+                .font(.caption2)
+                .foregroundStyle(.red)
+        default:
+            EmptyView()
         }
     }
 

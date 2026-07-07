@@ -63,7 +63,8 @@ struct CodexTokenCostApp: App {
                 openCodeModel: openCodeModel,
                 codexModel: codexModel,
                 appPreferencesModel: appPreferencesModel,
-                balanceManager: balanceManager
+                balanceManager: balanceManager,
+                updateCheckerModel: updateChecker
             )
         }
         .windowResizability(.contentMinSize)
