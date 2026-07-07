@@ -64,5 +64,11 @@
     "date": "2026-07-06",
     "file": "Token-Cost-App-OC-Codex-v0.9.8-macOS-arm64.zip",
     "type": "release"
+  },
+  {
+    "version": "0.9.9",
+    "date": "2026-07-07",
+    "file": "Token-Cost-App-OC-Codex-v0.9.9-macOS-arm64.zip",
+    "type": "release"
   }
 ]

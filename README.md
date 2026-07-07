@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.8)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.9)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
@@ -13,7 +13,7 @@
 
 A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
 
-> **Latest**: [v0.9.8](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.8) — menu bar balance display mode, background balance refresh scheduler, independent pricing/developer windows, window lifecycle fixes
+> **Latest**: [v0.9.9](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.9) — developer mode force update, balance custom ordering, OpenCode detail Ollama balance display, drag-sort crash fixes
 
 ### Why Token Cost App?
 
@@ -117,7 +117,7 @@ MIT License — see [LICENSE](LICENSE)
 
 一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
 
-> **最新版本**: [v0.9.8](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.8) — 菜单栏余额显示模式、后台余额刷新调度器、计费/开发者文档独立窗口、窗口生命周期修复
+> **最新版本**: [v0.9.9](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.9) — 开发者模式强制更新、余额自定义排序、OpenCode 详情页 Ollama 余额展示、拖拽排序崩溃修复
 
 ### 为什么需要它？
 

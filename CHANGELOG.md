@@ -5,9 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.9.9] - Unreleased
+## [Unreleased]
 
-> 当前下一版目标为 `v0.9.9`。
+## [v0.9.9] - 2026-07-07
+
+> 相对 `v0.9.8` 的累计变更。
+
+### Added
+
+- **开发者模式强制更新（§2.5 例外）**：Developer Mode 设置页新增「强制更新」section，在开发者模式启用后可见；提供 toggle 启用强制更新、一键下载最新 GitHub release、进度显示和下载完成后的打开按钮。该功能作为开发者模式治理规范 §2.5 记录的联网边界例外，仅手动触发（`DeveloperModePreferences.forceUpdateFromGitHub`、`UpdateCheckerModel.forceDownloadLatest()`、`DeveloperSectionView.swift`）。
+- **余额自定义排序**：`AppPreferences` 新增 `balanceCustomOrder: [BalanceProviderKind]` 和 `balanceOrderLocked: Bool` 两个字段；`AppPreferencesModel` 新增 `sortBalanceSnapshots(_:)` 统一排序方法（自定义顺序 → fallback `balanceSortOrder`）和 `resetBalanceCustomOrder()` 复位方法。设置页余额区新增「余额排序」卡片，解锁后可拖拽重排所有 Provider（`List.onMove`），锁定后恢复固定顺序；余额总览卡片 `BalanceOverviewCard` 在解锁状态下支持行拖拽排序（`BalanceSectionView.swift`、`BalanceOverviewCard.swift`、`AppPreferencesModel.swift`）。
+- **OpenCode 详情页 Ollama 余额展示**：`DetailView` 的 `BalanceOverviewCard` 过滤器在开发者模式启用且 `ollamaUsageTrackingEnabled` 为 true 时，额外包含 `.ollama` 快照；不注入伪造快照，仅使用 `BalanceManager` 已有真实/不可用快照（`DetailView.swift`）。
+
+### Changed
+
+- **余额排序逻辑集中化**：`MenuBarView` 的 `sortedSnapshots` 计算属性从内联排序改用 `appPreferencesModel.sortBalanceSnapshots(_:)`，确保菜单栏与总览页使用同一排序逻辑（`MenuBarView.swift`）。
+- **BalanceOverviewCard 签名扩展**：新增 `@ObservedObject var appPreferencesModel: AppPreferencesModel` 参数，三个调用点（`DetailView`、`CodexPageView`、`TotalView`）均已更新；`CodexPageView` 同步新增 `appPreferencesModel` 注入（`BalanceOverviewCard.swift`、`DetailView.swift`、`CodexPageView.swift`、`TotalView.swift`、`ContentView.swift`）。
+- **DeveloperSectionView 新增 UpdateCheckerModel 依赖**：`DeveloperSectionView` 和 `SettingsView` 新增 `@ObservedObject var updateCheckerModel: UpdateCheckerModel`，由 `TokenCostApp` 在 `Window("Settings")` 中注入（`DeveloperSectionView.swift`、`SettingsView.swift`、`TokenCostApp.swift`）。
+
+### Fixed
+
+- **余额总览卡片硬编码中文**：`BalanceOverviewCard` 空状态标题/副标题/正文、不可用行标签、赠款文案均改用 `AppLocalization` 本地化键；赠款文案复用现有 `balance.value.grantedShort` 键避免重复；`lastRefreshTime` 改用新增的 `TokenCostFormatters.localDateTime(_ date: Date)` 重载，消除冗余 `ISO8601DateFormatter` 实例化（`BalanceOverviewCard.swift`、`Components.swift`、`Localizable.strings`）。
+- **更新检查器硬编码英文**：`UpdateCheckerModel` 的 `startDownload` 和 `openDownloadedApp` 错误消息改用本地化键；`forceDownloadLatest` catch 分支从泛化本地化键改为 `error.localizedDescription`，与 `startDownload` catch 分支保持一致（`UpdateCheckerModel.swift`、`Localizable.strings`）。
+- **TokenCostFormatters formatter 复用**：`localDateTime(_:)` 的 `ISO8601DateFormatter` 和 `DateFormatter` 从每次调用创建改为 `static let` 单例复用，新增 `localDateTime(_ date: Date)` 重载（`Components.swift`）。
+- **余额总览卡片拖拽排序越界崩溃**：`BalanceOverviewCard` 的 `.onMove` 回调中 `order` 取自持久化的 `balanceCustomOrder`（可能短于 `availableSnapshots`），导致 SwiftUI 传入的 `offsets`/`target` 索引越界触发 `Array swapAt` 断言崩溃。改为从 `availableSnapshots.map(\.provider)` 构造 `order`，保证与 `ForEach` 索引空间一致；同时 `AppPreferencesModel` 集中规范化 `balanceCustomOrder`，对重复 provider 去重、补齐缺失 provider，并在总览卡过滤列表拖拽时保留隐藏/不可用 provider 的相对顺序，避免自定义排序被截断；设置页排序列表复用同一规范化逻辑，防止重复 `ForEach` ID。新增 4 个回归测试（`BalanceOverviewCard.swift`、`BalanceSectionView.swift`、`AppPreferencesModel.swift`、`AppPreferencesModelTests.swift`）。
+
+### Developer Mode Exception (§2.5)
+
+- 开发者模式治理规范新增 §2.5，记录强制更新功能的联网边界例外：仅当用户手动在 Developer Mode 中切换 toggle 并点击「下载」按钮时触发网络请求，不走自动/隐式更新检查路径。该入口技术上不触发 `developer_mode_sources.manifest` 的 banned-symbol 扫描，但治理上仍作为 Developer Mode UI 的网络边界例外记录。
 
 ## [v0.9.8] - 2026-07-06
 
@@ -439,6 +464,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
 [v0.9.7]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.6...v0.9.7
+[v0.9.9]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.8...v0.9.9
 [v0.9.8]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.7...v0.9.8
 [v0.9.6]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.2...v0.9.6
 [v0.9.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.1...v0.9.2
