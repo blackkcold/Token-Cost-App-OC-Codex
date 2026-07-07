@@ -113,7 +113,7 @@ final class UpdateCheckerModel: ObservableObject {
 
     func startDownload() {
         guard let url = releaseAssetURL else {
-            state = .error(message: "No download URL available")
+            state = .error(message: AppLocalization.text("update.error.noDownloadUrl"))
             return
         }
 
@@ -141,7 +141,7 @@ final class UpdateCheckerModel: ObservableObject {
 
     func openDownloadedApp() {
         guard let appURL = UpdateChecker.downloadedAppURL() else {
-            state = .error(message: "Downloaded app not found")
+            state = .error(message: AppLocalization.text("update.error.appNotFound"))
             return
         }
 
@@ -149,6 +149,35 @@ final class UpdateCheckerModel: ObservableObject {
         print("[UpdateCheckerModel] Opening downloaded app: \(appURL.path)")
         #endif
         NSWorkspace.shared.open(appURL)
+    }
+
+    // MARK: - Force download (Developer Mode §2.5)
+
+    func forceDownloadLatest() {
+        state = .checking
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let release = try await UpdateChecker.checkLatestRelease() else {
+                    self.state = .error(message: AppLocalization.text("settings.developerMode.forceUpdate.noRelease"))
+                    return
+                }
+
+                self.latestVersion = release.tagName
+                self.releasePageURL = URL(string: release.htmlUrl)
+                if let zipAsset = UpdateChecker.findZipAsset(in: release) {
+                    self.releaseAssetURL = URL(string: zipAsset.browserDownloadUrl)
+                } else {
+                    self.state = .error(message: AppLocalization.text("settings.developerMode.forceUpdate.noAsset"))
+                    return
+                }
+
+                self.startDownload()
+            } catch {
+                self.state = .error(message: error.localizedDescription)
+            }
+        }
     }
 
     // MARK: - Open release page (fallback)
