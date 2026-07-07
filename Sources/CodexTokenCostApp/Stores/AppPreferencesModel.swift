@@ -262,6 +262,108 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
+    var balanceCustomOrderBinding: Binding<[BalanceProviderKind]> {
+        Binding(
+            get: { self.preferences.balanceCustomOrder },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.balanceCustomOrder = newValue
+                }
+            }
+        )
+    }
+
+    var balanceOrderLockedBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.balanceOrderLocked },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.balanceOrderLocked = newValue
+                }
+            }
+        )
+    }
+
+    func normalizedBalanceProviderOrder() -> [BalanceProviderKind] {
+        let defaultOrder = BalanceProviderKind.allCases.sorted { $0.sortOrder < $1.sortOrder }
+        let defaultProviders = Set(defaultOrder)
+        var seen = Set<BalanceProviderKind>()
+        let customOrder = preferences.balanceCustomOrder.filter { provider in
+            defaultProviders.contains(provider) && seen.insert(provider).inserted
+        }
+        let customProviders = Set(customOrder)
+        return customOrder + defaultOrder.filter { !customProviders.contains($0) }
+    }
+
+    func balanceProviderOrder(
+        moving visibleProviders: [BalanceProviderKind],
+        fromOffsets offsets: IndexSet,
+        toOffset target: Int
+    ) -> [BalanceProviderKind] {
+        let providerOrder = normalizedBalanceProviderOrder()
+        let providerSet = Set(providerOrder)
+        var seen = Set<BalanceProviderKind>()
+        var reorderedVisibleProviders = visibleProviders.filter { provider in
+            providerSet.contains(provider) && seen.insert(provider).inserted
+        }
+
+        guard !reorderedVisibleProviders.isEmpty else { return providerOrder }
+
+        var validOffsets = IndexSet()
+        for offset in offsets where reorderedVisibleProviders.indices.contains(offset) {
+            validOffsets.insert(offset)
+        }
+        guard !validOffsets.isEmpty else { return providerOrder }
+
+        let boundedTarget = min(max(target, 0), reorderedVisibleProviders.count)
+        reorderedVisibleProviders.move(fromOffsets: validOffsets, toOffset: boundedTarget)
+
+        var visibleProviderIterator = reorderedVisibleProviders.makeIterator()
+        let visibleProviderSet = Set(reorderedVisibleProviders)
+        return providerOrder.map { provider in
+            guard visibleProviderSet.contains(provider) else { return provider }
+            return visibleProviderIterator.next() ?? provider
+        }
+    }
+
+    func sortBalanceSnapshots(_ snapshots: [BalanceSnapshot]) -> [BalanceSnapshot] {
+        let customOrder = preferences.balanceCustomOrder
+        if !customOrder.isEmpty {
+            let providerRanks = Dictionary(
+                uniqueKeysWithValues: normalizedBalanceProviderOrder().enumerated().map { index, provider in
+                    (provider, index)
+                }
+            )
+            return snapshots.sorted { a, b in
+                let aRank = providerRanks[a.provider] ?? Int.max
+                let bRank = providerRanks[b.provider] ?? Int.max
+                if aRank != bRank { return aRank < bRank }
+                return a.provider.sortOrder < b.provider.sortOrder
+            }
+        }
+
+        let order = preferences.balanceSortOrder
+        return snapshots.sorted { a, b in
+            switch order {
+            case .quotaFirst:
+                if a.isQuotaType != b.isQuotaType { return a.isQuotaType }
+                return a.provider.sortOrder < b.provider.sortOrder
+            case .balanceFirst:
+                if a.isBalanceType != b.isBalanceType { return a.isBalanceType }
+                return a.provider.sortOrder < b.provider.sortOrder
+            case .byProvider:
+                return a.provider.sortOrder < b.provider.sortOrder
+            }
+        }
+    }
+
+    func resetBalanceCustomOrder() {
+        updatePreferences { prefs in
+            prefs.balanceCustomOrder = []
+            prefs.balanceOrderLocked = true
+        }
+    }
+
     func updatePreferences(_ mutate: (inout AppPreferences) -> Void) {
         var updated = preferences
         mutate(&updated)
