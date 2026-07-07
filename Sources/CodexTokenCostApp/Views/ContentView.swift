@@ -69,7 +69,7 @@ struct ContentView: View {
                             Label(AppLocalization.text("tab.opencode"), systemImage: "externaldrive")
                         }
 
-                    CodexPageView(model: codexModel, balanceManager: balanceManager, palette: palette)
+                    CodexPageView(model: codexModel, balanceManager: balanceManager, appPreferencesModel: appPreferencesModel, palette: palette)
                         .tag(CodexDashboardPage.codex)
                         .tabItem {
                             Label(AppLocalization.text("tab.codex"), systemImage: "terminal")

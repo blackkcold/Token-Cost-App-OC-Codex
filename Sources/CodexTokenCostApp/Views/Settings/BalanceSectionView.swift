@@ -24,8 +24,13 @@ struct BalanceSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             balanceToggleCard
+            balanceOrderCard
             providerStatusCard
         }
+    }
+
+    private var balanceProviderOrder: [BalanceProviderKind] {
+        appPreferencesModel.normalizedBalanceProviderOrder()
     }
 
     // MARK: - Balance toggle card
@@ -186,6 +191,62 @@ struct BalanceSectionView: View {
                         .font(.caption2)
                         .foregroundStyle(palette.subtitle)
                         .padding(.top, 2)
+                }
+            }
+        }
+    }
+
+    // MARK: - Balance ordering card
+
+    private var balanceOrderCard: some View {
+        SettingsSurfaceCard(
+            title: "settings.balance.order.title".localized,
+            subtitle: "settings.balance.order.subtitle".localized,
+            role: .secondary,
+            palette: palette
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Toggle(
+                        "settings.balance.order.locked".localized,
+                        isOn: appPreferencesModel.balanceOrderLockedBinding
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(palette.title)
+
+                    Spacer()
+
+                    Button {
+                        appPreferencesModel.resetBalanceCustomOrder()
+                    } label: {
+                        Label("settings.balance.order.reset".localized, systemImage: "arrow.counterclockwise")
+                    }
+                    .settingsGlassButtonStyle(prominent: false)
+                    .controlSize(.small)
+                }
+
+                if !appPreferencesModel.preferences.balanceOrderLocked {
+                    List {
+                        ForEach(balanceProviderOrder, id: \.self) { kind in
+                            HStack(spacing: 8) {
+                                Image(systemName: "line.3.horizontal")
+                                    .font(.caption2)
+                                    .foregroundStyle(palette.subtitle)
+                                Text(verbatim: kind.displayName)
+                                    .font(.caption)
+                                    .foregroundStyle(palette.title)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        .onMove { offsets, target in
+                            var order = balanceProviderOrder
+                            order.move(fromOffsets: offsets, toOffset: target)
+                            appPreferencesModel.balanceCustomOrderBinding.wrappedValue = order
+                        }
+                    }
+                    .listStyle(.plain)
+                    .frame(minHeight: 180, maxHeight: 300)
+                    .scrollContentBackground(.hidden)
                 }
             }
         }

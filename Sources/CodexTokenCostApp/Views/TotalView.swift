@@ -19,7 +19,8 @@ struct TotalView: View {
                 BalanceOverviewCard(
                     snapshots: balanceManager.snapshots,
                     lastRefreshTime: balanceManager.lastRefreshTime,
-                    palette: palette
+                    palette: palette,
+                    appPreferencesModel: appPreferencesModel
                 )
                 dailyTrendCard
                 tokenHeatmapCard

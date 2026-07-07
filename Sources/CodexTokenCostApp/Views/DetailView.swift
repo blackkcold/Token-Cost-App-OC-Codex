@@ -44,10 +44,19 @@ struct DetailView: View {
 
                         BalanceOverviewCard(
                             snapshots: balanceManager.snapshots.filter {
-                                $0.provider == .opencodeGo || $0.provider == .opencodeZen
+                                let devMode = appPreferencesModel.preferences.developerMode
+                                switch $0.provider {
+                                case .opencodeGo, .opencodeZen:
+                                    return true
+                                case .ollama:
+                                    return devMode.isEnabled && devMode.ollamaUsageTrackingEnabled
+                                default:
+                                    return false
+                                }
                             },
                             lastRefreshTime: balanceManager.lastRefreshTime,
-                            palette: palette
+                            palette: palette,
+                            appPreferencesModel: appPreferencesModel
                         )
 
                         trendSection(analytics)

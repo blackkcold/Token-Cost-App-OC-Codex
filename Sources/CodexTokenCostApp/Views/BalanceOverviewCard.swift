@@ -5,25 +5,26 @@ struct BalanceOverviewCard: View {
     let snapshots: [BalanceSnapshot]
     let lastRefreshTime: Date?
     let palette: TokenCostPalette
+    @ObservedObject var appPreferencesModel: AppPreferencesModel
     @State private var expanded = true
 
     private var availableSnapshots: [BalanceSnapshot] {
-        snapshots.filter(\.isAvailable)
+        appPreferencesModel.sortBalanceSnapshots(snapshots.filter(\.isAvailable))
     }
 
     private var unavailableSnapshots: [BalanceSnapshot] {
-        snapshots.filter { !$0.isAvailable }
+        appPreferencesModel.sortBalanceSnapshots(snapshots.filter { !$0.isAvailable })
     }
 
     var body: some View {
         if snapshots.isEmpty {
             TokenSectionCard(
-                title: "实时余额",
-                subtitle: "暂未拉取余额数据。请前往设置开启余额监控并点击刷新。",
+                title: AppLocalization.text("balance.empty.title"),
+                subtitle: AppLocalization.text("balance.empty.subtitle"),
                 trailing: nil,
                 palette: palette
             ) {
-                Text("余额数据将在首次刷新后显示。")
+                Text(AppLocalization.text("balance.empty.body"))
                     .font(.caption)
                     .foregroundStyle(palette.subtitle)
             }
@@ -31,7 +32,7 @@ struct BalanceOverviewCard: View {
             TokenSectionCard(
                 title: AppLocalization.text("balance.title"),
                 subtitle: lastRefreshTime.map {
-                    AppLocalization.format("balance.lastRefresh", TokenCostFormatters.localDateTime(ISO8601DateFormatter().string(from: $0)))
+                    AppLocalization.format("balance.lastRefresh", TokenCostFormatters.localDateTime($0))
                 } ?? AppLocalization.text("balance.notRefreshed"),
                 trailing: AnyView(
                     HStack(spacing: 8) {
@@ -47,12 +48,50 @@ struct BalanceOverviewCard: View {
                 palette: palette
             ) {
                 if expanded {
-                    VStack(spacing: 12) {
-                        ForEach(availableSnapshots) { snapshot in
-                            balanceRow(snapshot)
+                    if !appPreferencesModel.preferences.balanceOrderLocked {
+                        HStack {
+                            Spacer()
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    appPreferencesModel.balanceOrderLockedBinding.wrappedValue = true
+                                }
+                            } label: {
+                                Label(AppLocalization.text("balance.order.lock"), systemImage: "lock.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption2)
+                            .foregroundStyle(palette.subtitle)
                         }
-                        ForEach(unavailableSnapshots) { snapshot in
-                            unavailableRow(snapshot)
+                        .padding(.horizontal, 4)
+                        List {
+                            ForEach(availableSnapshots) { snapshot in
+                                balanceRow(snapshot)
+                            }
+                            .onMove { offsets, target in
+                                // `offsets`/`target` are indices into `ForEach(availableSnapshots)`,
+                                // while the persisted order must still preserve hidden/unavailable providers.
+                                let order = appPreferencesModel.balanceProviderOrder(
+                                    moving: availableSnapshots.map(\.provider),
+                                    fromOffsets: offsets,
+                                    toOffset: target
+                                )
+                                appPreferencesModel.balanceCustomOrderBinding.wrappedValue = order
+                            }
+                            ForEach(unavailableSnapshots) { snapshot in
+                                unavailableRow(snapshot)
+                            }
+                        }
+                        .listStyle(.plain)
+                        .frame(minHeight: 150, maxHeight: 600)
+                        .scrollContentBackground(.hidden)
+                    } else {
+                        VStack(spacing: 12) {
+                            ForEach(availableSnapshots) { snapshot in
+                                balanceRow(snapshot)
+                            }
+                            ForEach(unavailableSnapshots) { snapshot in
+                                unavailableRow(snapshot)
+                            }
                         }
                     }
                 }
@@ -118,7 +157,7 @@ struct BalanceOverviewCard: View {
                                     .font(.caption)
                                     .foregroundStyle(palette.title)
                                 if let granted = entry.grantedAmount {
-                                    Text("(赠 \(String(format: "%.2f", granted)))")
+                                    Text(AppLocalization.format("balance.value.grantedShort", String(format: "%.2f", granted)))
                                         .font(.caption2)
                                         .foregroundStyle(palette.subtitle)
                                 }
@@ -253,7 +292,7 @@ struct BalanceOverviewCard: View {
                     .font(.caption2)
                     .foregroundStyle(palette.accent)
             }
-            Text("不可用")
+            Text(AppLocalization.text("balance.unavailable"))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.gray)
                 .padding(.horizontal, 10)

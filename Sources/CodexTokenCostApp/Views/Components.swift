@@ -2,6 +2,25 @@ import SwiftUI
 import CodexTokenCostCore
 
 enum TokenCostFormatters {
+    private static nonisolated(unsafe) let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static nonisolated(unsafe) let isoFormatterNoFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let displayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
     static func tokens(_ value: Double) -> String {
         value.formatted(.number.notation(.compactName).precision(.fractionLength(1)))
     }
@@ -26,16 +45,15 @@ enum TokenCostFormatters {
 
     static func localDateTime(_ isoDateString: String?) -> String {
         guard let isoDateString else { return AppLocalization.text("common.unavailable") }
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         guard let date = isoFormatter.date(from: isoDateString)
-            ?? ISO8601DateFormatter().date(from: isoDateString) else {
+            ?? isoFormatterNoFractional.date(from: isoDateString) else {
             return isoDateString
         }
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateStyle = .medium
-        displayFormatter.timeStyle = .short
         return displayFormatter.string(from: date)
+    }
+
+    static func localDateTime(_ date: Date) -> String {
+        displayFormatter.string(from: date)
     }
 }
 

@@ -260,19 +260,7 @@ struct MenuBarView: View {
     // MARK: - Balance Summary
 
     private var sortedSnapshots: [BalanceSnapshot] {
-        let order = appPreferencesModel.preferences.balanceSortOrder
-        return balanceManager.snapshots.sorted { a, b in
-            switch order {
-            case .quotaFirst:
-                if a.isQuotaType != b.isQuotaType { return a.isQuotaType }
-                return a.provider.sortOrder < b.provider.sortOrder
-            case .balanceFirst:
-                if a.isBalanceType != b.isBalanceType { return a.isBalanceType }
-                return a.provider.sortOrder < b.provider.sortOrder
-            case .byProvider:
-                return a.provider.sortOrder < b.provider.sortOrder
-            }
-        }
+        appPreferencesModel.sortBalanceSnapshots(balanceManager.snapshots)
     }
 
     private var balanceSummary: some View {
