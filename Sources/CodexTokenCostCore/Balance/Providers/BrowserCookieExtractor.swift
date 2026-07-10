@@ -301,11 +301,11 @@ public enum BrowserCookieExtractor {
 
         var statement: OpaquePointer?
         let sql = """
-            SELECT encrypted_value FROM cookies
-            WHERE host_key LIKE '%opencode.ai%'
-            AND name IN ('auth', '__Host-auth')
-            ORDER BY last_access_utc DESC LIMIT 1
-            """
+                    SELECT encrypted_value FROM cookies
+                    WHERE (host_key LIKE '%.opencode.ai' OR host_key = 'opencode.ai')
+                    AND name IN ('__Host-auth', 'auth')
+                    ORDER BY CASE name WHEN '__Host-auth' THEN 0 WHEN 'auth' THEN 1 END, last_access_utc DESC LIMIT 1
+                    """
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
               let statement else { return nil }
         defer { sqlite3_finalize(statement) }
@@ -319,7 +319,7 @@ public enum BrowserCookieExtractor {
         guard blobData.count > 3 else { return nil }
 
         let prefix = String(data: blobData.prefix(3), encoding: .utf8) ?? ""
-        guard prefix.hasPrefix("v1") else { return nil }
+        guard prefix.hasPrefix("v10") || prefix.hasPrefix("v11") || prefix.hasPrefix("v1") else { return nil }
 
         let ciphertext = blobData.dropFirst(3)
 

@@ -34,38 +34,38 @@ struct DetailView: View {
                     sourceHeader(source)
 
                     if let payload = model.selectedPayload {
-                        let analytics = cachedAnalytics ?? TokenCostDashboardAnalytics(
-                            payload: payload,
-                            showZeroUsageXiaomiProvider: model.settings.showZeroUsageXiaomiProvider,
-                            billingOverridesByProviderKey: appPreferencesModel.preferences.billingOverridesByProviderKey()
-                        )
+                        if let analytics = cachedAnalytics {
+                            overviewSection(analytics)
 
-                        overviewSection(analytics)
+                            BalanceOverviewCard(
+                                snapshots: balanceManager.snapshots.filter {
+                                    let devMode = appPreferencesModel.preferences.developerMode
+                                    switch $0.provider {
+                                    case .opencodeGo, .opencodeZen:
+                                        return true
+                                    case .ollama:
+                                        return devMode.isEnabled && devMode.ollamaUsageTrackingEnabled
+                                    default:
+                                        return false
+                                    }
+                                },
+                                lastRefreshTime: balanceManager.lastRefreshTime,
+                                palette: palette,
+                                appPreferencesModel: appPreferencesModel
+                            )
 
-                        BalanceOverviewCard(
-                            snapshots: balanceManager.snapshots.filter {
-                                let devMode = appPreferencesModel.preferences.developerMode
-                                switch $0.provider {
-                                case .opencodeGo, .opencodeZen:
-                                    return true
-                                case .ollama:
-                                    return devMode.isEnabled && devMode.ollamaUsageTrackingEnabled
-                                default:
-                                    return false
-                                }
-                            },
-                            lastRefreshTime: balanceManager.lastRefreshTime,
-                            palette: palette,
-                            appPreferencesModel: appPreferencesModel
-                        )
-
-                        trendSection(analytics)
-                        distributionSection(analytics)
-                        cacheSection(analytics)
-                        providerRankingSection(analytics)
-                        modelComparisonSection(analytics)
-                        stackedSection(analytics)
-                        detailSection(analytics)
+                            trendSection(analytics)
+                            distributionSection(analytics)
+                            cacheSection(analytics)
+                            providerRankingSection(analytics)
+                            modelComparisonSection(analytics)
+                            stackedSection(analytics)
+                            detailSection(analytics)
+                        } else if model.isBootstrapping || model.isRefreshing {
+                            loadingCard
+                        } else {
+                            analyticsLoadingCard(payload)
+                        }
                     } else if model.isBootstrapping || model.isRefreshing {
                         loadingCard
                     } else {
@@ -86,13 +86,36 @@ struct DetailView: View {
             stackedPageIndex = 0
             modelComparisonExpanded = false
             if let payload = model.selectedPayload {
-                cachedAnalytics = TokenCostDashboardAnalytics(
-                    payload: payload,
-                    showZeroUsageXiaomiProvider: model.settings.showZeroUsageXiaomiProvider,
-                    billingOverridesByProviderKey: appPreferencesModel.preferences.billingOverridesByProviderKey()
-                )
+                let showZero = model.settings.showZeroUsageXiaomiProvider
+                let overrides = appPreferencesModel.preferences.billingOverridesByProviderKey()
+                Task {
+                    let analytics = await Task.detached(priority: .userInitiated) {
+                        TokenCostDashboardAnalytics(
+                            payload: payload,
+                            showZeroUsageXiaomiProvider: showZero,
+                            billingOverridesByProviderKey: overrides
+                        )
+                    }.value
+                    cachedAnalytics = analytics
+                }
             }
         }
+    }
+
+    private func analyticsLoadingCard(_ payload: DashboardPayload) -> some View {
+        loadingCard
+            .task(id: payload.summary.updatedAt) {
+                let showZero = model.settings.showZeroUsageXiaomiProvider
+                let overrides = appPreferencesModel.preferences.billingOverridesByProviderKey()
+                let analytics = await Task.detached(priority: .userInitiated) {
+                    TokenCostDashboardAnalytics(
+                        payload: payload,
+                        showZeroUsageXiaomiProvider: showZero,
+                        billingOverridesByProviderKey: overrides
+                    )
+                }.value
+                cachedAnalytics = analytics
+            }
     }
 
     private func sourceHeader(_ source: TokenCostSource) -> some View {

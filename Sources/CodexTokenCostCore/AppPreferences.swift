@@ -63,6 +63,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var balanceDisplayMode: BalanceDisplayMode
     public var balanceCustomOrder: [BalanceProviderKind]
     public var balanceOrderLocked: Bool
+    public var credentialSourceMode: CredentialSourceMode
 
     public init(
         language: AppDisplayLanguage = .zhHans,
@@ -83,7 +84,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         balanceSortOrder: BalanceSortOrder = .quotaFirst,
         balanceDisplayMode: BalanceDisplayMode = .used,
         balanceCustomOrder: [BalanceProviderKind] = [],
-        balanceOrderLocked: Bool = true
+        balanceOrderLocked: Bool = true,
+        credentialSourceMode: CredentialSourceMode = .autoBrowser
     ) {
         self.language = language
         self.billingSelectionsByProvider = billingSelectionsByProvider
@@ -104,6 +106,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.balanceDisplayMode = balanceDisplayMode
         self.balanceCustomOrder = balanceCustomOrder
         self.balanceOrderLocked = balanceOrderLocked
+        self.credentialSourceMode = credentialSourceMode
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -127,6 +130,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case balanceDisplayMode = "balance_display_mode"
         case balanceCustomOrder = "balance_custom_order"
         case balanceOrderLocked = "balance_order_locked"
+        case credentialSourceMode = "credential_source_mode"
     }
 
     private enum DecodingKeys: String, CodingKey {
@@ -150,6 +154,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case balanceDisplayMode
         case balanceCustomOrder
         case balanceOrderLocked
+        case credentialSourceMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -225,6 +230,9 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.balanceOrderLocked = try container.decodeIfPresent(Bool.self, forKey: .balanceOrderLocked)
             ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .balanceOrderLocked)
             ?? true
+        self.credentialSourceMode = try container.decodeIfPresent(CredentialSourceMode.self, forKey: .credentialSourceMode)
+            ?? legacyContainer?.decodeIfPresent(CredentialSourceMode.self, forKey: .credentialSourceMode)
+            ?? .autoBrowser
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -248,6 +256,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(balanceDisplayMode, forKey: .balanceDisplayMode)
         try container.encode(balanceCustomOrder, forKey: .balanceCustomOrder)
         try container.encode(balanceOrderLocked, forKey: .balanceOrderLocked)
+        try container.encode(credentialSourceMode, forKey: .credentialSourceMode)
     }
 
     /// Returns a copy of preferences with the given balanceConfig applied.

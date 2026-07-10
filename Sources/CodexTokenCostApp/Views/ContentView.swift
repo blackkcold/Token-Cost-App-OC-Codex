@@ -21,6 +21,8 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedPage: CodexDashboardPage = .total
     @State private var didOpenCodexSourcePrompt = false
+    @State private var showCredentialBootstrapError = false
+    @State private var credentialBootstrapErrorMessage = ""
 
     private var palette: TokenCostPalette {
         TokenCostPalette(theme: appPreferencesModel.preferences.theme)
@@ -87,6 +89,12 @@ struct ContentView: View {
                     openCodexSourcePromptIfNeeded()
                     updateChecker.checkForUpdate()
                     if appPreferencesModel.preferences.balanceEnabled {
+                        let mode = appPreferencesModel.preferences.credentialSourceMode
+                        let bootstrapResult = await CredentialBootstrapService.shared.bootstrap(mode: mode)
+                        if case .failed(let error) = bootstrapResult {
+                            credentialBootstrapErrorMessage = error
+                            showCredentialBootstrapError = true
+                        }
                         await balanceManager.refresh()
                     }
                 }
@@ -103,6 +111,11 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: isAnyRefreshing)
+        .alert(AppLocalization.text("balance.bootstrap.error.title"), isPresented: $showCredentialBootstrapError) {
+            Button(AppLocalization.text("settings.action.close"), role: .cancel) {}
+        } message: {
+            Text(credentialBootstrapErrorMessage)
+        }
         .onChange(of: updateChecker.state) { _, newState in
             if case .upToDate = newState {
                 Task {

@@ -18,7 +18,9 @@ public final class SecureCredentialStore: @unchecked Sendable {
     private let lock = NSLock()
     private var cachedWorkspaceID: String?
     private var cachedAuthCookie: String?
+    private var cachedOllamaCookie: String?
     private var cacheValid = false
+    private var ollamaCacheValid = false
     private var migrationCompleted = false
 
     private init() {
@@ -57,32 +59,54 @@ public final class SecureCredentialStore: @unchecked Sendable {
     public func saveOllamaCookie(_ cookie: String) -> Bool {
         let saved = save(account: ollamaCookieAccount, value: cookie, service: ollamaCookieService)
         if saved {
-            // Best-effort cleanup of any legacy DPK-domain item from prior versions.
             deleteLegacyDPKOllamaKeychain()
+            lock.withLock {
+                cachedOllamaCookie = cookie
+                ollamaCacheValid = true
+            }
         }
         return saved
     }
 
     public func getOllamaCookie() -> String? {
-        // Primary: read from standard file-based Keychain domain.
-        if let cookie = read(account: ollamaCookieAccount, service: ollamaCookieService) {
+        lock.lock()
+        if ollamaCacheValid, let cookie = cachedOllamaCookie {
+            lock.unlock()
             return cookie
         }
-        // Fallback: read from legacy Data Protection Keychain domain and migrate.
+        lock.unlock()
+
+        if let cookie = read(account: ollamaCookieAccount, service: ollamaCookieService) {
+            lock.withLock {
+                cachedOllamaCookie = cookie
+                ollamaCacheValid = true
+            }
+            return cookie
+        }
         if let legacy = readLegacyDPKOllamaKeychain() {
-            // Migrate: save to standard domain, then delete legacy.
             if save(account: ollamaCookieAccount, value: legacy, service: ollamaCookieService) {
                 deleteLegacyDPKOllamaKeychain()
             }
+            lock.withLock {
+                cachedOllamaCookie = legacy
+                ollamaCacheValid = true
+            }
             return legacy
+        }
+        lock.withLock {
+            cachedOllamaCookie = nil
+            ollamaCacheValid = true
         }
         return nil
     }
 
     public func deleteOllamaCookie() {
         delete(account: ollamaCookieAccount, service: ollamaCookieService)
-        // Best-effort cleanup of any legacy DPK-domain item.
         deleteLegacyDPKOllamaKeychain()
+        lock.withLock {
+            cachedOllamaCookie = nil
+            ollamaCacheValid = false
+        }
     }
 
     public func discoverCredentials(allowEnvironment: Bool = false) -> (workspaceID: String?, cookie: String?) {
@@ -407,7 +431,9 @@ public final class SecureCredentialStore: @unchecked Sendable {
     private func invalidateCache() {
         cachedWorkspaceID = nil
         cachedAuthCookie = nil
+        cachedOllamaCookie = nil
         cacheValid = false
+        ollamaCacheValid = false
     }
 
     // MARK: - One-time Keychain Migration (EF-3)

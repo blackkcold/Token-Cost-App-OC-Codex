@@ -262,6 +262,11 @@
 "settings.balance.refreshIntervalSeconds" = "%d sec";
 "settings.balance.refreshNow" = "Refresh balance now";
 "settings.balance.searchingBrowser" = "Searching browser data…";
+"settings.balance.importLegacyKeychain" = "Import legacy Keychain";
+"settings.balance.importLegacyKeychain.message" = "Copy any missing Go or Ollama credentials from the legacy macOS Keychain into local encrypted storage. Keychain records are not deleted.";
+"settings.balance.importLegacyKeychain.none" = "No legacy Keychain credentials were found.";
+"settings.balance.importLegacyKeychain.success" = "Imported %d credential field(s) from legacy Keychain.";
+"settings.balance.importLegacyKeychain.title" = "Import legacy Keychain credentials";
 "settings.balance.subtitle" = "Queries provider balances over HTTPS and keeps credentials local.";
 "settings.balance.title" = "Balance monitoring";
 "settings.skills.previewLength" = "Detail preview length";
@@ -412,8 +417,9 @@
 "settings.opencodeGo.credentials.title" = "OpenCode Go Credentials";
 "settings.opencodeGo.credentials.workspaceID" = "Workspace ID (e.g. wrk_01ABC...)";
 "settings.opencodeGo.credentials.authCookie" = "Auth Cookie (Fe26.2...)";
-"settings.opencodeGo.credentials.saved" = "Cookie saved to Keychain";
-"settings.opencodeGo.credentials.hint" = "Credentials are encrypted in macOS Keychain. You can also set OPENCODE_GO_WORKSPACE_ID / OPENCODE_GO_AUTH_COOKIE env vars.";
+"settings.opencodeGo.credentials.saved" = "Saved locally";
+"settings.opencodeGo.credentials.cleared" = "Go cookie cleared";
+"settings.opencodeGo.credentials.hint" = "Credentials are encrypted in local storage. You can also set OPENCODE_GO_WORKSPACE_ID / OPENCODE_GO_AUTH_COOKIE env vars.";
 "settings.action.testConnection" = "Test Connection";
 "settings.opencodeGo.test.success" = "Connection Successful";
 "settings.opencodeGo.test.successMessage" = "Successfully fetched OpenCode Go balance snapshot.";
@@ -425,17 +431,17 @@
 
 "settings.opencodeGo.importFromBrowser" = "Import from Browser…";
 "settings.opencodeGo.import.confirmTitle" = "Import Browser Credentials";
-"settings.opencodeGo.import.confirmMessage" = "This will read opencode.ai cookies and history from Edge / Chrome / Brave / Arc, decrypt them locally, and store them in Keychain. macOS may show a Keychain permission dialog — please allow it. Continue?";
+"settings.opencodeGo.import.confirmMessage" = "This will read opencode.ai cookies and history from Edge / Chrome / Brave / Arc, decrypt them locally, and store them in local encrypted storage. Continue?";
 "settings.opencodeGo.import.success" = "Credentials imported";
 "settings.opencodeGo.import.noBrowser" = "No supported browser data found. Make sure you are logged in to opencode.ai in your browser";
 "settings.opencodeGo.import.partial" = "Cookie imported. Please enter Workspace ID manually";
 "settings.opencodeGo.help.configure" = "Configure OpenCode Go credentials";
 
-"settings.ollama.credentials.title" = "Store Ollama session cookie in Keychain";
+"settings.ollama.credentials.title" = "Store Ollama session cookie in local encrypted storage";
 "settings.ollama.credentials.subtitle" = "Supports browser auto-import, or manually enter raw cookie value / full Cookie header format";
 "settings.ollama.credentials.cookieLabel" = "Cookie";
 "settings.ollama.credentials.placeholder" = "Enter Ollama Cookie";
-"settings.ollama.credentials.saved" = "Saved to Keychain";
+"settings.ollama.credentials.saved" = "Saved locally";
 "settings.ollama.credentials.deleted" = "Deleted";
 "settings.ollama.status.used" = "Used %d%%";
 "settings.ollama.status.connected" = "Connected";
@@ -444,7 +450,7 @@
 "settings.ollama.import.message" = "Will attempt to extract ollama.com session cookie from Edge / Chrome / Brave / Arc.";
 "settings.ollama.import.success" = "Import successful";
 "settings.ollama.import.noCookie" = "No Ollama Cookie found";
-"settings.ollama.import.saveFailed" = "Cookie extracted, but failed to save to Keychain";
+"settings.ollama.import.saveFailed" = "Cookie extracted, but failed to save to local storage";
 "settings.ollama.test.success" = "Connection Successful";
 "settings.ollama.test.successMessage" = "Successfully fetched Ollama balance snapshot.";
 "settings.ollama.test.failed" = "Connection Failed";
@@ -742,6 +748,8 @@
 "settings.balance.menuBarDisplayMode" = "Menu Bar Balance Display";
 "settings.balance.displayMode.used" = "Used";
 "settings.balance.displayMode.remaining" = "Remaining";
+"settings.balance.credentialSource" = "Credential Source Mode";
+"balance.bootstrap.error.title" = "Credential Auto-Import Failed";
 "balance.error.recoveryHint" = "Check credentials or network";
 "balance.error.reimport" = "Import now";
 "settings.opencodeGo.diagnosis.cookieExpired" = "Auth Cookie expired. Please re-import.";

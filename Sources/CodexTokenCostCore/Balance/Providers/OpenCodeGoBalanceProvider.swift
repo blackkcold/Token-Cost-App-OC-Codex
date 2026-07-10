@@ -13,9 +13,18 @@ public struct OpenCodeGoBalanceChecker: BalanceChecker {
             return .unavailable(.opencodeGo, reason: "未找到 OpenCode Go API key")
         }
 
-        let (workspaceID, cookie) = SecureCredentialStore.shared.discoverCredentials(
-            allowEnvironment: allowEnvironmentCredentials
-        )
+        let bootstrap = CredentialBootstrapService.shared
+        var workspaceID = bootstrap.getCachedGoWorkspaceID()
+        var cookie = bootstrap.getCachedGoCookie()
+
+        if workspaceID == nil || cookie == nil {
+            let (localID, localCookie) = LocalCredentialService.shared.discoverCredentials(
+                allowEnvironment: allowEnvironmentCredentials
+            )
+            if workspaceID == nil { workspaceID = localID }
+            if cookie == nil { cookie = localCookie }
+        }
+
         guard let workspaceID, let cookie else {
             return .unavailable(.opencodeGo, reason: "请先在设置中配置 OpenCode Go 凭证")
         }
