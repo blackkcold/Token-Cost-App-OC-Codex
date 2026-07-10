@@ -35,7 +35,10 @@ enum OpenCodeGoDashboardFetcher {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let session = URLSession(configuration: .ephemeral)
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 30
+        let session = URLSession(configuration: config)
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
@@ -62,7 +65,10 @@ enum OpenCodeGoDashboardFetcher {
         request.setValue("auth=\(cookie)", forHTTPHeaderField: "Cookie")
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
 
-        let session = URLSession(configuration: .ephemeral)
+        let config2 = URLSessionConfiguration.ephemeral
+        config2.timeoutIntervalForRequest = 30
+        config2.timeoutIntervalForResource = 30
+        let session = URLSession(configuration: config2)
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {

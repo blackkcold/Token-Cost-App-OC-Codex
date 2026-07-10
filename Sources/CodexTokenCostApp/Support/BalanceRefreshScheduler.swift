@@ -38,6 +38,10 @@ final class BalanceRefreshScheduler: ObservableObject {
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
+                    // 10s polling allows rapid response to balanceEnabled /
+                    // balanceRefreshSeconds config changes without waiting for
+                    // the full configured interval. shouldRefresh() guard
+                    // prevents unnecessary refresh calls — most polls are no-ops.
                     try await Task.sleep(nanoseconds: 10_000_000_000)
                 } catch {
                     break

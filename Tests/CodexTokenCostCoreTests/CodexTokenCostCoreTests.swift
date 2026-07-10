@@ -417,6 +417,37 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertNil(json["opencode_go_workspace_id"])
     }
 
+    // MARK: - AppPreferences credentialSourceMode tests
+
+    func testAppPreferencesInitDefaultsToAutoBrowser() {
+        let prefs = AppPreferences()
+        XCTAssertEqual(prefs.credentialSourceMode, .autoBrowser)
+    }
+
+    func testAppPreferencesInitRetainsKeychainOnly() {
+        let prefs = AppPreferences(credentialSourceMode: .keychainOnly)
+        XCTAssertEqual(prefs.credentialSourceMode, .keychainOnly)
+    }
+
+    func testAppPreferencesDecodePreservesCredentialSourceMode() throws {
+        let data = #"{"language":"zh-Hans","credential_source_mode":"keychainOnly"}"#.data(using: .utf8)!
+        let prefs = try JSONDecoder().decode(AppPreferences.self, from: data)
+        XCTAssertEqual(prefs.credentialSourceMode, .keychainOnly)
+    }
+
+    func testAppPreferencesDecodeMissingCredentialSourceModeDefaultsToAutoBrowser() throws {
+        let data = #"{"language":"zh-Hans"}"#.data(using: .utf8)!
+        let prefs = try JSONDecoder().decode(AppPreferences.self, from: data)
+        XCTAssertEqual(prefs.credentialSourceMode, .autoBrowser)
+    }
+
+    func testAppPreferencesEncodeIncludesCredentialSourceMode() throws {
+        let prefs = AppPreferences(credentialSourceMode: .keychainOnly)
+        let data = try JSONEncoder().encode(prefs)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(json["credential_source_mode"] as? String, "keychainOnly")
+    }
+
     func testAppPreferencesStorePersistsAutomaticSettings() throws {
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("app_preferences_store_\(UUID().uuidString)", isDirectory: true)

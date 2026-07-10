@@ -11,6 +11,8 @@ public struct CodexBalanceChecker: BalanceChecker {
         }
 
         let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 30
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         let session = URLSession(configuration: config)

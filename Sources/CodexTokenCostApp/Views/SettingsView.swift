@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var codexRootsPageIndex = 0
     @State private var codexManualPageIndex = 0
     @State private var showBalanceNetworkAlert = false
+    @State private var goWorkspaceIDInput: String = ""
     @State private var goCookieInput: String = ""
     @State private var goCookieSaved: Bool = false
     @State private var isTestingGoConnection = false
@@ -82,9 +83,23 @@ struct SettingsView: View {
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 780, minHeight: 600)
         .onAppear {
-            if let savedOllamaCookie = SecureCredentialStore.shared.getOllamaCookie(), !savedOllamaCookie.isEmpty {
-                ollamaCookieInput = savedOllamaCookie
-                ollamaCookieSaved = true
+            let snapshot = appPreferencesModel.localCredentialSnapshot()
+            goWorkspaceIDInput = snapshot.workspaceID ?? appPreferencesModel.preferences.opencodeGoWorkspaceID ?? ""
+            goCookieInput = snapshot.goCookie ?? ""
+            goCookieSaved = !(snapshot.goCookie?.isEmpty ?? true)
+            ollamaCookieInput = snapshot.ollamaCookie ?? ""
+            ollamaCookieSaved = !(snapshot.ollamaCookie?.isEmpty ?? true)
+
+            if snapshot.workspaceID != nil || snapshot.goCookie != nil {
+                let cachedWorkspaceID = snapshot.workspaceID?.isEmpty == false ? snapshot.workspaceID : nil
+                let cachedGoCookie = snapshot.goCookie?.isEmpty == false ? snapshot.goCookie : nil
+                CredentialBootstrapService.shared.updateCachedGoCookie(
+                    cachedGoCookie,
+                    workspaceID: cachedWorkspaceID
+                )
+            }
+            if let ollamaCookie = snapshot.ollamaCookie {
+                CredentialBootstrapService.shared.updateCachedOllamaCookie(ollamaCookie.isEmpty ? nil : ollamaCookie)
             }
         }
         .onChange(of: isTestingGoConnection) { _, newValue in
@@ -164,22 +179,31 @@ struct SettingsView: View {
             titleVisibility: .visible
         ) {
             Button(AppLocalization.text("settings.action.continueImport")) {
+                showBrowserImportAlert = false
                 isImportingFromBrowser = true
                 Task.detached(priority: .userInitiated) {
                     let result = BrowserCookieExtractor.extractCredentials()
                     await MainActor.run {
-                        if let cookie = result.cookie, !cookie.isEmpty {
-                            goCookieInput = cookie
-                            SecureCredentialStore.shared.saveAuthCookie(cookie)
-                            goCookieSaved = true
-                        }
-                        if let workspaceID = result.workspaceID, !workspaceID.isEmpty {
-                            appPreferencesModel.updatePreferences { prefs in
-                                prefs.opencodeGoWorkspaceID = workspaceID
-                            }
-                            SecureCredentialStore.shared.saveWorkspaceID(workspaceID)
-                        }
-                        if result.cookie != nil || result.workspaceID != nil {
+                        let browserWorkspaceID = result.workspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let browserCookie = result.cookie?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if browserWorkspaceID?.isEmpty == false || browserCookie?.isEmpty == false {
+                            let current = appPreferencesModel.localCredentialSnapshot()
+                            let currentWorkspaceDraft = goWorkspaceIDInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let currentCookieDraft = goCookieInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                            let resolvedWorkspaceID = browserWorkspaceID?.isEmpty == false
+                                ? browserWorkspaceID
+                                : (!currentWorkspaceDraft.isEmpty ? currentWorkspaceDraft : current.workspaceID)
+                            let resolvedCookie = browserCookie?.isEmpty == false
+                                ? browserCookie
+                                : (!currentCookieDraft.isEmpty ? currentCookieDraft : current.goCookie)
+                            appPreferencesModel.saveLocalGoCredentials(
+                                workspaceID: resolvedWorkspaceID,
+                                cookie: resolvedCookie
+                            )
+                            let refreshed = appPreferencesModel.localCredentialSnapshot()
+                            goWorkspaceIDInput = refreshed.workspaceID ?? ""
+                            goCookieInput = refreshed.goCookie ?? ""
+                            goCookieSaved = !(refreshed.goCookie?.isEmpty ?? true)
                             browserImportMessage = AppLocalization.text("settings.opencodeGo.import.success")
                         } else {
                             browserImportMessage = AppLocalization.text("settings.opencodeGo.import.noBrowser")
@@ -198,20 +222,18 @@ struct SettingsView: View {
             titleVisibility: .visible
         ) {
             Button(AppLocalization.text("settings.action.continueImport")) {
+                showOllamaBrowserImportAlert = false
                 isImportingOllamaFromBrowser = true
                 Task.detached(priority: .userInitiated) {
                     let cookie = BrowserCookieExtractor.extractOllamaCookie()
                     await MainActor.run {
-                        if let cookie = cookie, !cookie.isEmpty {
-                            ollamaCookieInput = cookie
-                            let saved = SecureCredentialStore.shared.saveOllamaCookie(cookie)
-                            ollamaCookieSaved = saved
-                            if saved {
-                                ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.import.success")
-                                isTestingOllamaConnection = true
-                            } else {
-                                ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.import.saveFailed")
-                            }
+                        if let cookie = cookie?.trimmingCharacters(in: .whitespacesAndNewlines), !cookie.isEmpty {
+                            appPreferencesModel.saveLocalOllamaCookie(cookie)
+                            let refreshed = appPreferencesModel.localCredentialSnapshot()
+                            ollamaCookieInput = refreshed.ollamaCookie ?? ""
+                            ollamaCookieSaved = !(refreshed.ollamaCookie?.isEmpty ?? true)
+                            ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.import.success")
+                            isTestingOllamaConnection = true
                         } else {
                             ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.import.noCookie")
                         }
@@ -338,6 +360,7 @@ struct SettingsView: View {
                 balanceManager: balanceManager,
                 palette: palette,
                 showBalanceNetworkAlert: $showBalanceNetworkAlert,
+                goWorkspaceIDInput: $goWorkspaceIDInput,
                 goCookieInput: $goCookieInput,
                 goCookieSaved: $goCookieSaved,
                 isTestingGoConnection: $isTestingGoConnection,

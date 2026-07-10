@@ -262,6 +262,11 @@
 "settings.balance.refreshIntervalSeconds" = "%d 秒";
 "settings.balance.refreshNow" = "立即刷新余额";
 "settings.balance.searchingBrowser" = "正在搜索浏览器数据…";
+"settings.balance.importLegacyKeychain" = "导入旧 Keychain";
+"settings.balance.importLegacyKeychain.message" = "将旧 macOS Keychain 中缺失的 Go 或 Ollama 凭证复制到本地加密存储，不会删除 Keychain 记录。";
+"settings.balance.importLegacyKeychain.none" = "未找到旧 Keychain 凭证。";
+"settings.balance.importLegacyKeychain.success" = "已从旧 Keychain 导入 %d 个凭证字段。";
+"settings.balance.importLegacyKeychain.title" = "导入旧 Keychain 凭证";
 "settings.balance.subtitle" = "通过 HTTPS 查询各 Provider 余额，凭证只保存在本地。";
 "settings.balance.title" = "余额监控";
 "settings.skills.previewLength" = "正文预览长度";
@@ -412,8 +417,9 @@
 "settings.opencodeGo.credentials.title" = "OpenCode Go 凭证";
 "settings.opencodeGo.credentials.workspaceID" = "Workspace ID (例如 wrk_01ABC...)";
 "settings.opencodeGo.credentials.authCookie" = "Auth Cookie (Fe26.2...)";
-"settings.opencodeGo.credentials.saved" = "Cookie 已保存到钥匙串";
-"settings.opencodeGo.credentials.hint" = "凭证将加密存储于 macOS 钥匙串。也可设置环境变量 OPENCODE_GO_WORKSPACE_ID / OPENCODE_GO_AUTH_COOKIE。";
+"settings.opencodeGo.credentials.saved" = "已本地保存";
+"settings.opencodeGo.credentials.cleared" = "Go cookie 已清空";
+"settings.opencodeGo.credentials.hint" = "凭证将加密存储于本地存储。也可设置环境变量 OPENCODE_GO_WORKSPACE_ID / OPENCODE_GO_AUTH_COOKIE。";
 "settings.action.testConnection" = "测试连接";
 "settings.opencodeGo.test.success" = "连接成功";
 "settings.opencodeGo.test.successMessage" = "成功获取 OpenCode Go 余额快照。";
@@ -425,17 +431,17 @@
 
 "settings.opencodeGo.importFromBrowser" = "从浏览器导入…";
 "settings.opencodeGo.import.confirmTitle" = "导入浏览器凭证";
-"settings.opencodeGo.import.confirmMessage" = "此操作将读取 Edge / Chrome / Brave / Arc 中 opencode.ai 域名的 Cookie 和浏览记录，仅在本地解密后存入钥匙串。macOS 可能会弹出 Keychain 授权请求，请点击允许。是否继续？";
+"settings.opencodeGo.import.confirmMessage" = "此操作将读取 Edge / Chrome / Brave / Arc 中 opencode.ai 域名的 Cookie 和浏览记录，仅在本地解密后存入本地加密存储。是否继续？";
 "settings.opencodeGo.import.success" = "已导入凭证";
 "settings.opencodeGo.import.noBrowser" = "未找到支持的浏览器数据，请确认已在浏览器中登录 opencode.ai";
 "settings.opencodeGo.import.partial" = "已导入 Cookie，请手动填写 Workspace ID";
 "settings.opencodeGo.help.configure" = "配置 OpenCode Go 凭证";
 
-"settings.ollama.credentials.title" = "通过 Keychain 存储 Ollama session cookie";
+"settings.ollama.credentials.title" = "将 Ollama session cookie 存储到本地加密存储";
 "settings.ollama.credentials.subtitle" = "支持从浏览器自动导入，或手动输入裸 cookie 值/完整 Cookie header 格式";
 "settings.ollama.credentials.cookieLabel" = "Cookie";
 "settings.ollama.credentials.placeholder" = "输入 Ollama Cookie";
-"settings.ollama.credentials.saved" = "已保存到 Keychain";
+"settings.ollama.credentials.saved" = "已本地保存";
 "settings.ollama.credentials.deleted" = "已删除";
 "settings.ollama.status.used" = "已用 %d%%";
 "settings.ollama.status.connected" = "已连接";
@@ -444,7 +450,7 @@
 "settings.ollama.import.message" = "将尝试从 Edge / Chrome / Brave / Arc 浏览器中提取 ollama.com 的 session cookie。";
 "settings.ollama.import.success" = "导入成功";
 "settings.ollama.import.noCookie" = "未找到 Ollama Cookie";
-"settings.ollama.import.saveFailed" = "Cookie 提取成功，但保存到 Keychain 失败";
+"settings.ollama.import.saveFailed" = "Cookie 提取成功，但保存到本地存储失败";
 "settings.ollama.test.success" = "连接成功";
 "settings.ollama.test.successMessage" = "成功获取 Ollama 余额快照。";
 "settings.ollama.test.failed" = "连接失败";
@@ -742,6 +748,8 @@
 "settings.balance.menuBarDisplayMode" = "菜单栏余额显示模式";
 "settings.balance.displayMode.used" = "已使用";
 "settings.balance.displayMode.remaining" = "剩余";
+"settings.balance.credentialSource" = "凭证来源模式";
+"balance.bootstrap.error.title" = "凭证自动导入失败";
 "balance.error.recoveryHint" = "请检查凭证或网络连接";
 "balance.error.reimport" = "立即导入";
 "settings.opencodeGo.diagnosis.cookieExpired" = "Auth Cookie 已过期，请重新导入";

@@ -30,8 +30,6 @@ struct TotalView: View {
             .padding(20)
         }
         .task {
-            openCodeModel.bootstrapIfNeeded()
-            codexModel.bootstrapIfNeeded()
             refreshCachedDailyData()
         }
         .onChange(of: codexPayload?.summary.updatedAt ?? "") { _, _ in

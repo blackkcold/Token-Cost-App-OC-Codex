@@ -25,6 +25,58 @@ final class AppPreferencesModel: ObservableObject {
         updatePreferences { $0.theme = legacyTheme }
     }
 
+    struct LocalCredentialSnapshot {
+        let workspaceID: String?
+        let goCookie: String?
+        let ollamaCookie: String?
+    }
+
+    func localCredentialSnapshot() -> LocalCredentialSnapshot {
+        let local = LocalCredentialService.shared
+        return LocalCredentialSnapshot(
+            workspaceID: local.getWorkspaceID(),
+            goCookie: local.getAuthCookie(),
+            ollamaCookie: local.getOllamaCookie()
+        )
+    }
+
+    func saveLocalGoCredentials(workspaceID: String?, cookie: String?) {
+        let normalizedWorkspaceID = normalizedLocalCredentialValue(workspaceID)
+        let normalizedCookie = normalizedLocalCredentialValue(cookie)
+        LocalCredentialService.shared.saveGoCredentials(workspaceID: normalizedWorkspaceID, cookie: normalizedCookie)
+        CredentialBootstrapService.shared.updateCachedGoCookie(normalizedCookie, workspaceID: normalizedWorkspaceID)
+    }
+
+    func clearLocalGoCookiePreservingWorkspaceID() {
+        let workspaceID = normalizedLocalCredentialValue(LocalCredentialService.shared.getWorkspaceID())
+        LocalCredentialService.shared.saveGoCredentials(workspaceID: workspaceID, cookie: nil)
+        CredentialBootstrapService.shared.updateCachedGoCookie(nil, workspaceID: workspaceID)
+    }
+
+    func saveLocalOllamaCookie(_ cookie: String?) {
+        let normalizedCookie = normalizedLocalCredentialValue(cookie)
+        guard let normalizedCookie else {
+            LocalCredentialService.shared.saveOllamaCookie("")
+            CredentialBootstrapService.shared.updateCachedOllamaCookie(nil)
+            return
+        }
+
+        LocalCredentialService.shared.saveOllamaCookie(normalizedCookie)
+        CredentialBootstrapService.shared.updateCachedOllamaCookie(normalizedCookie)
+    }
+
+    func clearLocalOllamaCookie() {
+        LocalCredentialService.shared.saveOllamaCookie("")
+        CredentialBootstrapService.shared.updateCachedOllamaCookie(nil)
+    }
+
+    private func normalizedLocalCredentialValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
     var languageBinding: Binding<AppDisplayLanguage> {
         Binding(
             get: { self.preferences.language },
@@ -169,17 +221,13 @@ final class AppPreferencesModel: ObservableObject {
 
     var opencodeGoWorkspaceIDBinding: Binding<String> {
         Binding(
-            get: { self.preferences.opencodeGoWorkspaceID ?? "" },
+            get: {
+                self.localCredentialSnapshot().workspaceID
+                    ?? self.preferences.opencodeGoWorkspaceID
+                    ?? ""
+            },
             set: { newValue in
-                self.updatePreferences { preferences in
-                    preferences.opencodeGoWorkspaceID = newValue.isEmpty ? nil : newValue
-                }
-                let wid = newValue.isEmpty ? nil : newValue
-                if let wid {
-                    SecureCredentialStore.shared.saveWorkspaceID(wid)
-                } else {
-                    SecureCredentialStore.shared.deleteWorkspaceID()
-                }
+                self.saveLocalGoCredentials(workspaceID: newValue, cookie: self.localCredentialSnapshot().goCookie)
             }
         )
     }
@@ -280,6 +328,18 @@ final class AppPreferencesModel: ObservableObject {
                 self.updatePreferences { prefs in
                     prefs.balanceOrderLocked = newValue
                 }
+            }
+        )
+    }
+
+    var credentialSourceModeBinding: Binding<CredentialSourceMode> {
+        Binding(
+            get: { self.preferences.credentialSourceMode },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.credentialSourceMode = newValue
+                }
+                CredentialBootstrapService.shared.clearCache()
             }
         )
     }

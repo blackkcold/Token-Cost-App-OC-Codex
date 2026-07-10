@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.0] - 2026-07-10
+
+> 相对 `v0.9.9` 的累计变更。**正式版发布**：凭证系统从 Keychain 全面迁移至本地 AES-256-GCM 加密存储，启动时自动凭证引导，DetailView 异步加载性能优化。
+
+### Added
+
+- **本地加密凭证存储**：新增 `LocalEncryptedCredentialStore`（CryptoKit AES-256-GCM），密文 JSON + 独立 32 字节随机密钥文件分离存储；目录权限 0700 / 文件权限 0600，原子写入，每次写入使用全新随机 nonce（`LocalEncryptedCredentialStore.swift`、`LocalCredentialService.swift`）。
+- **凭证自动引导**：`CredentialBootstrapService` 在 App 启动时自动从浏览器解密 OpenCode Go 和 Ollama 凭证，最多重试 3 次（间隔 1 秒）；成功后缓存到内存，best-effort 写入 Keychain（不触发授权弹窗）；3 次失败后回退 Keychain 已有凭证。用户可在设置中切换为「仅从 Keychain 读取」模式（`CredentialBootstrapService.swift`、`ContentView.swift`）。
+- **凭证来源模式切换**：设置页余额区新增「凭证来源模式」Picker，支持 `autoBrowser`（启动时自动浏览器解密）和 `keychainOnly`（仅从 Keychain 读取）；切换时清除内存缓存（`BalanceSectionView.swift`、`AppPreferences.swift`、`AppPreferencesModel.swift`）。
+- **旧 Keychain 显式导入**：设置页余额区新增「导入旧 Keychain」确认对话框，将旧 macOS Keychain 中缺失的 Go 或 Ollama 凭证复制到本地加密存储，不删除 Keychain 记录（`BalanceSectionView.swift`、`LocalCredentialService.swift`）。
+- **AppPreferencesModel 凭证操作集中化**：新增 `saveLocalGoCredentials()`、`clearLocalGoCookiePreservingWorkspaceID()`、`saveLocalOllamaCookie()`、`clearLocalOllamaCookie()`，所有凭证读写统一通过 `LocalCredentialService` + `CredentialBootstrapService` 双写，消除 UI 层直接操作 Keychain 的散落代码（`AppPreferencesModel.swift`）。
+- **本地化新增 key**：新增 `settings.balance.credentialSource`、`settings.balance.importLegacyKeychain.*`、`balance.bootstrap.error.title` 等 8 个中英双语本地化键（`Localizable.strings` 中英双语）。
+- **凭证系统测试覆盖**：新增 `LocalEncryptedCredentialStoreTests`、`LocalCredentialServiceTests`、`CredentialBootstrapServiceTests` 覆盖加密存储 round-trip、凭证 CRUD、浏览器/Keychain 双来源引导等边界场景（`Tests/`）。
+
+### Changed
+
+- **凭证存储从 Keychain 全面迁移至本地加密存储**：Go workspace ID / Go auth cookie / Ollama cookie 从 `SecureCredentialStore`（macOS Keychain）迁移至 `LocalEncryptedCredentialStore`（AES-256-GCM）；`SecureCredentialStore` 降级为仅作为显式 legacy 导入源，默认运行时不调用（`SecureCredentialStore.swift`、`AuthTokenProvider.swift`、`OpenCodeGoBalanceProvider.swift`、`CodexBalanceProvider.swift`、`BalanceManager.swift`）。
+- **UI 凭证文案更新**：所有「已保存到 Keychain」改为「已本地保存」；浏览器导入确认弹窗移除 Keychain 授权提示；Ollama 凭证区标题从「通过 Keychain 存储」改为「存储到本地加密存储」（`Localizable.strings` 中英双语、`BalanceSectionView.swift`）。
+- **BalanceSectionView UI 重构**：凭证卡片从独立常驻卡片改为放在 Provider toggle 行后的可折叠区域（重构已存在的折叠逻辑），新增凭证来源模式切换控件（`BalanceSectionView.swift`）。
+- **DetailView analytics 异步加载**：`cachedAnalytics` 计算从 `.onAppear` 同步阻塞改为 `Task.detached(priority: .userInitiated)` 异步计算，新增 `analyticsLoadingCard` 加载占位态，避免大数据 payload 时主线程卡顿（`DetailView.swift`）。
+- **OpenCode Go workspaceID 绑定从 AppPreferences 直读改为本地凭证存储优先**：`opencodeGoWorkspaceIDBinding` 优先读取 `LocalCredentialService` 中的值，回退到 `preferences.opencodeGoWorkspaceID`（`AppPreferencesModel.swift`）。
+- **文档同步更新**：开发手册 §3.1 新增 `LocalEncryptedCredentialStore` / `LocalCredentialService` / `SecureCredentialStore` 文件描述，§8 安全边界新增本地加密存储说明；架构逻辑链图关键文件索引同步更新（`docs/开发手册.md`、`docs/架构逻辑链图.md`）。
+
+### Removed
+
+- **Keychain 运行时依赖**：默认运行时不再自动访问 macOS Keychain，避免本地构建 app 触发系统授权弹窗；旧 Keychain 凭证需通过设置页「导入旧 Keychain」显式迁移（`SecureCredentialStore.swift`、`BalanceManager.swift`、`BrowserCookieExtractor.swift`）。
+
+### Fixed
+
+- **OpenCode Go workspaceID 保存后未同步到运行时凭证发现链路**：`saveLocalGoCredentials` 双写 `LocalCredentialService` + `CredentialBootstrapService.updateCachedGoCookie`，消除 UI 保存后刷新仍使用旧 Keychain 值的问题（`AppPreferencesModel.swift`）。
+- **BalanceRefreshScheduler 轮询缺乏注释**：新增 10s 轮询间隔设计说明，明确 `shouldRefresh()` guard 防止不必要的刷新调用（`BalanceRefreshScheduler.swift`）。
+- **OpenCodeGoBalanceProvider credential 发现链路**：从 `SecureCredentialStore` 改为 `LocalCredentialService`，消除 Keychain 不存在时凭证发现静默失败（`OpenCodeGoBalanceProvider.swift`、`BalanceManager.swift`）。
+
+### Security
+
+- **凭证存储升级为 AES-256-GCM**：本地加密凭证存储使用 CryptoKit 实现，密文与密钥文件分离，目录/文件权限严格限制，原子写入 + 每次全新 nonce（`LocalEncryptedCredentialStore.swift`）。
+- **启动时凭证自动引导安全边界**：浏览器自动解密最多重试 3 次，失败后静默回退 Keychain，不阻塞 App 启动；凭证仅驻留内存，不写入日志或文件（`CredentialBootstrapService.swift`）。
+- **凭证来源模式门控**：`keychainOnly` 模式完全禁用浏览器自动解密，仅从 Keychain 读取已有凭证（`AppPreferences.swift`、`CredentialBootstrapService.swift`）。
+- **旧 Keychain 凭证导入确认**：需用户显式在设置页确认后才执行导入，不自动迁移（`BalanceSectionView.swift`）。
+
 ## [v0.9.9] - 2026-07-07
 
 > 相对 `v0.9.8` 的累计变更。
@@ -463,6 +503,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.0...HEAD
+[v1.0.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.9...v1.0.0
 [v0.9.7]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.6...v0.9.7
 [v0.9.9]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.8...v0.9.9
 [v0.9.8]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.7...v0.9.8

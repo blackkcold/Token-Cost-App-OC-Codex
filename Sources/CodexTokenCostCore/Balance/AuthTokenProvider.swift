@@ -133,20 +133,26 @@ public enum AuthTokenProvider {
     }
 
     /// Deprecated legacy Ollama cookie file path. Ollama credentials are now
-    /// stored in Keychain and this URL is retained only for source compatibility.
-    @available(*, deprecated, message: "Ollama cookie is stored in Keychain; the file fallback is no longer used.")
+    /// stored in local encrypted storage and this URL is retained only for
+    /// source compatibility.
+    @available(*, deprecated, message: "Ollama cookie is stored in local encrypted storage; the file fallback is no longer used.")
     public static var ollamaCookieURL: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home.appendingPathComponent(".config/ollama-quota/cookie")
     }
 
-    // MARK: - Ollama cookie (Keychain-backed)
+    // MARK: - Ollama cookie (local encrypted storage)
 
-    /// Keychain service identifier used for Ollama cookie storage.
+    /// Legacy Keychain service identifier — retained for source compatibility.
     static let ollamaKeychainService = "com.yanghaoran.CodexTokenCost.ollama"
 
     private static func readOllamaCookie() -> String? {
-        guard let raw = SecureCredentialStore.shared.getOllamaCookie()?
+        if let cached = CredentialBootstrapService.shared.getCachedOllamaCookie(),
+           !cached.isEmpty
+        {
+            return normalizeOllamaCookieHeader(cached)
+        }
+        guard let raw = LocalCredentialService.shared.getOllamaCookie()?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty
         else { return nil }
@@ -154,7 +160,9 @@ public enum AuthTokenProvider {
         return normalizeOllamaCookieHeader(raw)
     }
 
-    /// Internal variant with explicit service for test isolation.
+    /// Internal variant for test isolation — uses Keychain directly so that
+    /// tests can use service-isolated entries without touching the production
+    /// local encrypted store. Not used by production code paths.
     static func readOllamaCookie(service: String) -> String? {
         guard let raw = SecureCredentialStore.shared.getOllamaCookie(service: service)?
             .trimmingCharacters(in: .whitespacesAndNewlines),

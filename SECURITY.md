@@ -4,6 +4,7 @@
 
 | 版本   | 支持状态       |
 |--------|--------------|
+| 1.0.0  | 当前稳定版，接受安全报告和修复 |
 | 0.9.1  | 当前稳定版，接受安全报告和修复 |
 | 0.9.0  | 当前稳定版，接受安全报告和修复 |
 | 0.8.5  | 当前稳定版，接受安全报告和修复 |
@@ -42,6 +43,7 @@
 - 余额监控功能（v0.1.2+）默认关闭 (`balanceEnabled=false`)，维持纯本地承诺。开启后通过 HTTPS 直接调用各 Provider 官方 API 端点（api.opencode.ai、chatgpt.com 等）获取实时余额；API key 从本地 auth.json 临时读取至内存，30 秒后清除，不持久化到磁盘或日志；所有网络请求使用 ephemeral URLSession，不经过第三方服务器；余额快照仅驻留内存，不写入任何本地文件
 - OpenCode Go 配额监控的 authCookie 凭证使用 macOS Keychain (`Security.framework`) 加密存储（`kSecClassGenericPassword` + `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`），不写入明文 JSON 配置文件。workspaceID 为非敏感标识符，仍可在 `AppPreferences` 中保留一份兼容副本，并在用户保存时同步写入 Keychain 供运行时读取；仅当用户在设置中显式开启“允许从环境变量读取凭证”后，运行时才允许读取 `OPENCODE_GO_WORKSPACE_ID` / `OPENCODE_GO_AUTH_COOKIE`
 - 浏览器凭证自动导入功能（v0.5.1+）仅读取 Edge / Chrome / Brave / Arc 中 `opencode.ai` 域名的 Cookie 和浏览记录；解密操作通过 Chromium 标准 AES-128-CBC + PBKDF2-SHA1 链路在本地完成，用户需在弹窗中明确确认后才执行；解密的 Cookie 只驻留一次 API 调用的内存生命周期，不写入日志、文件或 UserDefaults；浏览器数据库以 `SQLITE_OPEN_READONLY` + 临时文件副本方式访问，操作完成后自动清理
+- 凭证自动引导（v1.0.0+）：启动时自动从浏览器解密 OpenCode Go 和 Ollama 凭证（无需用户确认），最多重试 3 次（每次间隔 1 秒）；成功后凭证缓存在内存中供整个 session 使用，并 best-effort 写入 Keychain（写入不触发授权弹窗）；3 次失败后回退读取 Keychain 已有凭证，若 Keychain 也无凭证则报错误提示并写入 OSLog 日志。用户可在设置中将凭证来源模式切换为「仅从 Keychain 读取」以完全禁用启动时浏览器解密。切换模式时清除内存缓存，下次刷新时按新模式重新获取凭证
 - 版本更新检查功能（v0.5.0+）仅向 GitHub 公开 API (`api.github.com/repos/blackkcold/Token-Cost-App-OC-Codex/releases/latest`) 发起匿名 GET 请求获取最新 Release 元数据，不携带认证凭据、不收集不上传任何用户数据；下载的 `.zip` 文件经大小与 Content-Length 交叉校验后存放于本地 `Application Support` 沙箱内的 `updates/` 目录，不解压后自动运行；检查频率缓存为每 24 小时一次（启动自动），用户可通过工具栏按钮手动触发即时检查（忽略 24h 缓存），防止 API 限流
 - 更新包完整性校验（v0.6.0+）：ditto 解压后的 `.app` bundle 通过 `codesign --verify` 验证签名完整性，防止中间人篡改
 - 浏览器临时文件隔离（v0.6.0+）：Cookie/History SQLite 副本从 `/tmp` 迁移至沙箱专用子目录，权限 0700，操作完成后自动清理

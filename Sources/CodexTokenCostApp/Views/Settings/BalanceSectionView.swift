@@ -6,6 +6,7 @@ struct BalanceSectionView: View {
     @ObservedObject var balanceManager: BalanceManager
     let palette: TokenCostPalette
     @Binding var showBalanceNetworkAlert: Bool
+    @Binding var goWorkspaceIDInput: String
     @Binding var goCookieInput: String
     @Binding var goCookieSaved: Bool
     @Binding var isTestingGoConnection: Bool
@@ -20,12 +21,27 @@ struct BalanceSectionView: View {
     @Binding var ollamaCookieSaved: Bool
 
     @State private var expandedCredentialFor: BalanceProviderKind?
+    @State private var showLegacyKeychainImportAlert = false
+    @State private var legacyKeychainImportMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             balanceToggleCard
             balanceOrderCard
             providerStatusCard
+        }
+        .confirmationDialog(
+            AppLocalization.text("settings.balance.importLegacyKeychain.title"),
+            isPresented: $showLegacyKeychainImportAlert,
+            titleVisibility: .visible
+        ) {
+            Button(AppLocalization.text("settings.action.continueImport")) {
+                showLegacyKeychainImportAlert = false
+                importLegacyKeychainCredentials()
+            }
+            Button(AppLocalization.text("settings.action.cancel"), role: .cancel) {}
+        } message: {
+            Text(AppLocalization.text("settings.balance.importLegacyKeychain.message"))
         }
     }
 
@@ -81,6 +97,23 @@ struct BalanceSectionView: View {
                             .frame(maxWidth: 160)
                         }
                     }
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        SettingsInlineControlRow(
+                            title: "settings.balance.credentialSource".localized,
+                            palette: palette
+                        ) {
+                            Picker("", selection: appPreferencesModel.credentialSourceModeBinding) {
+                                Text(CredentialSourceMode.autoBrowser.displayName)
+                                    .tag(CredentialSourceMode.autoBrowser)
+                                Text(CredentialSourceMode.keychainOnly.displayName)
+                                    .tag(CredentialSourceMode.keychainOnly)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: 160)
+                        }
+                    }
                 }
 
                 if appPreferencesModel.preferences.balanceEnabled {
@@ -108,89 +141,6 @@ struct BalanceSectionView: View {
                                 .foregroundStyle(palette.subtitle)
                         }
                     }
-                }
-            }
-        }
-    }
-
-    // MARK: - Go credentials card
-
-    private var goCredentialsCard: some View {
-        SettingsSurfaceCard(
-            title: "settings.opencodeGo.credentials.title".localized,
-            subtitle: nil,
-            role: .secondary,
-            palette: palette
-        ) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Text("settings.opencodeGo.credentials.workspaceID".localized)
-                        .font(.caption)
-                        .foregroundStyle(palette.title)
-                        .frame(width: 100, alignment: .leading)
-                    TextField(
-                        AppLocalization.text("settings.opencodeGo.credentials.workspaceID"),
-                        text: appPreferencesModel.opencodeGoWorkspaceIDBinding
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption)
-                }
-
-                HStack(spacing: 8) {
-                    Text("settings.opencodeGo.credentials.authCookie".localized)
-                        .font(.caption)
-                        .foregroundStyle(palette.title)
-                        .frame(width: 100, alignment: .leading)
-                    SecureField(
-                        AppLocalization.text("settings.opencodeGo.credentials.authCookie"),
-                        text: $goCookieInput
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption)
-                }
-
-                if goCookieSaved {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.green)
-                        Text("settings.opencodeGo.credentials.saved".localized)
-                            .font(.caption2)
-                            .foregroundStyle(.green)
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    Button {
-                        isTestingGoConnection = true
-                    } label: {
-                        Label("settings.action.testConnection".localized, systemImage: "network")
-                    }
-                    .settingsGlassButtonStyle(prominent: true)
-                    .controlSize(.small)
-                    .disabled(isTestingGoConnection)
-
-                    Button {
-                        showBrowserImportAlert = true
-                    } label: {
-                        Label("settings.opencodeGo.importFromBrowser".localized, systemImage: "safari")
-                    }
-                    .settingsGlassButtonStyle(prominent: false)
-                    .controlSize(.small)
-                    .disabled(isImportingFromBrowser)
-
-                    if isImportingFromBrowser {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .frame(width: 20, height: 20)
-                    }
-                }
-
-                if let importMsg = browserImportMessage {
-                    Text(verbatim: importMsg)
-                        .font(.caption2)
-                        .foregroundStyle(palette.subtitle)
-                        .padding(.top, 2)
                 }
             }
         }
@@ -504,7 +454,7 @@ struct BalanceSectionView: View {
                     .frame(width: 100, alignment: .leading)
                 TextField(
                     AppLocalization.text("settings.opencodeGo.credentials.workspaceID"),
-                    text: appPreferencesModel.opencodeGoWorkspaceIDBinding
+                    text: $goWorkspaceIDInput
                 )
                 .textFieldStyle(.roundedBorder)
                 .font(.caption)
@@ -534,7 +484,23 @@ struct BalanceSectionView: View {
                 }
             }
 
-            HStack(spacing: 10) {
+            SettingsActionWrap(minimumWidth: 150, spacing: 10) {
+                Button {
+                    saveGoCredentials()
+                } label: {
+                    Label("settings.action.save".localized, systemImage: "checkmark.circle")
+                }
+                .settingsGlassButtonStyle(prominent: true)
+                .controlSize(.small)
+
+                Button {
+                    clearGoCookie()
+                } label: {
+                    Label("settings.action.delete".localized, systemImage: "trash")
+                }
+                .settingsGlassButtonStyle(prominent: false)
+                .controlSize(.small)
+
                 Button {
                     isTestingGoConnection = true
                 } label: {
@@ -553,6 +519,14 @@ struct BalanceSectionView: View {
                 .controlSize(.small)
                 .disabled(isImportingFromBrowser)
 
+                Button {
+                    showLegacyKeychainImportAlert = true
+                } label: {
+                    Label("settings.balance.importLegacyKeychain".localized, systemImage: "key.fill")
+                }
+                .settingsGlassButtonStyle(prominent: false)
+                .controlSize(.small)
+
                 if isImportingFromBrowser {
                     ProgressView()
                         .scaleEffect(0.7)
@@ -562,6 +536,13 @@ struct BalanceSectionView: View {
 
             if let importMsg = browserImportMessage {
                 Text(verbatim: importMsg)
+                    .font(.caption2)
+                    .foregroundStyle(palette.subtitle)
+                    .padding(.top, 2)
+            }
+
+            if let legacyKeychainImportMessage {
+                Text(verbatim: legacyKeychainImportMessage)
                     .font(.caption2)
                     .foregroundStyle(palette.subtitle)
                     .padding(.top, 2)
@@ -603,15 +584,6 @@ struct BalanceSectionView: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 .font(.caption)
-                .onChange(of: ollamaCookieInput) { _, newValue in
-                    if newValue.isEmpty {
-                        SecureCredentialStore.shared.deleteOllamaCookie()
-                        ollamaCookieSaved = false
-                    } else {
-                        let saved = SecureCredentialStore.shared.saveOllamaCookie(newValue)
-                        ollamaCookieSaved = saved
-                    }
-                }
             }
 
             if ollamaCookieSaved {
@@ -625,7 +597,23 @@ struct BalanceSectionView: View {
                 }
             }
 
-            HStack(spacing: 10) {
+            SettingsActionWrap(minimumWidth: 150, spacing: 10) {
+                Button {
+                    saveOllamaCookie()
+                } label: {
+                    Label("settings.action.save".localized, systemImage: "checkmark.circle")
+                }
+                .settingsGlassButtonStyle(prominent: true)
+                .controlSize(.small)
+
+                Button {
+                    clearOllamaCookie()
+                } label: {
+                    Label("settings.action.delete".localized, systemImage: "trash")
+                }
+                .settingsGlassButtonStyle(prominent: false)
+                .controlSize(.small)
+
                 Button {
                     isTestingOllamaConnection = true
                 } label: {
@@ -643,17 +631,6 @@ struct BalanceSectionView: View {
                 .settingsGlassButtonStyle(prominent: false)
                 .controlSize(.small)
                 .disabled(isImportingOllamaFromBrowser)
-
-                Button {
-                    SecureCredentialStore.shared.deleteOllamaCookie()
-                    ollamaCookieInput = ""
-                    ollamaCookieSaved = false
-                    ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.credentials.deleted")
-                } label: {
-                    Label("settings.action.delete".localized, systemImage: "trash")
-                }
-                .settingsGlassButtonStyle(prominent: false)
-                .controlSize(.small)
 
                 if balanceManager.isRefreshing || isTestingOllamaConnection || isImportingOllamaFromBrowser {
                     ProgressView()
@@ -722,6 +699,80 @@ struct BalanceSectionView: View {
         .padding(.trailing, 4)
         .padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
+    }
+
+    private func saveGoCredentials() {
+        let workspaceID = goWorkspaceIDInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cookie = goCookieInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        appPreferencesModel.saveLocalGoCredentials(
+            workspaceID: workspaceID.isEmpty ? nil : workspaceID,
+            cookie: cookie.isEmpty ? nil : cookie
+        )
+        reloadLocalCredentialFields()
+        legacyKeychainImportMessage = nil
+        browserImportMessage = nil
+    }
+
+    private func clearGoCookie() {
+        appPreferencesModel.clearLocalGoCookiePreservingWorkspaceID()
+        reloadLocalCredentialFields()
+        legacyKeychainImportMessage = nil
+        browserImportMessage = AppLocalization.text("settings.opencodeGo.credentials.cleared")
+    }
+
+    private func saveOllamaCookie() {
+        let cookie = ollamaCookieInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        appPreferencesModel.saveLocalOllamaCookie(cookie.isEmpty ? nil : cookie)
+        reloadLocalCredentialFields()
+        legacyKeychainImportMessage = nil
+        ollamaBrowserImportMessage = nil
+    }
+
+    private func clearOllamaCookie() {
+        appPreferencesModel.clearLocalOllamaCookie()
+        reloadLocalCredentialFields()
+        legacyKeychainImportMessage = nil
+        ollamaBrowserImportMessage = AppLocalization.text("settings.ollama.credentials.deleted")
+    }
+
+    private func reloadLocalCredentialFields() {
+        let snapshot = appPreferencesModel.localCredentialSnapshot()
+        goWorkspaceIDInput = snapshot.workspaceID ?? ""
+        goCookieInput = snapshot.goCookie ?? ""
+        goCookieSaved = !(snapshot.goCookie?.isEmpty ?? true)
+        ollamaCookieInput = snapshot.ollamaCookie ?? ""
+        ollamaCookieSaved = !(snapshot.ollamaCookie?.isEmpty ?? true)
+    }
+
+    private func syncBootstrapCache(with snapshot: AppPreferencesModel.LocalCredentialSnapshot) {
+        let workspaceID = snapshot.workspaceID?.isEmpty == false ? snapshot.workspaceID : nil
+        let goCookie = snapshot.goCookie?.isEmpty == false ? snapshot.goCookie : nil
+        if workspaceID != nil || goCookie != nil {
+            CredentialBootstrapService.shared.updateCachedGoCookie(
+                goCookie,
+                workspaceID: workspaceID
+            )
+        }
+        if let ollamaCookie = snapshot.ollamaCookie {
+            CredentialBootstrapService.shared.updateCachedOllamaCookie(
+                ollamaCookie.isEmpty ? nil : ollamaCookie
+            )
+        }
+    }
+
+    private func importLegacyKeychainCredentials() {
+        let result = LocalCredentialService.shared.importLegacyKeychainCredentials()
+        let snapshot = appPreferencesModel.localCredentialSnapshot()
+        syncBootstrapCache(with: snapshot)
+        reloadLocalCredentialFields()
+        if result.didCopy {
+            legacyKeychainImportMessage = AppLocalization.format(
+                "settings.balance.importLegacyKeychain.success",
+                result.copiedFields.count
+            )
+        } else {
+            legacyKeychainImportMessage = AppLocalization.text("settings.balance.importLegacyKeychain.none")
+        }
     }
 
     // MARK: - Helpers

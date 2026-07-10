@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.9)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.0)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
@@ -13,14 +13,14 @@
 
 A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
 
-> **Latest**: [v0.9.9](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.9) — developer mode force update, balance custom ordering, OpenCode detail Ollama balance display, drag-sort crash fixes
+> **Latest**: [v1.0.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.0) — credential storage migration, auto-bootstrap, async analytics
 
-### What's New in v0.9.9
+### What's New in v1.0.0
 
-- **Force update** — Developer Mode can now download the latest GitHub release on demand.
-- **Balance ordering** — unlock, reorder, and sync custom balance order across views.
-- **Detail view** — show Ollama balances in Developer Mode.
-- **Stability** — fixed the drag-sort crash when the saved order is shorter than the visible provider list.
+- **Credential storage upgrade** — Migrated from macOS Keychain to local AES-256-GCM encrypted storage (`LocalEncryptedCredentialStore`), eliminating Keychain permission prompts during development builds.
+- **Auto credential bootstrap** — On launch, automatically decrypts Go and Ollama credentials from browser cookies into memory; falls back to Keychain silently. Switch to "Keychain Only" mode in Settings.
+- **Legacy Keychain import** — Settings now offers a one-click "Import legacy Keychain" button to migrate existing credentials to local encrypted storage.
+- **Performance** — `DetailView` analytics computation moved off the main thread via async `Task.detached`, with loading placeholder states for large payloads.
 
 ### Why Token Cost App?
 
@@ -124,14 +124,14 @@ MIT License — see [LICENSE](LICENSE)
 
 一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
 
-> **最新版本**: [v0.9.9](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v0.9.9) — 开发者模式强制更新、余额自定义排序、OpenCode 详情页 Ollama 余额展示、拖拽排序崩溃修复
+> **最新版本**: [v1.0.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.0) — 凭证存储迁移、自动凭证引导、异步 analytics 加载
 
-### v0.9.9 更新
+### v1.0.0 更新
 
-- **强制更新** — 开发者模式可按需下载最新 GitHub release。
-- **余额排序** — 支持解锁、自定义拖拽排序，并在各视图间统一。
-- **详情页** — 开发者模式下可显示 Ollama 余额。
-- **稳定性** — 修复自定义排序短于可见 Provider 列表时的拖拽崩溃。
+- **凭证存储升级** — 从 macOS Keychain 全面迁移至本地 AES-256-GCM 加密存储，消除开发构建时的 Keychain 授权弹窗。
+- **自动凭证引导** — 启动时自动从浏览器解密 Go 和 Ollama 凭证到内存，静默回退 Keychain；可在设置中切换为「仅从 Keychain 读取」。
+- **旧 Keychain 导入** — 设置页新增一键「导入旧 Keychain」按钮，将已有凭证迁移到本地加密存储。
+- **性能优化** — 详情页 analytics 计算移至后台线程异步执行，大数据 payload 不再卡主线程。
 
 ### 为什么需要它？
 
@@ -150,7 +150,7 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 - **中英双语** — 界面可在中文 / 英语之间切换，术语保持一致
 - **多主题** — 海湾蓝、森林绿、暮光橙、极光紫 4 种主题色
 - **人民币/美元计价切换** — 所有价格展示随币种动态切换，自定义月费自动换算
-- **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud 余额实时查询，并展示多窗口配额与余额条目（Ollama 需在开发者模式下启用，session cookie 存储在系统 Keychain 中；支持从 Chrome/Edge/Brave/Arc 浏览器自动导入和一键测试连接）
+- **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud 余额实时查询，并展示多窗口配额与余额条目（Ollama 需在开发者模式下启用，session cookie 存储在系统 Keychain 中；支持从 Chrome/Edge/Brave/Arc 浏览器自动导入和一键测试连接；启动时自动从浏览器解密凭证并缓存到内存，无需每次打开 app 都触发 Keychain 权限弹窗，用户可在设置中切换为「仅从 Keychain 读取」模式）
 - **响应式设置页** — 模块化折叠设置面板，短控件采用横向自适应布局，桌面端浏览更高效
 - **桌面窗口行为优化** — 关闭主窗口后自动隐藏 Dock 图标，保留 MenuBar 工作流
 - **版本更新检查** — 启动时静默检查 + 手动触发，自动下载更新包
