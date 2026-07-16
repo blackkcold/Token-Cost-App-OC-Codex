@@ -16,6 +16,8 @@ struct DetailView: View {
     @State private var distributionCardHeight: CGFloat = 0
     @State private var trendDayRange: Int = 30
     @State private var cachedAnalytics: TokenCostDashboardAnalytics?
+    @State private var cachedStackedWindow: RecentStackedWindow?
+    @State private var analyticsRefreshGeneration = 0
 
     private let recentWindowLimit = 100
     private let sectionPageSize = 20
@@ -81,41 +83,54 @@ struct DetailView: View {
             model.bootstrapIfNeeded()
             model.refreshSelectedSourceIfNeeded()
         }
+        .task(id: analyticsRefreshID) {
+            await refreshCachedAnalytics()
+        }
         .onChange(of: model.selectedPayload?.summary.updatedAt ?? "") { _, _ in
             detailPageIndex = 0
             stackedPageIndex = 0
             modelComparisonExpanded = false
-            if let payload = model.selectedPayload {
-                let showZero = model.settings.showZeroUsageXiaomiProvider
-                let overrides = appPreferencesModel.preferences.billingOverridesByProviderKey()
-                Task {
-                    let analytics = await Task.detached(priority: .userInitiated) {
-                        TokenCostDashboardAnalytics(
-                            payload: payload,
-                            showZeroUsageXiaomiProvider: showZero,
-                            billingOverridesByProviderKey: overrides
-                        )
-                    }.value
-                    cachedAnalytics = analytics
-                }
-            }
+            cachedAnalytics = nil
+            cachedStackedWindow = nil
         }
+    }
+
+    private var analyticsRefreshID: String {
+        let updatedAt = model.selectedPayload?.summary.updatedAt ?? ""
+        let showZero = model.settings.showZeroUsageXiaomiProvider ? "1" : "0"
+        let overrides = appPreferencesModel.preferences.billingOverridesByProviderKey()
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+            .joined(separator: "|")
+        return "\(updatedAt)|\(showZero)|\(overrides)"
     }
 
     private func analyticsLoadingCard(_ payload: DashboardPayload) -> some View {
         loadingCard
-            .task(id: payload.summary.updatedAt) {
-                let showZero = model.settings.showZeroUsageXiaomiProvider
-                let overrides = appPreferencesModel.preferences.billingOverridesByProviderKey()
-                let analytics = await Task.detached(priority: .userInitiated) {
-                    TokenCostDashboardAnalytics(
-                        payload: payload,
-                        showZeroUsageXiaomiProvider: showZero,
-                        billingOverridesByProviderKey: overrides
-                    )
-                }.value
-                cachedAnalytics = analytics
-            }
+    }
+
+    private func refreshCachedAnalytics() async {
+        analyticsRefreshGeneration += 1
+        let generation = analyticsRefreshGeneration
+        guard let payload = model.selectedPayload else {
+            cachedAnalytics = nil
+            cachedStackedWindow = nil
+            return
+        }
+
+        let showZero = model.settings.showZeroUsageXiaomiProvider
+        let overrides = appPreferencesModel.preferences.billingOverridesByProviderKey()
+        let analytics = await Task.detached(priority: .userInitiated) {
+            TokenCostDashboardAnalytics(
+                payload: payload,
+                showZeroUsageXiaomiProvider: showZero,
+                billingOverridesByProviderKey: overrides
+            )
+        }.value
+
+        guard generation == analyticsRefreshGeneration else { return }
+        cachedAnalytics = analytics
+        cachedStackedWindow = recentStackedWindow(from: analytics)
     }
 
     private func sourceHeader(_ source: TokenCostSource) -> some View {
@@ -227,9 +242,20 @@ struct DetailView: View {
     }
 
     private func cacheSection(_ analytics: TokenCostDashboardAnalytics) -> some View {
-        TokenSectionCard(
-            title: AppLocalization.text("detail.cache.title"),
-            subtitle: AppLocalization.text("detail.cache.subtitle"),
+        let hasEstimates = analytics.cache.hasEstimates
+        let title = hasEstimates
+            ? AppLocalization.text("detail.cache.titleEstimated")
+            : AppLocalization.text("detail.cache.title")
+        let subtitle = hasEstimates
+            ? AppLocalization.format(
+                "detail.cache.subtitleEstimated",
+                TokenCostFormatters.tokens(analytics.cache.estimatedCacheReadTokens)
+            )
+            : AppLocalization.text("detail.cache.subtitle")
+
+        return TokenSectionCard(
+            title: title,
+            subtitle: subtitle,
             trailing: nil,
             palette: palette
         ) {
@@ -274,14 +300,7 @@ struct DetailView: View {
 
                 VStack(spacing: 10) {
                     ForEach(analytics.providerCacheRows) { row in
-                        DistributionRow(
-                            title: row.displayName,
-                            value: row.cacheReadTokens,
-                            total: max(row.actualTokens + row.cacheReadTokens, 1),
-                            tint: TokenCostSeriesPalette.color(for: row.colorKey),
-                            palette: palette,
-                            suffix: "\(row.cacheWriteLabel) · \(TokenCostFormatters.percent(row.cacheRate))"
-                        )
+                        cacheDistributionRow(for: row)
                     }
                 }
             }
@@ -389,7 +408,7 @@ struct DetailView: View {
     }
 
     private func stackedSection(_ analytics: TokenCostDashboardAnalytics) -> some View {
-        let window = recentStackedWindow(from: analytics)
+        let window = cachedStackedWindow ?? recentStackedWindow(from: analytics)
         let pageCount = max((window.dates.count + sectionPageSize - 1) / sectionPageSize, 1)
         let clampedPage = min(max(stackedPageIndex, 0), pageCount - 1)
         let startIndex = clampedPage * sectionPageSize
@@ -520,6 +539,8 @@ struct DetailView: View {
             sortButton(title: AppLocalization.text("sort.detail.cacheWrite"), field: .cacheWrite, width: 100, alignment: .trailing)
             sortButton(title: AppLocalization.text("sort.detail.total"), field: .total, width: 98, alignment: .trailing)
             sortButton(title: AppLocalization.text("sort.detail.cost"), field: .cost, width: 96, alignment: .trailing)
+            Text(AppLocalization.text("sort.detail.classification"))
+                .frame(width: 70, alignment: .center)
         }
         .font(.caption)
         .foregroundStyle(palette.subtitle)
@@ -554,7 +575,8 @@ struct DetailView: View {
     }
 
     private func detailRow(_ row: DashboardPayload.RawRow) -> some View {
-        HStack(spacing: 12) {
+        let classification = TaskClassificationEngine.classify(row)
+        return HStack(spacing: 12) {
             Text(row.date).frame(width: 96, alignment: .leading)
             Text(row.model).frame(width: 150, alignment: .leading).lineLimit(1)
             Text(row.provider).frame(width: 132, alignment: .leading).lineLimit(1)
@@ -566,6 +588,8 @@ struct DetailView: View {
             Text(row.cost > 0 ? TokenCostFormatters.currency(row.cost, displayCurrency: appPreferencesModel.preferences.displayCurrency) : "-")
                 .frame(width: 96, alignment: .trailing)
                 .foregroundStyle(row.cost > 0 ? .green : palette.subtitle)
+            classificationBadge(classification)
+                .frame(width: 70, alignment: .center)
         }
         .font(.caption)
         .padding(.horizontal, 12)
@@ -575,6 +599,32 @@ struct DetailView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(palette.cardStroke.opacity(0.65), lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private func classificationBadge(_ result: TaskClassificationResult) -> some View {
+        if result.rule == .unclassified {
+            Color.clear
+        } else {
+            Text(result.rule.displayName)
+                .font(.system(size: 9, weight: .medium))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(classificationTint(result.rule).opacity(0.15), in: Capsule())
+                .foregroundStyle(classificationTint(result.rule))
+                .lineLimit(1)
+        }
+    }
+
+    private func classificationTint(_ rule: TaskClassificationRule) -> Color {
+        switch rule {
+        case .reasoning: return .purple
+        case .cacheHeavy: return .teal
+        case .longOutput: return .blue
+        case .highFrequency: return .orange
+        case .highCost: return .red
+        case .unclassified: return palette.subtitle
+        }
     }
 
     private func pieCard(
@@ -672,6 +722,36 @@ struct DetailView: View {
         return TokenCostFormatters.currency(cost, displayCurrency: dc)
     }
 
+    private func cacheRowSuffix(for row: TokenCostDashboardAnalytics.ProviderCacheRow) -> String {
+        let rateText = TokenCostFormatters.percent(row.cacheRate)
+        guard row.hasEstimates else {
+            return AppLocalization.format("detail.cache.rowSuffix", row.cacheWriteLabel, rateText)
+        }
+
+        return AppLocalization.format(
+            "detail.cache.rowSuffixEstimated",
+            row.cacheWriteLabel,
+            rateText,
+            TokenCostFormatters.tokens(row.estimatedCacheReadTokens),
+            AppLocalization.text("detail.cache.estimatedSuffix")
+        )
+    }
+
+    private func cacheDistributionRow(for row: TokenCostDashboardAnalytics.ProviderCacheRow) -> some View {
+        let total = row.hasEstimates
+            ? row.inputTokens + row.cacheReadTokens
+            : row.actualTokens + row.cacheReadTokens
+
+        return DistributionRow(
+            title: row.displayName,
+            value: row.cacheReadTokens,
+            total: max(total, 1),
+            tint: TokenCostSeriesPalette.color(for: row.colorKey),
+            palette: palette,
+            suffix: cacheRowSuffix(for: row)
+        )
+    }
+
     private func modelCostLabel(_ row: TokenCostDashboardAnalytics.ModelComparisonRow) -> String {
         guard row.allocatedCost > 0 else {
             return AppLocalization.text("detail.providerRank.noPricing")
@@ -680,7 +760,19 @@ struct DetailView: View {
     }
 
     private func openCodeTrendPoint(_ point: TokenCostDashboardAnalytics.TrendPoint) -> TokenTrendChartPoint {
-        TokenTrendChartPoint(
+        let estimatedTokens = point.estimatedCacheReadTokens
+        let cacheHitTitle = estimatedTokens > 0
+            ? AppLocalization.text("detail.tooltip.cacheHitWithEstimates")
+            : AppLocalization.text("detail.tooltip.cacheHit")
+        let estimatedTooltipLine: TokenTrendTooltipLine? = estimatedTokens > 0
+            ? TokenTrendTooltipLine(
+                color: .mint,
+                title: AppLocalization.text("detail.tooltip.cacheEstimated"),
+                value: TokenCostFormatters.tokens(estimatedTokens)
+            )
+            : nil
+
+        return TokenTrendChartPoint(
             date: point.date,
             dateString: point.dateString,
             actualTokens: point.actualTokens,
@@ -692,15 +784,16 @@ struct DetailView: View {
                 ),
                 TokenTrendTooltipLine(
                     color: .green,
-                    title: AppLocalization.text("detail.tooltip.cacheHit"),
+                    title: cacheHitTitle,
                     value: TokenCostFormatters.tokens(point.cacheReadTokens)
                 ),
+                estimatedTooltipLine,
                 TokenTrendTooltipLine(
                     color: .orange,
                     title: AppLocalization.text("detail.tooltip.cacheWrite"),
                     value: TokenCostFormatters.tokens(point.cacheWriteTokens)
                 )
-            ]
+            ].compactMap { $0 }
         )
     }
 

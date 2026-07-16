@@ -58,9 +58,14 @@
 "detail.cache.hitRateSubtitle" = "read / (actual + read)";
 "detail.cache.hitSubtitle" = "Read-hit token";
 "detail.cache.savedCost" = "Saved cost";
-"detail.cache.savedCostSubtitle" = "Estimated using average unit price";
+"detail.cache.savedCostSubtitle" = "Estimated using model marginal price difference";
 "detail.cache.subtitle" = "Hits, writes, and savings";
+"detail.cache.subtitleEstimated" = "Hits, writes, and savings · %@ estimated reads";
 "detail.cache.title" = "Cache analysis";
+"detail.cache.titleEstimated" = "Cache analysis (estimated)";
+"detail.cache.estimatedSuffix" = "estimated";
+"detail.cache.rowSuffix" = "%@ · %@";
+"detail.cache.rowSuffixEstimated" = "%@ · %@ · %@ %@";
 "detail.cache.total" = "Cache total";
 "detail.cache.totalSubtitle" = "Read + write";
 "detail.cache.write" = "Cache writes";
@@ -109,6 +114,8 @@
 "detail.stacked.title" = "Daily model stack";
 "detail.tooltip.actualTokens" = "Actual Token";
 "detail.tooltip.cacheHit" = "Cache hits";
+"detail.tooltip.cacheHitWithEstimates" = "Cache hits (includes estimates)";
+"detail.tooltip.cacheEstimated" = "Estimated cache reads";
 "detail.tooltip.cacheWrite" = "Cache writes";
 "detail.trend.subtitle" = "Smoothed curve + hover tooltip";
 "detail.trend.title" = "Daily token trend";
@@ -154,6 +161,7 @@
 "overview.openCode.apiCostSubtitle" = "API billing basis";
 "overview.openCode.cacheTokens" = "Cached token";
 "overview.openCode.cacheTokensSubtitle" = "Cache read + write";
+"overview.openCode.cacheTokensSubtitleExcludesEstimate" = "Excludes Ollama Cloud cache estimate";
 "overview.openCode.dateRange" = "Date range %@ → %@";
 "overview.monthlyCost" = "Monthly Cost";
 "overview.opencodeTokens" = "OpenCode Tokens";
@@ -312,6 +320,7 @@
 "sort.codex.updatedAt" = "Updated at";
 "sort.detail.cacheRead" = "Cache Read";
 "sort.detail.cacheWrite" = "Cache Write";
+"sort.detail.classification" = "Class";
 "sort.detail.cost" = "Cost";
 "sort.detail.date" = "Date";
 "sort.detail.input" = "Input";

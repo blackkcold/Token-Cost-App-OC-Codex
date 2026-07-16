@@ -61,7 +61,7 @@ public enum UsageGradient: Sendable {
 
 /// A single currency-denominated balance entry (e.g. CNY, USD).
 public struct BalanceValueEntry: Codable, Hashable, Identifiable, Sendable {
-    public var id: String { "\(label)-\(currencyCode ?? "???")" }
+    public var id: String { "\(label)-\(currencyCode ?? "???")-\(amount)" }
     public let label: String
     public let currencyCode: String?
     public let amount: Double
@@ -194,7 +194,7 @@ public enum BalanceDisplayMode: String, Codable, CaseIterable, Sendable {
 
 /// A single time-based quota window (e.g. 5-hour rolling, weekly, monthly).
 public struct BalanceQuotaWindow: Codable, Hashable, Identifiable, Sendable {
-    public var id: String { label }
+    public var id: String { "\(label)-\(windowSeconds ?? 0)" }
     public let label: String
     public let usedRatio: Double?
     public let remainingRatio: Double?

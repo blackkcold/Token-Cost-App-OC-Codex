@@ -39,33 +39,76 @@ struct MenuBarView: View {
             }
 
             Divider()
+            HStack(spacing: 8) {
+                Button {
+                    activateMainWindow()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "macwindow")
+                            .font(.system(size: 13, weight: .medium))
+                        Text(AppLocalization.text("menu.openMainWindow"))
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(palette.accent.opacity(0.15))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(palette.accent.opacity(0.3), lineWidth: 0.5)
+                    )
+                    .foregroundStyle(palette.accent)
+                }
+                .buttonStyle(.plain)
 
-            Button {
-                activateMainWindow()
-            } label: {
-                Label(AppLocalization.text("menu.openMainWindow"), systemImage: "window")
+                Button {
+                    openCodeModel.rescanSources()
+                    codexModel.refresh()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .medium))
+                        Text(AppLocalization.text("menu.refreshAll"))
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.green.opacity(0.15))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.green.opacity(0.3), lineWidth: 0.5)
+                    )
+                    .foregroundStyle(Color.green)
+                }
+                .buttonStyle(.plain)
+                .disabled(openCodeModel.isBootstrapping || openCodeModel.isRefreshing || codexModel.isBootstrapping || codexModel.isRefreshing)
+                .opacity(openCodeModel.isBootstrapping || openCodeModel.isRefreshing || codexModel.isBootstrapping || codexModel.isRefreshing ? 0.5 : 1.0)
             }
-
-            Button {
-                openCodeModel.rescanSources()
-                codexModel.refresh()
-            } label: {
-                Label(AppLocalization.text("menu.refreshAll"), systemImage: "arrow.clockwise")
-            }
-            .disabled(openCodeModel.isBootstrapping || openCodeModel.isRefreshing || codexModel.isBootstrapping || codexModel.isRefreshing)
-
-            Button {
-                WindowOpeningSupport.openSingletonWindow(id: "settings", openWindow: openWindow)
-            } label: {
-                Label(AppLocalization.text("menu.openSettings"), systemImage: "gearshape")
-            }
-
             Divider()
+            HStack {
+                Spacer()
+                Button {
+                    WindowOpeningSupport.openWindow(id: "settings", openWindow: openWindow)
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .help(AppLocalization.text("menu.openSettings"))
 
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Label(AppLocalization.text("menu.quit"), systemImage: "xmark.circle")
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .help(AppLocalization.text("menu.quit"))
             }
         }
         .frame(width: 290)
@@ -254,7 +297,7 @@ struct MenuBarView: View {
     }
 
     private func activateMainWindow() {
-        WindowOpeningSupport.showOrRevealMainWindow(openWindow: openWindow)
+        WindowOpeningSupport.openWindow(id: "main", openWindow: openWindow)
     }
 
     // MARK: - Balance Summary
@@ -265,37 +308,41 @@ struct MenuBarView: View {
 
     private var balanceSummary: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(AppLocalization.text("balance.title"))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(palette.subtitle)
-
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 6),
-                GridItem(.flexible(), spacing: 6)
-            ], spacing: 6) {
-                ForEach(sortedSnapshots) { snapshot in
-                    balanceCard(snapshot)
-                }
-            }
-
             HStack {
+                Text(AppLocalization.text("balance.title"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.subtitle)
                 Spacer()
                 Button {
                     Task { await balanceManager.refresh(force: true) }
                 } label: {
-                    HStack(spacing: 4) {
-                        if balanceManager.isRefreshing {
-                            ProgressView()
-                                .scaleEffect(0.6)
-                                .frame(width: 12, height: 12)
-                        }
-                        Text(AppLocalization.text("menu.refreshBalance"))
+                    if balanceManager.isRefreshing {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: 12, height: 12)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
                     }
-                    .font(.caption2)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(balanceManager.isRefreshing ? palette.subtitle : palette.accent)
                 .disabled(balanceManager.isRefreshing)
+                .help(AppLocalization.text("menu.refreshBalance"))
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 6) {
+                ForEach(Array(stride(from: 0, to: sortedSnapshots.count, by: 2).enumerated()), id: \.offset) { _, startIndex in
+                    GridRow {
+                        balanceCard(sortedSnapshots[startIndex])
+                        if startIndex + 1 < sortedSnapshots.count {
+                            balanceCard(sortedSnapshots[startIndex + 1])
+                        } else {
+                            Color.clear
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                }
             }
         }
     }
@@ -370,7 +417,7 @@ struct MenuBarView: View {
                     .lineLimit(2)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(6)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)

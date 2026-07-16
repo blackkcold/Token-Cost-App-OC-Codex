@@ -49,6 +49,35 @@ public enum TokenCostSortDirection: String, CaseIterable, Identifiable, Codable,
     }
 }
 
+/// Public access points for Ollama Cloud cache-read estimation utilities.
+public enum OllamaCloudCacheEstimation {
+    public static func normalizedModelName(_ model: String) -> String {
+        TokenCostPricingCatalog.normalizeModelName(model)
+    }
+
+    /// multiplier = rate / (1 − rate). Returns 0 for unknown models.
+    public static func cacheReadMultiplier(for model: String) -> Double {
+        TokenCostPricingCatalog.ollamaCacheReadEstimationMultiplier(for: model)
+    }
+
+    /// Injects estimation for ollama-cloud when cacheRead == 0; returns real cacheRead otherwise.
+    public static func effectiveCacheRead(provider: String, model: String, cacheRead: Double, input: Double) -> Double {
+        guard provider == "ollama-cloud",
+              cacheRead == 0,
+              input > 0,
+              input.isFinite else {
+            return cacheRead
+        }
+        let normalized = TokenCostPricingCatalog.normalizeModelName(model)
+        guard normalized == "deepseek-v4-flash" || normalized == "deepseek-v4-pro" else {
+            return cacheRead
+        }
+        let multiplier = TokenCostPricingCatalog.ollamaCacheReadEstimationMultiplier(for: normalized)
+        let estimated = input * multiplier
+        return (estimated.isFinite && estimated > 0) ? estimated : cacheRead
+    }
+}
+
 public struct TokenCostDashboardAnalytics: Sendable {
     public struct Overview: Sendable {
         public var totalTokens: Double
@@ -70,6 +99,8 @@ public struct TokenCostDashboardAnalytics: Sendable {
         public var totalCacheTokens: Double
         public var cacheHitRate: Double
         public var cacheSavedCost: Double
+        public var estimatedCacheReadTokens: Double
+        public var hasEstimates: Bool
     }
 
     public struct ProviderCacheRow: Identifiable, Sendable {
@@ -84,6 +115,9 @@ public struct TokenCostDashboardAnalytics: Sendable {
         public var cacheWriteLabel: String
         public var cacheRate: Double
         public var colorKey: String
+        public var inputTokens: Double
+        public var estimatedCacheReadTokens: Double
+        public var hasEstimates: Bool
     }
 
     public struct ProviderRankRow: Identifiable, Sendable {
@@ -133,6 +167,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
         public var actualTokens: Double
         public var cacheReadTokens: Double
         public var cacheWriteTokens: Double
+        public var estimatedCacheReadTokens: Double
     }
 
     public struct StackedSeries: Identifiable, Sendable {
@@ -168,11 +203,13 @@ public struct TokenCostDashboardAnalytics: Sendable {
         var dailyActual: [String: Double] = [:]
         var dailyCacheRead: [String: Double] = [:]
         var dailyCacheWrite: [String: Double] = [:]
+        var dailyEstimatedCacheRead: [String: Double] = [:]
         var dailyModelTotals: [String: [String: Double]] = [:]
         var dateKeys: Set<String> = []
         var totalTokensFromRows: Double = 0
         var totalActualTokens: Double = 0
         var totalMessages: Int = 0
+        var totalCacheSavedCost: Double = 0
 
         for row in payload.rawData {
             let providerKey = Self.normalizeProviderKey(row.provider)
@@ -209,6 +246,25 @@ public struct TokenCostDashboardAnalytics: Sendable {
             providerAccumulators[providerKey]?.messages += row.msgCount
             providerAccumulators[providerKey]?.models.insert(modelKey)
             providerAccumulators[providerKey]?.rows.append(row)
+
+            let rowCacheSavedCost = TokenCostPricingCatalog.cacheSavedCost(model: row.model, cacheRead: row.cacheRead)
+            if rowCacheSavedCost.isFinite, rowCacheSavedCost > 0 {
+                totalCacheSavedCost += rowCacheSavedCost
+            }
+
+            if providerKey == "ollama-cloud",
+               row.cacheRead == 0,
+               row.input > 0,
+               row.input.isFinite,
+               modelKey == "deepseek-v4-flash" || modelKey == "deepseek-v4-pro"
+            {
+                let multiplier = TokenCostPricingCatalog.ollamaCacheReadEstimationMultiplier(for: modelKey)
+                let estimated = row.input * multiplier
+                if estimated.isFinite, estimated > 0 {
+                    providerAccumulators[providerKey]?.estimatedCacheRead += estimated
+                    dailyEstimatedCacheRead[row.date, default: 0] += estimated
+                }
+            }
 
             let apiCost = TokenCostPricingCatalog.apiCost(
                 model: row.model,
@@ -253,10 +309,10 @@ public struct TokenCostDashboardAnalytics: Sendable {
         let averagePerRequest = totalMessages > 0 ? totalActualTokens / Double(totalMessages) : 0
         let cacheReadTokens = dailyCacheRead.values.reduce(0, +)
         let cacheWriteTokens = dailyCacheWrite.values.reduce(0, +)
-        let totalCacheTokens = cacheReadTokens + cacheWriteTokens
-        let averageActualCostPerToken = totalActualTokens > 0 ? totalCost / totalActualTokens : 0
-        let cacheSavedCost = cacheReadTokens * averageActualCostPerToken
-        let cacheHitRate = (totalActualTokens + cacheReadTokens) > 0 ? cacheReadTokens / (totalActualTokens + cacheReadTokens) : 0
+        let totalEstimatedCacheRead = dailyEstimatedCacheRead.values.reduce(0, +)
+        let displayedCacheRead = cacheReadTokens + totalEstimatedCacheRead
+        let totalCacheTokens = displayedCacheRead + cacheWriteTokens
+        let cacheHitRate = (totalActualTokens + displayedCacheRead) > 0 ? displayedCacheRead / (totalActualTokens + displayedCacheRead) : 0
 
         self.overview = Overview(
             totalTokens: totalTokensFromRows,
@@ -273,24 +329,33 @@ public struct TokenCostDashboardAnalytics: Sendable {
         )
 
         self.cache = CacheSummary(
-            cacheReadTokens: cacheReadTokens,
+            cacheReadTokens: displayedCacheRead,
             cacheWriteTokens: cacheWriteTokens,
             totalCacheTokens: totalCacheTokens,
             cacheHitRate: cacheHitRate,
-            cacheSavedCost: cacheSavedCost
+            cacheSavedCost: totalCacheSavedCost,
+            estimatedCacheReadTokens: totalEstimatedCacheRead,
+            hasEstimates: totalEstimatedCacheRead > 0
         )
 
         self.providerCacheRows = filteredProviderAccumulators
             .map { key, accumulator in
                 let usageTokens = accumulator.actualTokens + accumulator.cacheRead + accumulator.cacheWrite
-                let totalCache = accumulator.actualTokens + accumulator.cacheRead
-                let cacheRate = totalCache > 0 ? accumulator.cacheRead / totalCache : 0
+                let displayedCacheRead = accumulator.cacheRead + accumulator.estimatedCacheRead
+                let cacheRate: Double
+                if key == "ollama-cloud", accumulator.estimatedCacheRead > 0 {
+                    let denom = accumulator.input + accumulator.cacheRead + accumulator.estimatedCacheRead
+                    cacheRate = denom > 0 ? displayedCacheRead / denom : 0
+                } else {
+                    let totalCache = accumulator.actualTokens + accumulator.cacheRead
+                    cacheRate = totalCache > 0 ? accumulator.cacheRead / totalCache : 0
+                }
                 return ProviderCacheRow(
                     key: key,
                     displayName: accumulator.displayName,
                     usageTokens: usageTokens,
                     actualTokens: accumulator.actualTokens,
-                    cacheReadTokens: accumulator.cacheRead,
+                    cacheReadTokens: displayedCacheRead,
                     cacheWriteTokens: accumulator.cacheWrite,
                     cacheWriteLabel: Self.cacheWriteLabel(
                         writeTokens: accumulator.cacheWrite,
@@ -298,7 +363,10 @@ public struct TokenCostDashboardAnalytics: Sendable {
                         reportedCount: accumulator.cacheWriteReportedCount
                     ),
                     cacheRate: cacheRate,
-                    colorKey: key
+                    colorKey: key,
+                    inputTokens: accumulator.input,
+                    estimatedCacheReadTokens: accumulator.estimatedCacheRead,
+                    hasEstimates: accumulator.estimatedCacheRead > 0
                 )
             }
             .sorted { lhs, rhs in
@@ -333,7 +401,8 @@ public struct TokenCostDashboardAnalytics: Sendable {
             sortedDateKeys: sortedDateKeys,
             dailyActual: dailyActual,
             dailyCacheRead: dailyCacheRead,
-            dailyCacheWrite: dailyCacheWrite
+            dailyCacheWrite: dailyCacheWrite,
+            dailyEstimatedCacheRead: dailyEstimatedCacheRead
         )
         self.stackedSeries = Self.buildStackedSeries(
             sortedDateKeys: sortedDateKeys,
@@ -616,18 +685,22 @@ public struct TokenCostDashboardAnalytics: Sendable {
         sortedDateKeys: [String],
         dailyActual: [String: Double],
         dailyCacheRead: [String: Double],
-        dailyCacheWrite: [String: Double]
+        dailyCacheWrite: [String: Double],
+        dailyEstimatedCacheRead: [String: Double]
     ) -> [TrendPoint] {
         sortedDateKeys.compactMap { key in
             guard let date = Self.chartDateFormatter.date(from: key) else {
                 return nil
             }
+            let estimated = dailyEstimatedCacheRead[key] ?? 0
+            let realCacheRead = dailyCacheRead[key] ?? 0
             return TrendPoint(
                 date: date,
                 dateString: key,
                 actualTokens: dailyActual[key] ?? 0,
-                cacheReadTokens: dailyCacheRead[key] ?? 0,
-                cacheWriteTokens: dailyCacheWrite[key] ?? 0
+                cacheReadTokens: realCacheRead + estimated,
+                cacheWriteTokens: dailyCacheWrite[key] ?? 0,
+                estimatedCacheReadTokens: estimated
             )
         }
     }
@@ -756,6 +829,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
         var output: Double = 0
         var cacheRead: Double = 0
         var cacheWrite: Double = 0
+        var estimatedCacheRead: Double = 0
         var cacheWriteMissingCount: Int = 0
         var cacheWriteReportedCount: Int = 0
         var total: Double = 0
@@ -783,6 +857,52 @@ private enum TokenCostPricingCatalog {
     /// Legacy fallback subscription costs — used ONLY when billingOverridesByProviderKey
     /// does not provide a value for a given provider key. User billing plan selections
     /// (via AppPreferences.billingOverridesByProviderKey()) always take precedence.
+    // MARK: — Ollama Cloud DeepSeek V4 cache-read estimation
+    //
+    // ⚠️ Snapshot data from 2026-07 observation period. These rates are
+    // compile-time constants and will silently drift from reality as Ollama
+    // Cloud's cache infrastructure evolves. Re-snapshot quarterly or when
+    // Ollama Cloud reports significant infra changes. See
+    // docs/Token统计口径定义.md §4.2 for update procedure.
+
+    /// Snapshot cache-read rates for Ollama Cloud DeepSeek models.
+    /// rate = cacheRead / (input + cacheRead), observed Jul 2026.
+    /// Used to estimate missing cache reads when provider reports input>0 but cacheRead==0.
+    private static let ollamaDeepSeekCacheReadSnapshotRates: [String: Double] = [
+        "deepseek-v4-flash": 553_686_784.0 / 600_792_157.0,
+        "deepseek-v4-pro": 1_476_491_904.0 / 1_550_614_127.0
+    ]
+
+    /// Returns the estimated cache-read multiplier for an Ollama Cloud DeepSeek model.
+    /// multiplier = rate / (1 − rate) = snapshot_cacheRead / snapshot_input.
+    /// Returns 0 when rate is not finite, not in (0,1), or model unknown.
+    /// — Only valid for normalized model names "deepseek-v4-flash" & "deepseek-v4-pro".
+    static func ollamaCacheReadEstimationMultiplier(for model: String) -> Double {
+        guard let rate = ollamaDeepSeekCacheReadSnapshotRates[model],
+              rate.isFinite, rate > 0, rate < 1 else {
+            return 0
+        }
+        return rate / (1 - rate)
+    }
+
+    /// Returns the estimated cost saved by serving `cacheRead` tokens from cache
+    /// instead of computing them as input tokens, using the model's marginal price difference.
+    /// Formula: cacheRead × (inputPrice − cacheReadPrice) / 1 000 000.
+    /// Returns 0 when either price is missing or inputPrice ≤ cacheReadPrice.
+    static func cacheSavedCost(model: String, cacheRead: Double) -> Double {
+        let key = normalizeModelName(model)
+        guard let pricing = zenPricing[key],
+              let inputPrice = pricing["input"],
+              let cacheReadPrice = pricing["cacheRead"],
+              inputPrice > cacheReadPrice,
+              cacheRead.isFinite, cacheRead > 0 else {
+            return 0
+        }
+        return cacheRead * (inputPrice - cacheReadPrice) / 1_000_000
+    }
+
+    // MARK: — Legacy subscription costs
+
     static let legacyFallbackMonthlyCosts: [String: Double] = [
         "minimax-cn-coding-plan": TokenCostCurrencyService.convert(98, from: .cny, to: .usd),
         "xiaomi-token-plan-cn": TokenCostCurrencyService.convert(34.9, from: .cny, to: .usd),

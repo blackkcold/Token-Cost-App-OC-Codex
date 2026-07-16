@@ -279,6 +279,6 @@ struct ContentView: View {
             return
         }
         didOpenCodexSourcePrompt = true
-        WindowOpeningSupport.openSingletonWindow(id: "settings", openWindow: openWindow)
+        WindowOpeningSupport.openWindow(id: "settings", openWindow: openWindow)
     }
 }

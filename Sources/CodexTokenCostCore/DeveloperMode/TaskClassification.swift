@@ -56,7 +56,13 @@ public enum TaskClassificationEngine: Sendable {
         
         // Rule 2: Cache-heavy — cache tokens > 30% of total
         if row.total > 0 {
-            let cacheTotal = Double(row.cacheRead + row.cacheWrite)
+            let effectiveCacheRead = OllamaCloudCacheEstimation.effectiveCacheRead(
+                provider: row.provider,
+                model: row.model,
+                cacheRead: Double(row.cacheRead),
+                input: Double(row.input)
+            )
+            let cacheTotal = effectiveCacheRead + Double(row.cacheWrite)
             if cacheTotal / Double(row.total) > 0.3 {
                 return TaskClassificationResult(rule: .cacheHeavy)
             }

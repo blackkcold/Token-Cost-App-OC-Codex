@@ -263,12 +263,36 @@ final class CodexSessionModel: ObservableObject {
             lastErrorMessage = warning
             statusState = .settingsLoadFallback
         }
-        payload = snapshotStore.loadLatest(settings: settings)
+        let capturedSettings = settings
+        let shouldAutoRescan = settings.autoRescan
+        let runtimeRoot = CodexAppPaths.runtimeRoot
+        Task { [weak self] in
+            let loadedPayload = await Task.detached(priority: .userInitiated) {
+                let store = CodexSnapshotStore(runtimeRoot: runtimeRoot)
+                return store.loadLatest(settings: capturedSettings)
+            }.value
+            guard let self else { return }
+            if self.isRefreshing {
+                if self.payload == nil {
+                    self.payload = loadedPayload
+                }
+                return
+            }
+            if shouldAutoRescan, self.payload != nil {
+                return
+            }
+            self.payload = loadedPayload
+            self.evaluatePostLoadState()
+        }
         refreshDiscoverySources()
 
         if settings.autoRescan {
             refresh()
-        } else if payload == nil {
+        }
+    }
+
+    private func evaluatePostLoadState() {
+        if payload == nil {
             shouldPromptForSourceConfirmation = true
             statusState = .waitingManualRefresh
         } else if payload?.summary.sessionCount == 0 {

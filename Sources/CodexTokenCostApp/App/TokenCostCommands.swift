@@ -19,14 +19,14 @@ struct CodexTokenCostCommands: Commands {
             Divider()
 
             Button(AppLocalization.text("menu.openMainWindow")) {
-                WindowOpeningSupport.showOrRevealMainWindow(openWindow: openWindow)
+                WindowOpeningSupport.openWindow(id: "main", openWindow: openWindow)
             }
             .keyboardShortcut("1", modifiers: [.command])
         }
 
         CommandGroup(replacing: .appSettings) {
             Button(AppLocalization.text("menu.openSettings")) {
-                WindowOpeningSupport.openSingletonWindow(id: "settings", openWindow: openWindow)
+                WindowOpeningSupport.openWindow(id: "settings", openWindow: openWindow)
             }
             .keyboardShortcut(",", modifiers: [.command])
         }

@@ -41,6 +41,16 @@
 
 > 缓存写**无额外费用**。自动 KV 缓存，首次按 miss 价收费，后续命中自动 98% 折扣。无 TTL 声明，缓存自动维护。
 
+### Ollama Cloud 下 DeepSeek V4 缓存读缺失估算
+
+Ollama Cloud 代理的 DeepSeek 模型在 token 报告中**不返回 cacheRead**（始终为 0），无法直接衡量缓存命中率。App 自动对 `ollama-cloud` Provider 的 `deepseek-v4-flash` 和 `deepseek-v4-pro` 两个标准化模型启用缓存读估算，无需开发者模式。触发条件如下：
+
+- **数据来源**：2026 年 7 月观测快照（真实 DeepSeek 官方 API 缓存命中率）
+- **命中率快照**：deepseek-v4-flash `rate ≈ 553686784 ÷ 600792157 ≈ 0.9216`；deepseek-v4-pro `rate ≈ 1476491904 ÷ 1550614127 ≈ 0.9523`
+- **估算公式**：`estimatedCacheRead = input × (rate / (1 − rate))` 即 `input × snapshot_cacheRead / snapshot_input`
+- **触发条件**：仅当 `provider == ollama-cloud`、`model` 为标准名称（deepseek-v4-flash/pro）、`cacheRead == 0` 且 `input > 0` 时
+- **安全边界**：估算值只影响展示口径（缓存总量、命中率），不写入源数据，不影响计费口径的 actualTokens、成本计算、cacheSavedCost 和排行
+
 ---
 
 ## OpenAI GPT
@@ -161,4 +171,27 @@ actualInputTokens(Codex) = max(inputTokens - cachedInputTokens, 0)
 actualTokens = input + output + reasoning
 totalTokens = actualTokens + cacheRead + cacheWrite
 cacheHitRate = cacheRead / (actualTokens + cacheRead)
+
+### 缓存节省费用（cacheSavedCost）
+
+仅用于有 `inputPrice` 和 `cacheReadPrice` 双定价的模型。基于**真实** `cacheRead` 计算，不受估算值影响：
+
 ```
+cacheSavedCost = cacheRead × (inputPrice − cacheReadPrice) / 1 000 000
+```
+
+当 `inputPrice ≤ cacheReadPrice` 或任一价格缺失时返回 0。该值计入缓存区 `cacheSavedCost` 指标卡片。
+
+### Ollama Cloud 缓存读估算（展示口径）
+
+当 `ollama-cloud` Provider 下 `cacheRead == 0` 且 `input > 0` 时，对 `deepseek-v4-flash` 和 `deepseek-v4-pro` 启用估算：
+
+```
+rate = snapshot_cacheRead / (snapshot_input + snapshot_cacheRead)  // 2026-07 观测快照
+multiplier = rate / (1 − rate) = snapshot_cacheRead / snapshot_input
+estimatedCacheRead = input × multiplier
+displayedCacheRead = realCacheRead + estimatedCacheRead
+displayedCacheHitRate = displayedCacheRead / (actualTokens + displayedCacheRead)
+```
+
+估算值**仅影响**展示口径——缓存区卡片标题、Provider 缓存行数值和标签、趋势图 tooltip 额外行。估算值**不影响** actualTokens（计费口径）、providerRankRows（真实实际 token）、modelComparisonRows、cost 计算和 cacheSavedCost。UI 中所有含估算的元素均被显式标记（`estimated` 标签、独立色行）。

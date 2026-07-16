@@ -58,9 +58,14 @@
 "detail.cache.hitRateSubtitle" = "read / (actual + read)";
 "detail.cache.hitSubtitle" = "读取命中 Token";
 "detail.cache.savedCost" = "节省成本";
-"detail.cache.savedCostSubtitle" = "按平均单价估算";
+"detail.cache.savedCostSubtitle" = "按模型边际价差估算";
 "detail.cache.subtitle" = "命中、写入、节省成本";
+"detail.cache.subtitleEstimated" = "命中、写入、节省成本 · %@ 预估读取";
 "detail.cache.title" = "缓存分析";
+"detail.cache.titleEstimated" = "缓存分析（含预估）";
+"detail.cache.estimatedSuffix" = "预估";
+"detail.cache.rowSuffix" = "%@ · %@";
+"detail.cache.rowSuffixEstimated" = "%@ · %@ · %@ %@";
 "detail.cache.total" = "缓存总量";
 "detail.cache.totalSubtitle" = "读 + 写";
 "detail.cache.write" = "缓存写入";
@@ -109,6 +114,8 @@
 "detail.stacked.title" = "每日模型堆叠";
 "detail.tooltip.actualTokens" = "实际 Token";
 "detail.tooltip.cacheHit" = "缓存命中";
+"detail.tooltip.cacheHitWithEstimates" = "缓存命中（包含预估）";
+"detail.tooltip.cacheEstimated" = "预估缓存读取";
 "detail.tooltip.cacheWrite" = "缓存写入";
 "detail.trend.subtitle" = "平滑曲线 + hover 提示";
 "detail.trend.title" = "每日 Token 趋势";
@@ -154,6 +161,7 @@
 "overview.openCode.apiCostSubtitle" = "API 口径";
 "overview.openCode.cacheTokens" = "缓存 token";
 "overview.openCode.cacheTokensSubtitle" = "缓存读 + 写";
+"overview.openCode.cacheTokensSubtitleExcludesEstimate" = "不含 Ollama Cloud 缓存估算";
 "overview.openCode.messages" = "消息数";
 "overview.openCode.nonCodexCostSubtitle" = "总成本 - Codex 订阅费用";
 "overview.openCode.subtitle" = "当前口径：%@";
@@ -312,6 +320,7 @@
 "sort.codex.updatedAt" = "更新时间";
 "sort.detail.cacheRead" = "Cache Read";
 "sort.detail.cacheWrite" = "Cache Write";
+"sort.detail.classification" = "分类";
 "sort.detail.cost" = "Cost";
 "sort.detail.date" = "日期";
 "sort.detail.input" = "Input";

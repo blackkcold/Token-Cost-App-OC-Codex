@@ -11,6 +11,7 @@ struct TotalView: View {
     @State private var cachedCodexDailyTokens: [String: Double] = [:]
     @State private var cachedOpenCodeDaily: [String: Double] = [:]
     @State private var cachedHeatmapData: TokenHeatmapData?
+    @State private var dailyDataRefreshGeneration = 0
 
     var body: some View {
         ScrollView {
@@ -30,13 +31,13 @@ struct TotalView: View {
             .padding(20)
         }
         .task {
-            refreshCachedDailyData()
+            await refreshCachedDailyData()
         }
         .onChange(of: codexPayload?.summary.updatedAt ?? "") { _, _ in
-            refreshCachedDailyData()
+            Task { await refreshCachedDailyData() }
         }
         .onChange(of: openCodePayload?.summary.updatedAt ?? "") { _, _ in
-            refreshCachedDailyData()
+            Task { await refreshCachedDailyData() }
         }
     }
 
@@ -104,11 +105,7 @@ struct TotalView: View {
     // MARK: - Heatmap data
 
     private var codexDailyTokens: [String: Double] {
-        if !cachedCodexDailyTokens.isEmpty { return cachedCodexDailyTokens }
-        guard let payload = codexPayload else { return [:] }
-        return CodexDashboardAnalytics.dailyTrendPoints(from: payload).reduce(into: [:]) { dict, point in
-            dict[point.dateString, default: 0] += point.actualTokens
-        }
+        cachedCodexDailyTokens
     }
 
     private var tokenHeatmapCard: some View {
@@ -118,14 +115,20 @@ struct TotalView: View {
             trailing: nil,
             palette: palette
         ) {
-            TokenHeatmapGrid(
-                data: cachedHeatmapData ?? TokenHeatmapBuilder.build(
-                    fromOpenCodeDaily: cachedOpenCodeDaily,
-                    codexDaily: cachedCodexDailyTokens,
-                    referenceDate: Date()
-                ),
-                palette: palette
-            )
+            if let data = cachedHeatmapData {
+                TokenHeatmapGrid(
+                    data: data,
+                    palette: palette
+                )
+            } else {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(0.6)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, minHeight: 120)
+            }
         }
     }
 
@@ -139,6 +142,13 @@ struct TotalView: View {
 
     private var openCodeSummary: DashboardPayload.Summary? {
         openCodePayload?.summary
+    }
+
+    private var hasOllamaCloudEstimate: Bool {
+        guard let rows = openCodePayload?.rawData else { return false }
+        return rows.contains { row in
+            row.provider == "ollama-cloud" && row.cacheRead == 0 && row.input > 0
+        }
     }
 
     private var codexSummary: CodexDashboardPayload.Summary? {
@@ -183,12 +193,7 @@ struct TotalView: View {
 
     /// OpenCode 每日 actual tokens（input + output + reasoning），不含 cache
     private var openCodeDailyActualTokens: [String: Double] {
-        guard let rawData = openCodePayload?.rawData else { return [:] }
-        var result: [String: Double] = [:]
-        for row in rawData {
-            result[row.date, default: 0] += (row.input + row.output + row.reasoning)
-        }
-        return result
+        cachedOpenCodeDaily
     }
 
     private var combinedCost: Double? {
@@ -201,14 +206,41 @@ struct TotalView: View {
         return preferences.nonCodexMonthlyCost(payload: payload)
     }
 
-    private func refreshCachedDailyData() {
-        cachedCodexDailyTokens = codexDailyTokens
-        cachedOpenCodeDaily = openCodeDailyActualTokens
-        cachedHeatmapData = TokenHeatmapBuilder.build(
-            fromOpenCodeDaily: cachedOpenCodeDaily,
-            codexDaily: cachedCodexDailyTokens,
-            referenceDate: Date()
-        )
+    private func refreshCachedDailyData() async {
+        dailyDataRefreshGeneration += 1
+        let generation = dailyDataRefreshGeneration
+        let ocRawData = openCodePayload?.rawData
+        let codexPayloadValue = codexPayload
+        let result = await Task.detached(priority: .userInitiated) {
+            var ocDaily: [String: Double] = [:]
+            if let rawData = ocRawData {
+                for row in rawData {
+                    ocDaily[row.date, default: 0] += (row.input + row.output + row.reasoning)
+                }
+            }
+
+            let cxDaily: [String: Double]
+            if let payload = codexPayloadValue {
+                cxDaily = CodexDashboardAnalytics.dailyTrendPoints(from: payload).reduce(into: [:]) { dict, point in
+                    dict[point.dateString, default: 0] += point.actualTokens
+                }
+            } else {
+                cxDaily = [:]
+            }
+
+            let heatmap = TokenHeatmapBuilder.build(
+                fromOpenCodeDaily: ocDaily,
+                codexDaily: cxDaily,
+                referenceDate: Date()
+            )
+            return (ocDaily, cxDaily, heatmap)
+        }.value
+
+        guard generation == dailyDataRefreshGeneration else { return }
+
+        cachedOpenCodeDaily = result.0
+        cachedCodexDailyTokens = result.1
+        cachedHeatmapData = result.2
     }
 
     private var overviewCard: some View {
@@ -290,7 +322,9 @@ struct TotalView: View {
                     TokenMetricCard(
                         title: AppLocalization.text("overview.openCode.cacheTokens"),
                         value: TokenCostFormatters.tokens(summary.totalCacheTokens),
-                        subtitle: AppLocalization.text("overview.openCode.cacheTokensSubtitle"),
+                        subtitle: hasOllamaCloudEstimate
+                            ? AppLocalization.text("overview.openCode.cacheTokensSubtitleExcludesEstimate")
+                            : AppLocalization.text("overview.openCode.cacheTokensSubtitle"),
                         tint: .green,
                         palette: palette
                     )
