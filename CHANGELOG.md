@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.1] - 2026-07-16
 
 ### Added
 
@@ -27,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **余额卡片统一高度**：菜单栏余额卡片强制 `minHeight: 88`，避免不同 provider 数据量不同导致卡片高度不齐（`MenuBarView.swift`）。
 - **后台刷新调度器脱离主线程**：`BalanceRefreshScheduler.start()` 改为 `Task.detached(priority: .medium)`，偏好读取通过 `MainActor.run` 跳转，防止 App Nap 并降低主线程占用（`BalanceRefreshScheduler.swift`）。
 - **Dock 图标同步移除魔法数字**：`syncDockPolicyAfterWindowClose` 从 `Task.sleep(50ms)` 改为 `DispatchQueue.main.async`，消除竞态窗口（`WindowLifecycleManager.swift`）。
+- **主窗口场景从 `WindowGroup` 改为 `Window`**：`TokenCostApp.swift` 主场景从 `WindowGroup(id: "main")` 改为 `Window(id: "main")`，由系统保证单窗口实例；`openWindow(id: "main")` 在窗口已打开时自动前置，已关闭时重新打开（`TokenCostApp.swift`）。
+- **`WindowOpeningSupport` 简化为统一入口**：移除 `showOrRevealMainWindow`、`openSingletonWindow`、`pendingWindowIDs` 去重逻辑和 `windowDidOpen` 桥接，改为单一 `openWindow(id:openWindow:)` 函数，仅设置激活策略后调用 SwiftUI `openWindow(id:)`（`WindowOpeningSupport.swift`、`WindowLifecycleManager.swift`）。
+- **余额标题行合并刷新图标**：`balanceSummary` 标题行右侧新增 `arrow.clockwise` 刷新按钮，刷新中显示 spinner，移除底部独立刷新 HStack（`MenuBarView.swift`）。
 
 ### Fixed
 
@@ -535,6 +539,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
 [Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.0...HEAD
+[v1.0.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.0...v1.0.1
 [v1.0.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.9...v1.0.0
 [v0.9.7]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.6...v0.9.7
 [v0.9.9]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.8...v0.9.9

@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.0)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.1)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
@@ -13,7 +13,7 @@
 
 A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
 
-> **Latest**: [v1.0.0](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.0) — credential storage migration, auto-bootstrap, async analytics
+> **Latest**: [v1.0.1](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.1) — Window 场景优化、余额刷新 UI 改进、Ollama Cloud 缓存读估算
 
 ### What's New in v1.0.0
 
