@@ -35,23 +35,25 @@ final class BalanceRefreshScheduler: ObservableObject {
 
     func start() {
         guard refreshTask == nil else { return }
-        refreshTask = Task { [weak self] in
+        refreshTask = Task.detached(priority: .medium) { [weak self] in
             while !Task.isCancelled {
                 do {
-                    // 10s polling allows rapid response to balanceEnabled /
-                    // balanceRefreshSeconds config changes without waiting for
-                    // the full configured interval. shouldRefresh() guard
-                    // prevents unnecessary refresh calls — most polls are no-ops.
                     try await Task.sleep(nanoseconds: 10_000_000_000)
                 } catch {
                     break
                 }
 
                 guard let self else { break }
-                guard self.preferencesModel.preferences.balanceEnabled else { continue }
-                guard self.balanceManager.shouldRefresh(
-                    intervalSeconds: self.preferencesModel.preferences.balanceRefreshSeconds
-                ) else { continue }
+                let balanceEnabled = await MainActor.run {
+                    self.preferencesModel.preferences.balanceEnabled
+                }
+                guard balanceEnabled else { continue }
+                let shouldRefresh = await MainActor.run {
+                    self.balanceManager.shouldRefresh(
+                        intervalSeconds: self.preferencesModel.preferences.balanceRefreshSeconds
+                    )
+                }
+                guard shouldRefresh else { continue }
                 await self.balanceManager.refresh()
             }
         }

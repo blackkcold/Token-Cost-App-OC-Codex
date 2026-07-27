@@ -1667,6 +1667,378 @@ final class CodexTokenCostCoreTests: XCTestCase {
             throw XCTSkip("Keychain round-trip is unavailable in this test environment")
         }
     }
+
+    // MARK: — Ollama Cloud DeepSeek V4 cache-read estimation
+
+    func testOllamaDeepSeekFlashEstimationViaAlias() {
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 1_000_000)
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        XCTAssertTrue(analytics.cache.hasEstimates)
+        XCTAssertGreaterThan(analytics.cache.estimatedCacheReadTokens, 0)
+        // multiplier = rate/(1-rate), rate = 553686784/600792157
+        // expected = 1_000_000 * 553686784 / (600792157 - 553686784)
+        let expectedMultiplier = 553_686_784.0 / (600_792_157.0 - 553_686_784.0)
+        let expectedEstimated = 1_000_000.0 * expectedMultiplier
+        XCTAssertEqual(analytics.cache.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
+        // displayed cacheRead = real(0) + estimated
+        XCTAssertEqual(analytics.cache.cacheReadTokens, expectedEstimated, accuracy: 1.0)
+
+        guard let ollamaRow = analytics.providerCacheRows.first(where: { $0.key == "ollama-cloud" }) else {
+            XCTFail("Expected ollama-cloud provider row"); return
+        }
+        XCTAssertTrue(ollamaRow.hasEstimates)
+        XCTAssertEqual(ollamaRow.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
+        XCTAssertEqual(ollamaRow.inputTokens, 1_000_000, accuracy: 0.5)
+    }
+
+    func testOllamaDeepSeekProEstimationViaAlias() {
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-reasoner", input: 500_000)
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        XCTAssertTrue(analytics.cache.hasEstimates)
+        // multiplier for pro: rate = 1476491904/1550614127
+        let expectedMultiplier = 1_476_491_904.0 / (1_550_614_127.0 - 1_476_491_904.0)
+        let expectedEstimated = 500_000.0 * expectedMultiplier
+        XCTAssertEqual(analytics.cache.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
+
+        guard let ollamaRow = analytics.providerCacheRows.first(where: { $0.key == "ollama-cloud" }) else {
+            XCTFail("Expected ollama-cloud provider row"); return
+        }
+        XCTAssertTrue(ollamaRow.hasEstimates)
+        XCTAssertEqual(ollamaRow.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
+    }
+
+    func testNonOllamaProviderNoEstimation() {
+        let payload = makeSingleModelPayload(
+            model: "deepseek-chat", provider: "deepseek", input: 1_000_000
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        XCTAssertFalse(analytics.cache.hasEstimates)
+        XCTAssertEqual(analytics.cache.estimatedCacheReadTokens, 0)
+        // displayed cacheRead stays real-only (0 here)
+        XCTAssertEqual(analytics.cache.cacheReadTokens, 0)
+
+        if let deepseekRow = analytics.providerCacheRows.first(where: { $0.key == "deepseek" }) {
+            XCTAssertFalse(deepseekRow.hasEstimates)
+            XCTAssertEqual(deepseekRow.estimatedCacheReadTokens, 0)
+        }
+    }
+
+    func testOllamaNonDeepSeekModelNoEstimation() {
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 1_000_000, totalActualTokens: 1_000_000,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-06-04", end: "2026-06-04"),
+                updatedAt: "2026-06-04T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-04", model: "gpt-5.4", provider: "ollama-cloud",
+                    input: 1_000_000, output: 0, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_000_000, cost: 0, msgCount: 1
+                )
+            ]
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        XCTAssertFalse(analytics.cache.hasEstimates)
+        XCTAssertEqual(analytics.cache.estimatedCacheReadTokens, 0)
+    }
+
+    func testOllamaDeepSeekWithRealCacheReadNoEstimation() {
+        let payload = makeOllamaDeepSeekPayload(
+            model: "deepseek-chat", input: 1_000_000, cacheRead: 50_000
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        XCTAssertFalse(analytics.cache.hasEstimates)
+        XCTAssertEqual(analytics.cache.estimatedCacheReadTokens, 0)
+        XCTAssertEqual(analytics.cache.cacheReadTokens, 50_000, accuracy: 0.5)
+    }
+
+    func testOllamaDeepSeekZeroInputNoEstimation() {
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 0, output: 1000)
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        XCTAssertFalse(analytics.cache.hasEstimates)
+        XCTAssertEqual(analytics.cache.estimatedCacheReadTokens, 0)
+    }
+
+    func testCacheSummaryEstimatedFields() {
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 1_000)
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        XCTAssertTrue(analytics.cache.hasEstimates)
+        XCTAssertGreaterThan(analytics.cache.estimatedCacheReadTokens, 0)
+        // cacheHitRate uses displayed (real+estimated) cacheRead
+        XCTAssertGreaterThan(analytics.cache.cacheHitRate, 0)
+        // totalCacheTokens includes estimated
+        XCTAssertGreaterThan(analytics.cache.totalCacheTokens, 0)
+    }
+
+    func testOllamaCacheRateUsesEstimatedFormula() {
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 1_000_000)
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        guard let ollamaRow = analytics.providerCacheRows.first(where: { $0.key == "ollama-cloud" }) else {
+            XCTFail("Expected ollama-cloud provider row"); return
+        }
+        XCTAssertTrue(ollamaRow.hasEstimates)
+        // Ollama rate = (real+estimated) / (input+real+estimated)
+        // real = cacheRead = 0
+        let expectedRate = ollamaRow.estimatedCacheReadTokens / (ollamaRow.inputTokens + ollamaRow.estimatedCacheReadTokens)
+        XCTAssertEqual(ollamaRow.cacheRate, expectedRate, accuracy: 0.0001)
+        // The rate should equal the snapshot rate (since real cacheRead==0)
+        let flashRate = 553_686_784.0 / 600_792_157.0
+        XCTAssertEqual(ollamaRow.cacheRate, flashRate, accuracy: 0.0001)
+    }
+
+    func testNonOllamaCacheRateUsesExistingFormula() {
+        let payload = makeSingleModelPayload(
+            model: "deepseek-chat", provider: "deepseek",
+            input: 1_000_000, cacheRead: 200_000
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        guard let dsRow = analytics.providerCacheRows.first(where: { $0.key == "deepseek" }) else {
+            XCTFail("Expected deepseek provider row"); return
+        }
+        XCTAssertFalse(dsRow.hasEstimates)
+        // existing formula: cacheRead / (actualTokens + cacheRead)
+        // actualTokens = input + output = 1_000_000
+        let expectedRate = 200_000.0 / (1_000_000.0 + 200_000.0)
+        XCTAssertEqual(dsRow.cacheRate, expectedRate, accuracy: 0.0001)
+    }
+
+    func testTrendPointEstimatedField() {
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 1_000_000)
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        XCTAssertEqual(analytics.trendPoints.count, 1)
+        guard let point = analytics.trendPoints.first else { XCTFail("Expected trend point"); return }
+
+        let expectedMultiplier = 553_686_784.0 / (600_792_157.0 - 553_686_784.0)
+        let expectedEstimated = 1_000_000.0 * expectedMultiplier
+        XCTAssertEqual(point.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
+        // displayed cacheRead = real(0) + estimated
+        XCTAssertEqual(point.cacheReadTokens, expectedEstimated, accuracy: 1.0)
+    }
+
+    func testProviderRankRowRealOnlyNoEstimates() {
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 1000)
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        guard let ollamaRank = analytics.providerRankRows.first(where: { $0.providerKey == "ollama-cloud" }) else {
+            XCTFail("Expected ollama-cloud rank row"); return
+        }
+        // cacheReadTokens on rank row stays real-only (0)
+        XCTAssertEqual(ollamaRank.cacheReadTokens, 0)
+        // actualTokens stays real-only
+        XCTAssertEqual(ollamaRank.actualTokens, 1000, accuracy: 0.5)
+    }
+
+    func testProviderCacheRowSortingRealOnly() {
+        // ollama with estimated reads should NOT outrank deepseek just because of estimates
+        let ollamaPayload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 100, output: 50)
+        let deepseekPayload = makeSingleModelPayload(
+            model: "deepseek-chat", provider: "deepseek",
+            input: 200, output: 100
+        )
+
+        let merged = mergePayloads(ollamaPayload, deepseekPayload)
+        let analytics = TokenCostDashboardAnalytics(payload: merged)
+
+        // deepseek has more real usage (300 actual vs ollama's 150 actual)
+        // sorting desc by usageTokens (real-only) should put deepseek first
+        let rows = analytics.providerCacheRows
+        XCTAssertGreaterThanOrEqual(rows.count, 2)
+
+        guard let dsIndex = rows.firstIndex(where: { $0.key == "deepseek" }),
+              let ollamaIndex = rows.firstIndex(where: { $0.key == "ollama-cloud" }) else {
+            XCTFail("Missing expected provider rows"); return
+        }
+        // deepseek usageTokens = 300 real tokens, ollama = 150 real tokens + estimates (not counted)
+        XCTAssertLessThan(dsIndex, ollamaIndex, "deepseek should rank above ollama on real usage")
+    }
+
+    func testCacheSavedCostUsesPricingCatalogOnly() {
+        // Use a model with no pricing → cacheSavedCost should be 0
+        let payloadNoPricing = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 1_000_000, totalActualTokens: 1_000_000,
+                totalCacheReadTokens: 1_000_000, totalCacheWriteTokens: 0, totalCacheTokens: 1_000_000,
+                totalCost: 10, totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-06-04", end: "2026-06-04"),
+                updatedAt: "2026-06-04T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-04", model: "no-such-model", provider: "openai",
+                    input: 0, output: 0, reasoning: 0,
+                    cacheRead: 1_000_000, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_000_000, cost: 0, msgCount: 1
+                )
+            ]
+        )
+        let analyticsNoPrice = TokenCostDashboardAnalytics(payload: payloadNoPricing)
+        XCTAssertEqual(analyticsNoPrice.cache.cacheSavedCost, 0, "No pricing → zero saved cost")
+
+        // Use deepseek with known pricing
+        let payloadWithPrice = makeSingleModelPayload(
+            model: "deepseek-chat", provider: "deepseek",
+            input: 0, output: 0, cacheRead: 1_000_000
+        )
+        let analyticsWithPrice = TokenCostDashboardAnalytics(payload: payloadWithPrice)
+        // savings = cacheRead * (inputPrice - cacheReadPrice) / 1M
+        // deepseek-v4-flash: 0.14 - 0.0028 = 0.1372 per 1M cache tokens
+        let expectedSaved = 1_000_000.0 * (0.14 - 0.0028) / 1_000_000.0
+        XCTAssertEqual(analyticsWithPrice.cache.cacheSavedCost, expectedSaved, accuracy: 0.0001)
+    }
+
+    func testCacheSavedCostExcludesEstimates() {
+        // Ollama + deepseek with cacheRead==0 → estimation runs
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 10_000_000)
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        // Estimates are non-zero but cacheSavedCost should be 0 (no REAL cache reads)
+        XCTAssertTrue(analytics.cache.hasEstimates)
+        XCTAssertGreaterThan(analytics.cache.estimatedCacheReadTokens, 0)
+        XCTAssertEqual(analytics.cache.cacheSavedCost, 0, "Estimated reads do not contribute to saved cost")
+    }
+
+    func testCacheSavedCostAccumulatesAcrossMultipleRows() {
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 2_000_000, totalActualTokens: 0,
+                totalCacheReadTokens: 2_000_000, totalCacheWriteTokens: 0, totalCacheTokens: 2_000_000,
+                totalCost: 0, totalMessages: 2, activeDays: 1,
+                dateRange: .init(start: "2026-06-04", end: "2026-06-04"),
+                updatedAt: "2026-06-04T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-04", model: "deepseek-chat", provider: "deepseek",
+                    input: 0, output: 0, reasoning: 0,
+                    cacheRead: 1_000_000, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_000_000, cost: 0, msgCount: 1
+                ),
+                DashboardPayload.RawRow(
+                    date: "2026-06-04", model: "deepseek-reasoner", provider: "deepseek",
+                    input: 0, output: 0, reasoning: 0,
+                    cacheRead: 1_000_000, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_000_000, cost: 0, msgCount: 1
+                )
+            ]
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+        // flash: 1M × (0.14−0.0028)/1M + pro: 1M × (0.435−0.003625)/1M
+        let expectedTotal = (0.14 - 0.0028) + (0.435 - 0.003625)
+        XCTAssertEqual(analytics.cache.cacheSavedCost, expectedTotal, accuracy: 0.0001)
+    }
+
+    func testOllamaProviderInputTokensField() {
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 500_000)
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        guard let row = analytics.providerCacheRows.first(where: { $0.key == "ollama-cloud" }) else {
+            XCTFail("Expected ollama-cloud row"); return
+        }
+        XCTAssertEqual(row.inputTokens, 500_000, accuracy: 0.5)
+    }
+
+    func testOllamaMixedRealAndEstimatedCacheRead() {
+        // One row with real cacheRead, one without (gets estimated)
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 2_500_000, totalActualTokens: 2_000_000,
+                totalCacheReadTokens: 500_000, totalCacheWriteTokens: 0, totalCacheTokens: 500_000,
+                totalCost: 0, totalMessages: 2, activeDays: 1,
+                dateRange: .init(start: "2026-06-04", end: "2026-06-04"),
+                updatedAt: "2026-06-04T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-04", model: "deepseek-chat", provider: "ollama-cloud",
+                    input: 1_000_000, output: 0, reasoning: 0,
+                    cacheRead: 500_000, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 1,
+                    total: 1_500_000, cost: 0, msgCount: 1
+                ),
+                DashboardPayload.RawRow(
+                    date: "2026-06-04", model: "deepseek-chat", provider: "ollama-cloud",
+                    input: 1_000_000, output: 0, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_000_000, cost: 0, msgCount: 1
+                )
+            ]
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        XCTAssertTrue(analytics.cache.hasEstimates)
+        guard let row = analytics.providerCacheRows.first(where: { $0.key == "ollama-cloud" }) else {
+            XCTFail("Expected ollama-cloud row"); return
+        }
+
+        let expectedMultiplier = 553_686_784.0 / (600_792_157.0 - 553_686_784.0)
+        let expectedEstimated = 1_000_000.0 * expectedMultiplier
+
+        // estimatedCacheReadTokens = just the estimate from row with cacheRead==0
+        XCTAssertEqual(row.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
+        // cacheReadTokens (displayed) = real(500k) + estimated
+        let expectedDisplayed = 500_000.0 + expectedEstimated
+        XCTAssertEqual(row.cacheReadTokens, expectedDisplayed, accuracy: 1.0)
+        // hasEstimates = true because at least one row was estimated
+        XCTAssertTrue(row.hasEstimates)
+
+        // Ollama rate = (real+estimated) / (input+real+estimated)
+        let totalInput = 2_000_000.0
+        let totalReal = 500_000.0
+        let totalEstimated = expectedEstimated
+        let expectedRate = (totalReal + totalEstimated) / (totalInput + totalReal + totalEstimated)
+        XCTAssertEqual(row.cacheRate, expectedRate, accuracy: 0.0001)
+
+        // usageTokens = real-only (actualTokens + real cacheRead + real cacheWrite)
+        // actualTokens = 2 rows * 1M input = 2M
+        let expectedUsage = 2_000_000.0 + 500_000.0  // + 0 cacheWrite
+        XCTAssertEqual(row.usageTokens, expectedUsage, accuracy: 1.0)
+
+        // cacheSavedCost only from real reads
+        // savings = cacheRead × (inputPrice − cacheReadPrice) / 1M
+        // deepseek-v4-flash: 500k × (0.14 − 0.0028) / 1M = 0.0686
+        let expectedSaved = 500_000.0 * (0.14 - 0.0028) / 1_000_000.0
+        XCTAssertEqual(analytics.cache.cacheSavedCost, expectedSaved, accuracy: 0.0001)
+    }
+
+    // MARK: — Test helpers for cache-read estimation
+
+    private func makeOllamaDeepSeekPayload(
+        model: String, input: Double, output: Double = 0, cacheRead: Double = 0
+    ) -> DashboardPayload {
+        makeSingleModelPayload(
+            model: model, provider: "ollama-cloud",
+            input: input, output: output, cacheRead: cacheRead
+        )
+    }
+
+    private func mergePayloads(_ a: DashboardPayload, _ b: DashboardPayload) -> DashboardPayload {
+        var merged = a
+        merged.rawData.append(contentsOf: b.rawData)
+        return merged
+    }
 }
 
 // MARK: - Test Helpers

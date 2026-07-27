@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.1] - 2026-07-16
+
+### Added
+
+- **Ollama Cloud 缓存读估算**：对 `ollama-cloud` Provider 下标准化的 `deepseek-v4-flash` / `deepseek-v4-pro` 模型自动启用缓存读缺失估算（无需开发者模式）。基于 2026-07 观测快照计算命中率，使用 `estimatedCacheRead = input × (rate / (1−rate))` 公式估算缺失的缓存读值。缓存区卡片标题切换为"缓存（含估算）"变体，Provider 缓存行展示估算值和 `estimated` 标签，趋势图 tooltip 追加独立 `mint` 色估算行。估算值不影响计费 `actualTokens`、`cost`、`cacheSavedCost` 和源数据（`DashboardAnalytics.swift`、`DetailView.swift`）。
+- **`cacheSavedCost` 计算**：新公式 `cacheRead × (inputPrice − cacheReadPrice) / 1 000 000`，基于模型定价目录中的 `input` 与 `cacheRead` 差价计算真实缓存节省费用；仅使用真实 `cacheRead`，不含估算值（`DashboardAnalytics.swift`）。
+- **文档更新**：`Token统计口径定义.md` 新增 §4 Ollama Cloud 缓存读估算定义；`Provider 计费定价速查.md` 补充缓存读估算公式和 `cacheSavedCost` 公式；`开发手册.md` 更新 `DashboardAnalytics.swift` 和 `DetailView.swift` 的描述（`docs/`）。
+- **TaskClassification 接线**：`TaskClassificationEngine.classify` 结果接入 DetailView 明细表行，以彩色 Capsule 标签展示（`.unclassified` 不显示）。cacheHeavy 规则对 ollama-cloud 行使用估算后的 cacheRead 判断（`TaskClassification.swift`、`DetailView.swift`）。
+- **TotalView 缓存卡片标注**：当 payload 含 Ollama Cloud 估算数据时，总览页缓存 tokens 卡片 subtitle 切换为"不含 Ollama Cloud 缓存估算"（`TotalView.swift`）。
+- **快照比率复核提醒**：代码注释和文档中明确标注快照观测期（2026-07）和季度复核流程（`DashboardAnalytics.swift`、`docs/Token统计口径定义.md`）。
+
+### Changed
+
+- **缓存区展示与数据口径分离**：`CacheSummary.cacheReadTokens` 和 `cacheHitRate` 改为含估算的展示口径；`ProviderRankRow` 和 `ModelComparisonRow` 保持真实 `actualTokens` 不变；`cacheSavedCost` 仅基于真实 `cacheRead`（`DashboardAnalytics.swift`）。
+- **余额刷新哨兵重构**：超时哨兵不再作为 `withTaskGroup` 的常规子任务等待 45s，改为 sentinel + 计数模式 — 所有真实 provider 完成后立即 `cancelAll()` 取消哨兵，`refresh()` 不再强制等待 45s（`BalanceManager.swift`）。
+- **令牌读取异步化**：`AuthTokenProvider.token(for:)` 包装在 `Task.detached` 中，避免阻塞主线程（`BalanceManager.swift`）。
+- **合并 snapshots 发布**：排序结果与消费率计算后的赋值合并为单次 `@Published` 赋值，每个刷新周期 SwiftUI 重绘从 7 次减少到 6 次（`BalanceManager.swift`）。
+- **菜单栏布局重组**：设置和退出按钮改为图标形式（`gearshape`、`xmark.circle`），底部 HStack 排列；保留独立的「打开主窗口」和「刷新全部」文本按钮（`MenuBarView.swift`）。
+- **余额卡片统一高度**：菜单栏余额卡片强制 `minHeight: 88`，避免不同 provider 数据量不同导致卡片高度不齐（`MenuBarView.swift`）。
+- **后台刷新调度器脱离主线程**：`BalanceRefreshScheduler.start()` 改为 `Task.detached(priority: .medium)`，偏好读取通过 `MainActor.run` 跳转，防止 App Nap 并降低主线程占用（`BalanceRefreshScheduler.swift`）。
+- **Dock 图标同步移除魔法数字**：`syncDockPolicyAfterWindowClose` 从 `Task.sleep(50ms)` 改为 `DispatchQueue.main.async`，消除竞态窗口（`WindowLifecycleManager.swift`）。
+- **主窗口场景从 `WindowGroup` 改为 `Window`**：`TokenCostApp.swift` 主场景从 `WindowGroup(id: "main")` 改为 `Window(id: "main")`，由系统保证单窗口实例；`openWindow(id: "main")` 在窗口已打开时自动前置，已关闭时重新打开（`TokenCostApp.swift`）。
+- **`WindowOpeningSupport` 简化为统一入口**：移除 `showOrRevealMainWindow`、`openSingletonWindow`、`pendingWindowIDs` 去重逻辑和 `windowDidOpen` 桥接，改为单一 `openWindow(id:openWindow:)` 函数，仅设置激活策略后调用 SwiftUI `openWindow(id:)`（`WindowOpeningSupport.swift`、`WindowLifecycleManager.swift`）。
+- **余额标题行合并刷新图标**：`balanceSummary` 标题行右侧新增 `arrow.clockwise` 刷新按钮，刷新中显示 spinner，移除底部独立刷新 HStack（`MenuBarView.swift`）。
+
+### Fixed
+
+- **Ollama Cloud 缓存命中率始终为 0**：Ollama Cloud 代理的 DeepSeek 模型不返回 `cacheRead`，导致缓存区无法反映真实缓存效率。新增估算填补展示空白，`cacheHitRate` 从 0% 恢复至接近官方 API 的 ~92%（Flash）/ ~95%（Pro）展示口径（`DashboardAnalytics.swift`）。
+- **余额刷新强制 45s 最短时间**：哨兵任务 `Task.sleep(45s)` 作为 `withTaskGroup` 子任务导致 `for await` 必须等待所有子任务（含哨兵）完成才退出，即使所有 provider 在 200ms 内响应也需等满 45s。重构为 sentinel + 计数模式，所有 provider 完成后立即取消哨兵（`BalanceManager.swift`）。
+- **取消时数据损坏**：哨兵的 `CancellationError` 被捕获后返回 `BalanceSnapshot.unavailable(.opencodeGo, ...)`，通过 `upsertSnapshot()` 覆盖真实的 `.opencodeGo` 结果。改为返回 `nil`，不再生成虚假快照（`BalanceManager.swift`）。
+- **ForEach ID 非唯一导致崩溃风险**：`BalanceQuotaWindow.id` 使用 `label` 字段、`BalanceValueEntry.id` 使用 `"\(label)-\(currencyCode)"`，当两个窗口/条目有相同标签时触发 SwiftUI ForEach 运行时崩溃。改为加入 `windowSeconds` / `amount` 字段保证唯一性（`BalanceModels.swift`）。
+- **窗口单例守卫缺失**：`openSingletonWindow` 无 `NSApp.windows` 已存在检查，重复调用会创建多个窗口；`showOrRevealMainWindow` 未检查 `$0.isVisible`，已隐藏窗口不会被 reveal。两处均新增可见性守卫（`WindowOpeningSupport.swift`）。
+- **禁用 provider 后 goLastDiagnosis 过时**：`rebuildCheckers()` 移除禁用 provider 的快照但未清除对应诊断，导致 UI 显示已禁用 provider 的错误。新增 `.opencodeGo` 禁用时清除诊断（`BalanceManager.swift`）。
+- **Dock 图标同步竞态**：`WindowLifecycleManager.syncDockPolicyAfterWindowClose` 使用 `Task.sleep(50ms)` 延迟同步 Dock 策略，魔法数字 50ms 在窗口关闭动画时长不同时可能竞态。改为 `DispatchQueue.main.async` 在下一个 run loop 执行同步（`WindowLifecycleManager.swift`）。
+
 ## [v1.0.0] - 2026-07-10
 
 > 相对 `v0.9.9` 的累计变更。**正式版发布**：凭证系统从 Keychain 全面迁移至本地 AES-256-GCM 加密存储，启动时自动凭证引导，DetailView 异步加载性能优化。
@@ -504,6 +539,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
 [Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.0...HEAD
+[v1.0.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.0...v1.0.1
 [v1.0.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.9...v1.0.0
 [v0.9.7]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.6...v0.9.7
 [v0.9.9]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.8...v0.9.9

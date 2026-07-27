@@ -57,7 +57,62 @@ Codex 的 JSONL 日志中 `inputTokens` **包含缓存部分**。因此：
 
 ---
 
-## 4. 变更历史
+## 4. Ollama Cloud 缓存读估算（Cache-Read Estimation）
+
+> 本功能自动生效，无需开发者模式。触发条件见 §4.1：仅当 Provider 为 `ollama-cloud`、模型已标准化为 `deepseek-v4-flash` 或 `deepseek-v4-pro`、且 `cacheRead == 0` 且 `input > 0` 时自动触发估算。
+
+### 4.1 触发条件
+
+当同时满足以下所有条件时，触发估算：
+
+- Provider 为 `ollama-cloud`
+- 模型已标准化为 `deepseek-v4-flash` 或 `deepseek-v4-pro`
+- `cacheRead == 0`（真实的缓存读数据缺失）
+- `input > 0`（存在输入 token）
+
+### 4.2 数据来源
+
+缓存命中率基于 **2026 年 7 月观测快照**：
+
+| 模型 | 快照 cacheRead | 快照 input | 命中率 rate |
+|------|---------------|-----------|------------|
+| deepseek-v4-flash | 553,686,784 | 600,792,157 | 553686784 ÷ 600792157 |
+| deepseek-v4-pro | 1,476,491,904 | 1,550,614,127 | 1476491904 ÷ 1550614127 |
+
+> ⚠️ **快照时效性**：上述比率为 2026 年 7 月观测值，编译期硬编码。随 Ollama Cloud 缓存基础设施演进将逐步失真。建议每季度复核或当 Ollama Cloud 发布重大基础设施变更时重新采集快照。更新流程：采集新观测期 cacheRead/input → 修改 `DashboardAnalytics.swift` 中 `ollamaDeepSeekCacheReadSnapshotRates` → 更新本表格 → 运行测试。
+
+### 4.3 估算公式
+
+```
+rate = snapshot_cacheRead / (snapshot_input + snapshot_cacheRead)
+multiplier = rate / (1 − rate) = snapshot_cacheRead / snapshot_input
+estimate = input × multiplier
+```
+
+估算值 `estimate` 即为 `estimatedCacheReadTokens`。
+
+### 4.4 安全边界
+
+- **估算值永不写入源数据**：`estimatedCacheRead` 仅在运行时计算管道中存在于 `ProviderAccumulator` 内存累加器中，不写入 SQLite、JSONL 或任何持久化文件
+- **不影响实际用量/排名**：`ProviderRankRow` 和 `ModelComparisonRow` 中的 `actualTokens`（计费口径）仍使用真实 `input + output + reasoning`，不含估算缓存；`cost` 计算仅基于真实 `cacheRead`，估算值不参与成本计算
+- **不影响 `cacheSavedCost`**：`cacheSavedCost` 仅使用真实的 `cacheRead` 计算，不因估算值而膨胀
+- **仅影响展示口径**：估算值仅用于 `CacheSummary.cacheReadTokens`（展示缓存总量含估算）、`CacheSummary.cacheHitRate`（命中率含估算）、`ProviderCacheRow`（含估算的展示值）、趋势图 tooltip（额外展示 `estimatedCacheReadTokens`）
+- **TotalView 总览页标注**：`overview.openCode.cacheTokens` 卡片使用 `DashboardPayload.Summary.totalCacheTokens`（真实值，不含估算），当检测到 payload 含 Ollama Cloud 估算数据时，subtitle 切换为"不含 Ollama Cloud 缓存估算"显式标注
+- **TaskClassification cacheHeavy 含估算**：分类引擎对 ollama-cloud 行使用估算后的 cacheRead 判断 cacheHeavy 规则，但分类结果仅用于详情表行标签展示，不参与计费/排名
+
+### 4.5 UI 标注
+
+所有含估算值的 UI 元素均被显式标记：
+
+- 缓存区卡片标题切换为"缓存（含估算）"中英文变体
+- 每条 Provider 缓存行中，估算值以独立数值和 `estimated` 标签展示
+- 趋势图 tooltip 中估算缓存读以独立 `mint` 色行显示
+- TotalView 缓存 tokens 卡片 subtitle 标注"不含 Ollama Cloud 缓存估算"（仅含估算数据时显示）
+- DetailView 明细表每行追加任务分类标签（`.unclassified` 不渲染）
+
+---
+
+## 5. 变更历史
 
 | 日期 | 版本 | 说明 |
 |------|------|------|

@@ -346,7 +346,7 @@ struct DeveloperSectionView: View {
         HStack {
             Spacer()
             Button {
-                WindowOpeningSupport.openSingletonWindow(id: "dev-doc", openWindow: openWindow)
+                WindowOpeningSupport.openWindow(id: "dev-doc", openWindow: openWindow)
             } label: {
                 Label(AppLocalization.text("settings.developerMode.doc.button"), systemImage: "doc.text")
             }

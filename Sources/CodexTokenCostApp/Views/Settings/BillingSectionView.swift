@@ -21,7 +21,7 @@ struct BillingSectionView: View {
                 Divider().opacity(0.3)
 
                 Button {
-                    WindowOpeningSupport.openSingletonWindow(id: "pricing-doc", openWindow: openWindow)
+                    WindowOpeningSupport.openWindow(id: "pricing-doc", openWindow: openWindow)
                 } label: {
                     Label(
                         AppLocalization.text("settings.billing.viewPricingDoc"),

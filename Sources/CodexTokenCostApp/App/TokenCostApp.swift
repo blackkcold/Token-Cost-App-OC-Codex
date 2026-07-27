@@ -29,7 +29,7 @@ struct CodexTokenCostApp: App {
     }
 
     var body: some Scene {
-        WindowGroup(CodexAppPaths.appDisplayName, id: "main") {
+        Window(CodexAppPaths.appDisplayName, id: "main") {
             ContentView(
                 openCodeModel: openCodeModel,
                 codexModel: codexModel,

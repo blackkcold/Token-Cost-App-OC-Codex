@@ -77,10 +77,8 @@ final class WindowLifecycleManager {
     }
 
     func syncDockPolicyAfterWindowClose() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            self.syncDockPolicy()
+        DispatchQueue.main.async { [weak self] in
+            self?.syncDockPolicy()
         }
     }
 
