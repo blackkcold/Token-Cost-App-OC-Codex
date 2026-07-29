@@ -28,7 +28,7 @@ struct TokenTrendRangePicker: View {
             Text("30 日").tag(30)
         }
         .pickerStyle(.segmented)
-        .frame(width: 100)
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 

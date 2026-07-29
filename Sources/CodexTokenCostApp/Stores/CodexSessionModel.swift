@@ -31,6 +31,7 @@ final class CodexSessionModel: ObservableObject {
     private let settingsStore: SettingsStore
     private let snapshotStore: CodexSnapshotStore
     private var didBootstrap = false
+    private var pendingSaveTask: Task<Void, Never>?
     private var discoveryGeneration = 0
 
     init() {
@@ -129,11 +130,6 @@ final class CodexSessionModel: ObservableObject {
                         return
                     }
                     self.payload = payload
-                    try? self.snapshotStore.saveLatest(
-                        payload,
-                        settings: currentSettings,
-                        retention: currentSettings.snapshotRetentionCount
-                    )
                     self.lastErrorMessage = nil
                     if payload.summary.sessionCount == 0 {
                         self.shouldPromptForSourceConfirmation = true
@@ -143,6 +139,23 @@ final class CodexSessionModel: ObservableObject {
                         self.shouldPromptForSourceConfirmation = false
                     }
                     self.isRefreshing = false
+
+                    let previousTask = self.pendingSaveTask
+                    let capturePayload = payload
+                    let captureSettings = currentSettings
+                    let captureRetention = currentSettings.snapshotRetentionCount
+                    let runtimeRoot = CodexAppPaths.runtimeRoot
+                    self.pendingSaveTask = Task.detached(priority: .background) {
+                        await previousTask?.value
+                        let store = CodexSnapshotStore(runtimeRoot: runtimeRoot)
+                        do {
+                            try store.saveLatest(capturePayload, settings: captureSettings, retention: captureRetention)
+                        } catch {
+                            #if DEBUG
+                            print("[CodexSessionModel] snapshot save failed: \(error.localizedDescription)")
+                            #endif
+                        }
+                    }
                 }
             } catch {
                 let message = error.localizedDescription

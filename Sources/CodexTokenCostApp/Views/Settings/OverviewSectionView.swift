@@ -111,7 +111,7 @@ struct OverviewSectionView: View {
             Text(label)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(palette.title)
-                .frame(width: 120, alignment: .leading)
+                .frame(minWidth: 100, maxWidth: 140, alignment: .leading)
             Text(status)
                 .font(.caption2)
                 .foregroundStyle(palette.subtitle)
@@ -129,7 +129,7 @@ struct OverviewSectionView: View {
 
     private func monthlyCostText(payload: DashboardPayload?) -> String {
         guard let payload,
-              let cost = appPreferencesModel.preferences.combinedMonthlyCost(payload: payload) else {
+              let cost = appPreferencesModel.preferences.combinedTotalCost(payload: payload) else {
             return "--"
         }
         return TokenCostCurrencyService.format(

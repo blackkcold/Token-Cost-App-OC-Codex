@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 import CodexTokenCostCore
 
@@ -13,6 +12,7 @@ struct CodexTokenCostApp: App {
     @StateObject private var balanceRefreshScheduler: BalanceRefreshScheduler
     @StateObject private var updateChecker: UpdateCheckerModel
     @StateObject private var skillsModel: OpenCodeSkillsModel
+    private let balanceFloatingPanelCoordinator: BalanceFloatingPanelCoordinator
 
     init() {
         let preferencesModel = AppPreferencesModel()
@@ -20,6 +20,12 @@ struct CodexTokenCostApp: App {
         _openCodeModel = StateObject(wrappedValue: TokenCostModel())
         _codexModel = StateObject(wrappedValue: CodexSessionModel())
         let balanceManager = BalanceManager(configuration: preferencesModel.effectiveBalanceConfiguration)
+        let balanceFloatingPanelCoordinator = BalanceFloatingPanelCoordinator(
+            balanceManager: balanceManager,
+            appPreferencesModel: preferencesModel
+        )
+        self.balanceFloatingPanelCoordinator = balanceFloatingPanelCoordinator
+        AppDelegate.balanceFloatingPanelCoordinator = balanceFloatingPanelCoordinator
         let scheduler = BalanceRefreshScheduler(balanceManager: balanceManager, preferencesModel: preferencesModel)
         scheduler.start()
         _balanceManager = StateObject(wrappedValue: balanceManager)
@@ -85,12 +91,36 @@ struct CodexTokenCostApp: App {
         .defaultSize(width: 820, height: 680)
         .environment(\.locale, appPreferencesModel.preferences.language.locale)
 
-        MenuBarExtra(appPreferencesModel.preferences.language == .zhHans ? "代币费用" : "Token Cost", systemImage: "chart.bar.fill") {
+        MenuBarExtra {
             MenuBarView(
                 openCodeModel: openCodeModel,
                 codexModel: codexModel,
                 appPreferencesModel: appPreferencesModel,
                 balanceManager: balanceManager,
+                balanceFloatingPanelCoordinator: balanceFloatingPanelCoordinator,
+                palette: TokenCostPalette(theme: appPreferencesModel.preferences.theme)
+            )
+        } label: {
+            Image(systemName: "chart.bar.xaxis")
+                .font(.system(size: 12, weight: .semibold))
+                .accessibilityLabel(Text(appPreferencesModel.preferences.language == .zhHans ? "代币费用" : "Token Cost"))
+        }
+        .menuBarExtraStyle(.window)
+
+        MenuBarExtra(isInserted: appPreferencesModel.balanceMenuBarExtraEnabledBinding) {
+            BalanceMenuBarPopoverView(
+                balanceManager: balanceManager,
+                appPreferencesModel: appPreferencesModel,
+                balanceFloatingPanelCoordinator: balanceFloatingPanelCoordinator,
+                palette: TokenCostPalette(theme: appPreferencesModel.preferences.theme)
+            )
+        } label: {
+            BalanceMenuBarExtraLabelView(
+                selection: BalanceMenuBarExtraSupport.selection(
+                    for: appPreferencesModel.sortBalanceSnapshots(balanceManager.snapshots),
+                    displayMode: appPreferencesModel.preferences.balanceDisplayMode,
+                    displayCurrency: appPreferencesModel.preferences.displayCurrency
+                ),
                 palette: TokenCostPalette(theme: appPreferencesModel.preferences.theme)
             )
         }

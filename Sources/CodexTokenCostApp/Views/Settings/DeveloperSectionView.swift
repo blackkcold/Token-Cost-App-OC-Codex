@@ -34,7 +34,14 @@ struct DeveloperSectionView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(
                     AppLocalization.text("settings.developerMode.enableToggle"),
-                    isOn: appPreferencesModel.developerModeIsEnabledBinding
+                    isOn: Binding(
+                        get: { appPreferencesModel.preferences.developerMode.isEnabled },
+                        set: { newValue in
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                appPreferencesModel.developerModeIsEnabledBinding.wrappedValue = newValue
+                            }
+                        }
+                    )
                 )
                 .font(.subheadline)
                 .foregroundStyle(palette.title)
@@ -44,6 +51,7 @@ struct DeveloperSectionView: View {
                     .foregroundStyle(palette.subtitle)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: appPreferencesModel.preferences.developerMode.isEnabled)
     }
 
     // MARK: - 存储优化扫描
@@ -87,14 +95,17 @@ struct DeveloperSectionView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                     } else {
-                        ScrollView {
+                        DisclosureGroup {
                             LazyVStack(spacing: 6) {
                                 ForEach(optimizeFindings) { finding in
                                     findingRow(finding)
                                 }
                             }
+                        } label: {
+                            Text("\(optimizeFindings.count) \("developerMode.optimize.findings".localized)")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(palette.title)
                         }
-                        .frame(maxHeight: 300)
                     }
                 }
             }
@@ -198,7 +209,8 @@ struct DeveloperSectionView: View {
                 .font(.caption2)
                 .foregroundStyle(palette.subtitle)
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Ollama 用量追踪 gate
@@ -294,7 +306,7 @@ struct DeveloperSectionView: View {
                     .font(.caption2)
                     .foregroundStyle(.green)
                 Button {
-                    updateCheckerModel.openDownloadedApp()
+                    updateCheckerModel.installUpdate()
                 } label: {
                     Label(AppLocalization.text("settings.developerMode.forceUpdate.openApp"), systemImage: "app.badge")
                 }

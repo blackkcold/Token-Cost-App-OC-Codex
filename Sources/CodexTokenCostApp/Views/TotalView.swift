@@ -146,9 +146,7 @@ struct TotalView: View {
 
     private var hasOllamaCloudEstimate: Bool {
         guard let rows = openCodePayload?.rawData else { return false }
-        return rows.contains { row in
-            row.provider == "ollama-cloud" && row.cacheRead == 0 && row.input > 0
-        }
+        return hasEligibleOllamaCloudEstimate(rows: rows)
     }
 
     private var codexSummary: CodexDashboardPayload.Summary? {
@@ -167,8 +165,29 @@ struct TotalView: View {
         preferences.resolvedBillingPlan(for: .codex)
     }
 
-    private var codexOverviewCost: Double? {
-        resolvedCodexPlan.isSubscribed ? resolvedCodexPlan.monthlyUSD : nil
+    private var reportingCostBreakdown: ReportingCostBreakdown? {
+        guard let payload = openCodePayload else { return nil }
+        return appPreferencesModel.reportingCostBreakdown(for: payload)
+    }
+
+    private var reportingRangeBasisLabel: String {
+        appPreferencesModel.reportingRangeBasisLabel
+    }
+
+    private var codexContributionCost: Double? {
+        guard let breakdown = reportingCostBreakdown else { return nil }
+        return breakdown.fixedCostByProvider[.codex] ?? 0
+    }
+
+    private var openCodeNonCodexCost: Double? {
+        guard let breakdown = reportingCostBreakdown else { return nil }
+        let codex = breakdown.fixedCostByProvider[.codex] ?? 0
+        let remainder = breakdown.totalCost - codex
+        return remainder > 0 ? remainder : nil
+    }
+
+    private var combinedCost: Double? {
+        reportingCostBreakdown?.totalCost
     }
 
     private var openCodeActualInputTokens: Double? {
@@ -194,16 +213,6 @@ struct TotalView: View {
     /// OpenCode 每日 actual tokens（input + output + reasoning），不含 cache
     private var openCodeDailyActualTokens: [String: Double] {
         cachedOpenCodeDaily
-    }
-
-    private var combinedCost: Double? {
-        guard let payload = openCodePayload else { return nil }
-        return preferences.combinedMonthlyCost(payload: payload)
-    }
-
-    private var nonCodexMonthlyCost: Double? {
-        guard let payload = openCodePayload else { return nil }
-        return preferences.nonCodexMonthlyCost(payload: payload)
     }
 
     private func refreshCachedDailyData() async {
@@ -253,8 +262,10 @@ struct TotalView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
                 TokenMetricCard(
                     title: AppLocalization.text("overview.summary.openCodeCost"),
-                    value: nonCodexMonthlyCost.map { TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) } ?? AppLocalization.text("common.unavailable"),
-                    subtitle: AppLocalization.text("overview.openCode.nonCodexCostSubtitle"),
+                    value: openCodeNonCodexCost.map { TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) } ?? AppLocalization.text("common.unavailable"),
+                    subtitle: reportingCostBreakdown == nil
+                        ? AppLocalization.text("overview.openCode.nonCodexCostSubtitle")
+                        : "\(AppLocalization.text("overview.openCode.nonCodexCostSubtitle")) · \(reportingRangeBasisLabel)",
                     tint: palette.accent,
                     palette: palette
                 )
@@ -262,21 +273,25 @@ struct TotalView: View {
 
                 TokenMetricCard(
                     title: AppLocalization.text("overview.summary.codexCost"),
-                    value: codexOverviewCost.map { TokenCostFormatters.monthlyCurrency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) } ?? AppLocalization.text("common.unavailable"),
-                    subtitle: resolvedCodexPlan.displayName,
+                    value: codexContributionCost.map { TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) } ?? AppLocalization.text("common.unavailable"),
+                    subtitle: reportingCostBreakdown == nil
+                        ? resolvedCodexPlan.displayName
+                        : "\(resolvedCodexPlan.displayName) · \(reportingRangeBasisLabel)",
                     tint: palette.accentSecondary,
                     palette: palette
                 )
                 .frame(maxHeight: .infinity, alignment: .topLeading)
 
-                TokenMetricCard(
-                    title: AppLocalization.text("overview.summary.totalCost"),
-                    value: combinedCost.map { TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) } ?? AppLocalization.text("common.unavailable"),
-                    subtitle: AppLocalization.text("overview.summary.totalCostSubtitle"),
-                    tint: .orange,
-                    palette: palette
-                )
-                .frame(maxHeight: .infinity, alignment: .topLeading)
+                    TokenMetricCard(
+                        title: AppLocalization.text("overview.summary.totalCost"),
+                        value: combinedCost.map { TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) } ?? AppLocalization.text("common.unavailable"),
+                        subtitle: reportingCostBreakdown == nil
+                            ? AppLocalization.text("overview.summary.totalCostSubtitle")
+                            : reportingRangeBasisLabel,
+                        tint: .orange,
+                        palette: palette
+                    )
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
 
                 TokenMetricCard(
                     title: AppLocalization.text("overview.summary.totalActualTokens"),
@@ -310,7 +325,7 @@ struct TotalView: View {
 
                     TokenMetricCard(
                         title: AppLocalization.text("overview.openCode.totalCost"),
-                        value: nonCodexMonthlyCost.map {
+                        value: openCodeNonCodexCost.map {
                             TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency)
                         } ?? AppLocalization.text("common.unavailable"),
                         subtitle: AppLocalization.text("overview.openCode.nonCodexCostSubtitle"),
@@ -423,5 +438,19 @@ struct TotalView: View {
                     .foregroundStyle(palette.subtitle)
             }
         }
+    }
+}
+
+func hasEligibleOllamaCloudEstimate(rows: [DashboardPayload.RawRow]) -> Bool {
+    rows.contains { row in
+        guard row.provider == "ollama-cloud",
+              row.cacheRead == 0,
+              row.input > 0,
+              row.input.isFinite else {
+            return false
+        }
+
+        let normalizedModel = OllamaCloudCacheEstimation.normalizedModelName(row.model)
+        return normalizedModel == "deepseek-v4-flash" || normalizedModel == "deepseek-v4-pro"
     }
 }

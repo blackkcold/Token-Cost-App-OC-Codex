@@ -67,19 +67,22 @@ public struct BalanceValueEntry: Codable, Hashable, Identifiable, Sendable {
     public let amount: Double
     public let grantedAmount: Double?
     public let toppedUpAmount: Double?
+    public let amountConsumptionRate: BalanceAmountConsumptionRate?
 
     public init(
         label: String,
         currencyCode: String? = nil,
         amount: Double,
         grantedAmount: Double? = nil,
-        toppedUpAmount: Double? = nil
+        toppedUpAmount: Double? = nil,
+        amountConsumptionRate: BalanceAmountConsumptionRate? = nil
     ) {
         self.label = label
         self.currencyCode = currencyCode
         self.amount = amount
         self.grantedAmount = grantedAmount
         self.toppedUpAmount = toppedUpAmount
+        self.amountConsumptionRate = amountConsumptionRate
     }
 }
 
@@ -177,6 +180,21 @@ public struct ConsumptionRate: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Amount consumption rate (value-entry balances)
+
+/// Burn rate computed from declining balance amounts (e.g. DeepSeek CNY).
+public struct BalanceAmountConsumptionRate: Codable, Hashable, Sendable {
+    public let perHour: Double
+    public let perDay: Double
+    public let confidence: Double
+
+    public init(perHour: Double = 0, perDay: Double = 0, confidence: Double = 0) {
+        self.perHour = perHour
+        self.perDay = perDay
+        self.confidence = confidence
+    }
+}
+
 // MARK: - Sort / display preferences
 
 public enum BalanceSortOrder: String, Codable, CaseIterable, Sendable {
@@ -188,6 +206,11 @@ public enum BalanceSortOrder: String, Codable, CaseIterable, Sendable {
 public enum BalanceDisplayMode: String, Codable, CaseIterable, Sendable {
     case used
     case remaining
+}
+
+public enum BalanceFloatingPanelDisplayMode: String, Codable, CaseIterable, Sendable {
+    case normal
+    case minimal
 }
 
 // MARK: - Quota window

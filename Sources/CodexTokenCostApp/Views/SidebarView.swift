@@ -22,8 +22,8 @@ struct SidebarView: View {
             }
 
             Section(AppLocalization.text("sidebar.section.scanRoots")) {
-                ForEach(model.settings.scanRoots.indices, id: \.self) { index in
-                    Text(model.settings.scanRoots[index])
+                ForEach(model.settings.scanRoots, id: \.self) { path in
+                    Text(path)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

@@ -112,4 +112,92 @@ final class AppPreferencesTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - balanceFloatingPanelEnabled / balanceFloatingPanelDisplayMode
+
+    func testBalanceFloatingPanelEnabledDefaultsToFalse() {
+        let prefs = AppPreferences()
+        XCTAssertFalse(prefs.balanceFloatingPanelEnabled)
+    }
+
+    func testBalanceFloatingPanelDisplayModeDefaultsToNormal() {
+        let prefs = AppPreferences()
+        XCTAssertEqual(prefs.balanceFloatingPanelDisplayMode, .normal)
+    }
+
+    func testBalanceMenuBarExtraEnabledDefaultsToFalse() {
+        let prefs = AppPreferences()
+        XCTAssertFalse(prefs.balanceMenuBarExtraEnabled)
+    }
+
+    func testBalanceFloatingPanelAlwaysOnTopDefaultsToTrue() {
+        let prefs = AppPreferences()
+        XCTAssertTrue(prefs.balanceFloatingPanelAlwaysOnTop)
+    }
+
+    func testBalanceFloatingPanelRoundtrip() throws {
+        var prefs = AppPreferences(
+            balanceFloatingPanelEnabled: true,
+            balanceFloatingPanelDisplayMode: .minimal
+        )
+        let data = try JSONEncoder().encode(prefs)
+        let decoded = try JSONDecoder().decode(AppPreferences.self, from: data)
+        XCTAssertTrue(decoded.balanceFloatingPanelEnabled)
+        XCTAssertEqual(decoded.balanceFloatingPanelDisplayMode, .minimal)
+    }
+
+    func testBalanceMenuBarExtraAndAlwaysOnTopRoundtrip() throws {
+        let prefs = AppPreferences(
+            balanceMenuBarExtraEnabled: true,
+            balanceFloatingPanelAlwaysOnTop: false
+        )
+        let data = try JSONEncoder().encode(prefs)
+        let decoded = try JSONDecoder().decode(AppPreferences.self, from: data)
+        XCTAssertTrue(decoded.balanceMenuBarExtraEnabled)
+        XCTAssertFalse(decoded.balanceFloatingPanelAlwaysOnTop)
+    }
+
+    func testBalanceFloatingPanelEncodedKeysAreSnakeCase() throws {
+        let prefs = AppPreferences(
+            balanceFloatingPanelEnabled: true,
+            balanceFloatingPanelDisplayMode: .minimal
+        )
+        let data = try JSONEncoder().encode(prefs)
+        let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertNotNil(dict)
+        XCTAssertEqual(dict?["balance_floating_panel_enabled"] as? Bool, true)
+        XCTAssertEqual(dict?["balance_floating_panel_display_mode"] as? String, "minimal")
+    }
+
+    func testBalanceMenuBarExtraAndAlwaysOnTopEncodedKeysAreSnakeCase() throws {
+        let prefs = AppPreferences(
+            balanceMenuBarExtraEnabled: true,
+            balanceFloatingPanelAlwaysOnTop: false
+        )
+        let data = try JSONEncoder().encode(prefs)
+        let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertNotNil(dict)
+        XCTAssertEqual(dict?["balance_menu_bar_extra_enabled"] as? Bool, true)
+        XCTAssertEqual(dict?["balance_floating_panel_always_on_top"] as? Bool, false)
+    }
+
+    func testLegacyConfigWithoutFloatingPanelFieldsDefaultsCorrectly() throws {
+        let json = """
+        {"language":"zh-Hans","balance_enabled":true}
+        """
+        let data = json.data(using: .utf8)!
+        let prefs = try JSONDecoder().decode(AppPreferences.self, from: data)
+        XCTAssertFalse(prefs.balanceFloatingPanelEnabled)
+        XCTAssertEqual(prefs.balanceFloatingPanelDisplayMode, .normal)
+    }
+
+    func testLegacyConfigWithoutNewBalanceFieldsDefaultsCorrectly() throws {
+        let json = """
+        {"language":"zh-Hans","balance_enabled":true}
+        """
+        let data = json.data(using: .utf8)!
+        let prefs = try JSONDecoder().decode(AppPreferences.self, from: data)
+        XCTAssertFalse(prefs.balanceMenuBarExtraEnabled)
+        XCTAssertTrue(prefs.balanceFloatingPanelAlwaysOnTop)
+    }
 }

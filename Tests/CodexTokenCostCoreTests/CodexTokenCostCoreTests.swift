@@ -1035,6 +1035,256 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(mockChecker.capturedAuthToken, "secret-token-42")
     }
 
+    // MARK: - BalanceManager refresh cancellation vs timeout regression
+
+    @MainActor
+    func testRefreshCancellationDistinctFromTimeoutWhenProviderThrowsCancellationError() async {
+        let successSnapshot = BalanceSnapshot(
+            provider: .codex, fetchedAt: Date(), isAvailable: true, remainingCredits: 100
+        )
+
+        let normal = MockBalanceChecker(providerKind: .codex, snapshot: successSnapshot)
+        let cancelling = CancellingMockChecker(providerKind: .deepseek)
+
+        let mgr = BalanceManager(
+            checkers: [normal, cancelling],
+            timeoutNanos: 2_000_000_000
+        )
+        await mgr.refresh()
+
+        let returned = mgr.snapshots
+        XCTAssertFalse(mgr.isRefreshing)
+        XCTAssertFalse(mgr.lastRefreshDidTimeout)
+        let hasCodex = returned.contains { $0.provider == .codex && $0.isAvailable }
+        XCTAssertTrue(hasCodex)
+        let hasDeepSeek = returned.contains { $0.provider == .deepseek }
+        if hasDeepSeek {
+            XCTAssertFalse(returned.first { $0.provider == .deepseek }?.isAvailable ?? true)
+        }
+    }
+
+    @MainActor
+    func testRefreshTimeoutDeliversPartialResultsFromFastProviders() async {
+        let fastSnapshot = BalanceSnapshot(
+            provider: .codex, fetchedAt: Date(), isAvailable: true, remainingCredits: 100
+        )
+        let normal = MockBalanceChecker(providerKind: .codex, snapshot: fastSnapshot)
+        let slow = SleepingMockChecker(providerKind: .deepseek, sleepNanos: 3_000_000_000)
+
+        let mgr = BalanceManager(
+            checkers: [normal, slow],
+            timeoutNanos: 500_000_000
+        )
+        await mgr.refresh()
+
+        let returned = mgr.snapshots
+        XCTAssertFalse(mgr.isRefreshing)
+        XCTAssertTrue(mgr.lastRefreshDidTimeout)
+        let hasCodex = returned.contains { $0.provider == .codex && $0.isAvailable }
+        XCTAssertTrue(hasCodex)
+        let hasDeepSeekAvailable = returned.contains { $0.provider == .deepseek && $0.isAvailable }
+        XCTAssertFalse(hasDeepSeekAvailable)
+    }
+
+    @MainActor
+    func testRefreshFullyCompletedNotClassifiedAsTimeout() async {
+        let s1 = BalanceSnapshot(provider: .codex, fetchedAt: Date(), isAvailable: true, remainingCredits: 100)
+        let s2 = BalanceSnapshot(provider: .deepseek, fetchedAt: Date(), isAvailable: true, remainingCredits: 50)
+
+        let c1 = MockBalanceChecker(providerKind: .codex, snapshot: s1)
+        let c2 = MockBalanceChecker(providerKind: .deepseek, snapshot: s2)
+
+        let mgr = BalanceManager(checkers: [c1, c2], timeoutNanos: 2_000_000_000)
+        await mgr.refresh()
+
+        XCTAssertFalse(mgr.isRefreshing)
+        XCTAssertFalse(mgr.lastRefreshDidTimeout, "Fully completed refresh must not report timeout")
+        XCTAssertEqual(mgr.snapshots.count, 2)
+        XCTAssertTrue(mgr.snapshots.allSatisfy(\.isAvailable))
+    }
+
+    @MainActor
+    func testRefreshSinglePublicationSnapshotsAssignedExactlyOnce() async {
+        let s1 = BalanceSnapshot(provider: .codex, fetchedAt: Date(), isAvailable: true, remainingCredits: 42)
+        let s2 = BalanceSnapshot(provider: .deepseek, fetchedAt: Date(), isAvailable: true, remainingCredits: 99)
+        let s3 = BalanceSnapshot(provider: .opencodeGo, fetchedAt: Date(), isAvailable: true, remainingCredits: 11)
+
+        let c1 = MockBalanceChecker(providerKind: .codex, snapshot: s1)
+        let c2 = MockBalanceChecker(providerKind: .deepseek, snapshot: s2)
+        let c3 = MockBalanceChecker(providerKind: .opencodeGo, snapshot: s3)
+
+        let mgr = BalanceManager(checkers: [c1, c2, c3], timeoutNanos: 2_000_000_000)
+        var snapshotChangeCount = 0
+
+        let sink = mgr.$snapshots.sink { _ in snapshotChangeCount += 1 }
+        defer { sink.cancel() }
+
+        await mgr.refresh()
+
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertLessThanOrEqual(snapshotChangeCount, 2, "Snapshots should change ≤2 times (initial empty + single final assign)")
+        XCTAssertEqual(mgr.snapshots.count, 3)
+    }
+
+    // MARK: - Stale key pruning regression
+
+    func testConsumptionRateStorePrunesKeysForDisabledProviders() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let goSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: Date(),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5h", usedRatio: 0.1, remainingRatio: 0.9,
+                                   resetAt: Date().addingTimeInterval(3600), windowSeconds: 18000)
+            ]
+        )
+        ConsumptionRateCalculator.store([goSnapshot],
+                                        activeProviderKinds: [.opencodeGo, .codex])
+
+        let codexSnapshot = BalanceSnapshot(
+            provider: .codex,
+            fetchedAt: Date(),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "7d", usedRatio: 0.2, remainingRatio: 0.8,
+                                   resetAt: Date().addingTimeInterval(86400), windowSeconds: 604800)
+            ]
+        )
+        ConsumptionRateCalculator.store([codexSnapshot],
+                                        activeProviderKinds: [.opencodeGo, .codex])
+
+        let codexFresh = BalanceSnapshot(
+            provider: .codex,
+            fetchedAt: Date().addingTimeInterval(700),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "7d", usedRatio: 0.3, remainingRatio: 0.7,
+                                   resetAt: Date().addingTimeInterval(86400), windowSeconds: 604800)
+            ]
+        )
+        ConsumptionRateCalculator.store([codexFresh],
+                                        activeProviderKinds: [.codex])
+
+        let computed = ConsumptionRateCalculator.compute(current: [codexFresh])
+        XCTAssertNotNil(computed.first?.quotaWindows?.first?.consumptionRate)
+
+        let goFresh = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: Date().addingTimeInterval(1400),
+            isAvailable: true,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5h", usedRatio: 0.15, remainingRatio: 0.85,
+                                   resetAt: Date().addingTimeInterval(3600), windowSeconds: 18000)
+            ]
+        )
+        ConsumptionRateCalculator.store([goFresh],
+                                        activeProviderKinds: [.opencodeGo])
+        let goComputed = ConsumptionRateCalculator.compute(current: [goFresh])
+        XCTAssertEqual(goComputed.first?.quotaWindows?.first?.consumptionRate?.confidence ?? 0,
+                       0.2, accuracy: 0.001)
+    }
+
+    func testAmountConsumptionRateStorePrunesKeysForDisabledProviders() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let goEntry = BalanceValueEntry(label: "余额", currencyCode: "CNY", amount: 100)
+        let goSnapshot = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: Date(),
+            isAvailable: true,
+            valueEntries: [goEntry]
+        )
+        AmountConsumptionRateCalculator.store([goSnapshot],
+                                              activeProviderKinds: [.opencodeGo, .codex])
+
+        let codexEntry = BalanceValueEntry(label: "Grants", currencyCode: "USD", amount: 50)
+        let codexSnapshot = BalanceSnapshot(
+            provider: .codex,
+            fetchedAt: Date(),
+            isAvailable: true,
+            valueEntries: [codexEntry]
+        )
+        AmountConsumptionRateCalculator.store([codexSnapshot],
+                                              activeProviderKinds: [.opencodeGo, .codex])
+
+        let codexFresh = BalanceSnapshot(
+            provider: .codex,
+            fetchedAt: Date().addingTimeInterval(700),
+            isAvailable: true,
+            valueEntries: [BalanceValueEntry(label: "Grants", currencyCode: "USD", amount: 45)]
+        )
+        AmountConsumptionRateCalculator.store([codexFresh],
+                                              activeProviderKinds: [.codex])
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [codexFresh])
+        XCTAssertNotNil(computed.first?.valueEntries?.first?.amountConsumptionRate)
+
+        let goFresh = BalanceSnapshot(
+            provider: .opencodeGo,
+            fetchedAt: Date().addingTimeInterval(1400),
+            isAvailable: true,
+            valueEntries: [BalanceValueEntry(label: "余额", currencyCode: "CNY", amount: 95)]
+        )
+        AmountConsumptionRateCalculator.store([goFresh],
+                                              activeProviderKinds: [.opencodeGo])
+        let goComputed = AmountConsumptionRateCalculator.compute(current: [goFresh])
+        XCTAssertNil(goComputed.first?.valueEntries?.first?.amountConsumptionRate)
+    }
+
+    func testConsumptionRateStoreEnforcesGlobalMaxKeyCount() {
+        ConsumptionRateCalculator.resetHistoryForTesting()
+        defer { ConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let provider = BalanceProviderKind.codex
+        let base = Date()
+        let manyLabels = (0 ..< 10).map { "window-\($0)" }
+        for (i, label) in manyLabels.enumerated() {
+            let snapshot = BalanceSnapshot(
+                provider: provider,
+                fetchedAt: base.addingTimeInterval(TimeInterval(700 * i)),
+                isAvailable: true,
+                quotaWindows: [
+                    BalanceQuotaWindow(label: label, usedRatio: 0.1, remainingRatio: 0.9,
+                                       resetAt: base.addingTimeInterval(3600), windowSeconds: 18000)
+                ]
+            )
+            ConsumptionRateCalculator.store([snapshot], activeProviderKinds: [provider])
+        }
+        let computed = ConsumptionRateCalculator.compute(current: [BalanceSnapshot(
+            provider: provider, fetchedAt: base.addingTimeInterval(7000), isAvailable: true,
+            quotaWindows: [BalanceQuotaWindow(label: "window-0", usedRatio: 0.2, remainingRatio: 0.8,
+                                               resetAt: base.addingTimeInterval(3600), windowSeconds: 18000)]
+        )])
+        XCTAssertNotNil(computed.first?.quotaWindows?.first?.consumptionRate)
+    }
+
+    func testAmountConsumptionRateStoreEnforcesGlobalMaxKeyCount() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let provider = BalanceProviderKind.codex
+        let base = Date()
+        let manyCurrencies = (0 ..< 10).map { "CCY-\($0)" }
+        for (i, currency) in manyCurrencies.enumerated() {
+            let snapshot = BalanceSnapshot(
+                provider: provider,
+                fetchedAt: base.addingTimeInterval(TimeInterval(700 * i)),
+                isAvailable: true,
+                valueEntries: [BalanceValueEntry(label: "余额", currencyCode: currency, amount: Double(100 - i))]
+            )
+            AmountConsumptionRateCalculator.store([snapshot], activeProviderKinds: [provider])
+        }
+        let computed = AmountConsumptionRateCalculator.compute(current: [BalanceSnapshot(
+            provider: provider, fetchedAt: base.addingTimeInterval(7000), isAvailable: true,
+            valueEntries: [BalanceValueEntry(label: "余额", currencyCode: "CCY-0", amount: 90)]
+        )])
+        XCTAssertNotNil(computed.first?.valueEntries?.first?.amountConsumptionRate)
+    }
+
     // MARK: - OpenCodeGoDashboardFetcher parseWindows (SolidJS SSR)
 
     func testParseWindowsAllThreeSolidJS() {
@@ -1363,6 +1613,1379 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(total, 25, accuracy: 0.01)
     }
 
+    // MARK: - Unified Reporting-Range Cost Model
+
+    func testReportingRangeDerivesInclusiveWholeDayFromRawData() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let payload = makeMultiDatePayload(dates: ["2026-06-01", "2026-06-03", "2026-06-05"])
+        let range = try XCTUnwrap(AppPreferences.reportingRange(from: payload))
+
+        let calendar = Calendar.autoupdatingCurrent
+        let expectedStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let expectedEnd = try XCTUnwrap(formatter.date(from: "2026-06-05"))
+        let expectedEndOfDay = try XCTUnwrap(
+            calendar.date(byAdding: DateComponents(day: 1, second: -1),
+                          to: calendar.startOfDay(for: expectedEnd))
+        )
+
+        XCTAssertEqual(calendar.startOfDay(for: range.start), calendar.startOfDay(for: expectedStart))
+        XCTAssertEqual(range.end, expectedEndOfDay)
+    }
+
+    func testReportingRangeNilWhenEmptyRawData() {
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 0, totalActualTokens: 0,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 0, activeDays: 0,
+                dateRange: .init(start: nil, end: nil),
+                updatedAt: "2026-06-01T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: []
+        )
+        XCTAssertNil(AppPreferences.reportingRange(from: payload))
+    }
+
+    func testReportingCostBreakdownAllocatesCycleAmountByOverlapProportion() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Cycle: June 1 – July 1 inclusive = 31 days
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-07-01"))
+        // Reporting: June 1 – June 16 inclusive day boundaries
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-16"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        // cycleTotalCost = ($10 / 30.4375) * 31 ≈ $10.1848
+        // overlapIncludedDays = 16, cycleIncludedDays = 31
+        // cost = $10.1848 * 16 / 31 ≈ $5.2567
+        let cycleTotalCost = (10.0 / 30.4375) * 31.0
+        let expectedAllocated = cycleTotalCost * 16.0 / 31.0
+        XCTAssertEqual(breakdown.totalCost, expectedAllocated, accuracy: 0.01)
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode] ?? 0, expectedAllocated, accuracy: 0.01)
+        XCTAssertTrue(breakdown.uncoveredUsageByProviderKey.isEmpty)
+    }
+
+    func testReportingCostBreakdownFallbackNoPeriodDates() {
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let now = Date()
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload,
+            reportingStart: Calendar.autoupdatingCurrent.date(byAdding: .day, value: -30, to: now)!,
+            reportingEnd: now
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        XCTAssertEqual(breakdown.totalCost, 10, accuracy: 0.01)
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode], 10)
+    }
+
+    func testReportingCostBreakdownIncludesUncoveredUsage() throws {
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "deepseek", rawCost: 5)
+        let range = try XCTUnwrap(AppPreferences.reportingRange(from: payload))
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload,
+            reportingStart: range.start,
+            reportingEnd: range.end
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        XCTAssertTrue(breakdown.fixedCostByProvider.isEmpty)
+        XCTAssertFalse(breakdown.uncoveredUsageByProviderKey.isEmpty)
+        XCTAssertGreaterThan(breakdown.totalCost, 0)
+    }
+
+    func testReportingCostBreakdownNoDoubleCounting() {
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        // Payload has API usage matching the subscribed provider key
+        let payload = makeTestPayload(provider: "opencode-go", rawCost: 5)
+        let now = Date()
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload,
+            reportingStart: Calendar.autoupdatingCurrent.date(byAdding: .day, value: -30, to: now)!,
+            reportingEnd: now
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        // Total should be exactly the subscription cost, NOT subscription + API
+        XCTAssertEqual(breakdown.totalCost, 10, accuracy: 0.01)
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode], 10)
+        // uncoveredUsage should not include opencode-go since it's covered
+        let uncoveredKeys = breakdown.uncoveredUsageByProviderKey.keys.map {
+            $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        XCTAssertFalse(uncoveredKeys.contains("opencode-go"))
+        XCTAssertFalse(uncoveredKeys.contains("opencode"))
+    }
+
+    func testReportingCostBreakdownCombinedFixedAndUncovered() throws {
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false),
+            for: .deepseek
+        )
+        // Other providers unsubscribed to keep test focused
+        for provider in BillingProvider.allCases where provider != .opencode && provider != .deepseek {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        // Payload has API usage from deepseek (uncovered) but opencode-go row (covered)
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 2_000_000, totalActualTokens: 1_000_000,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0.14 + 5, totalMessages: 2, activeDays: 1,
+                dateRange: .init(start: "2026-06-15", end: "2026-06-15"),
+                updatedAt: "2026-06-15T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-15", model: "minimax-m2.7", provider: "opencode-go",
+                    input: 500_000, output: 10_000, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 1,
+                    total: 510_000, cost: 5, msgCount: 1
+                ),
+                DashboardPayload.RawRow(
+                    date: "2026-06-15", model: "deepseek-chat", provider: "deepseek",
+                    input: 1_000_000, output: 0, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_000_000, cost: 0, msgCount: 1
+                )
+            ]
+        )
+
+        let range = try XCTUnwrap(AppPreferences.reportingRange(from: payload))
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload,
+            reportingStart: range.start,
+            reportingEnd: range.end
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        // fixed: opencode $10 + uncovered: deepseek API ~$0.14
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode], 10)
+        let uncoveredDeepseek = breakdown.uncoveredUsageByProviderKey["deepseek"] ?? 0
+        XCTAssertGreaterThan(uncoveredDeepseek, 0)
+        let expectedTotal = 10.0 + uncoveredDeepseek
+        XCTAssertEqual(breakdown.totalCost, expectedTotal, accuracy: 0.01)
+    }
+
+    func testReportingCostBreakdownZeroOverlapReturnsZero() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Period: May 1–31, Reporting: June 1–30 (zero overlap)
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-05-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-05-31"))
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        // Zero overlap → cost = 0 (not fallback to monthly)
+        XCTAssertFalse(breakdown.hasCost)
+        XCTAssertEqual(breakdown.totalCost, 0, accuracy: 0.01)
+        XCTAssertNil(breakdown.fixedCostByProvider[.opencode])
+    }
+
+    func testCombinedTotalCostUsesReportingRangeWhenPeriodEnabled() {
+        let payload = makeTestPayload(provider: "deepseek", rawCost: 0.14)
+        var prefs = AppPreferences(periodTotalCostEnabled: true)
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false),
+            for: .deepseek
+        )
+        for provider in BillingProvider.allCases where provider != .opencode && provider != .deepseek {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        guard let total = prefs.combinedTotalCost(payload: payload) else {
+            XCTFail("expected non-nil total"); return
+        }
+        XCTAssertGreaterThan(total, 10, "Canonical breakdown should include uncovered API usage")
+        XCTAssertLessThan(total, 20, "Should be close to $10 + small API usage")
+    }
+
+    func testCombinedTotalCostUsesReportingRangeWhenLegacyFlagFalse() {
+        let payload = makeTestPayload(provider: "deepseek", rawCost: 0.14)
+        var prefs = AppPreferences(periodTotalCostEnabled: false)
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false),
+            for: .deepseek
+        )
+        for provider in BillingProvider.allCases where provider != .opencode && provider != .deepseek {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        guard let total = prefs.combinedTotalCost(payload: payload) else {
+            XCTFail("expected non-nil total"); return
+        }
+        // Legacy flag false must NOT suppress canonical reporting — same behavior as flag true
+        XCTAssertGreaterThan(total, 10, "Legacy flag false should still use canonical breakdown")
+        XCTAssertLessThan(total, 20, "Should be close to $10 + small API usage")
+    }
+
+    func testCombinedTotalCostRegressionSameTotalRegardlessOfLegacyFlag() {
+        let payload = makeTestPayload(provider: "deepseek", rawCost: 0.14)
+        func makePrefs(flag: Bool) -> AppPreferences {
+            var prefs = AppPreferences(periodTotalCostEnabled: flag)
+            prefs.setBillingSelection(
+                BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+                for: .opencode
+            )
+            prefs.setBillingSelection(
+                BillingPlanSelection(presetID: "deepseek-api-paygo", isSubscribed: false),
+                for: .deepseek
+            )
+            for provider in BillingProvider.allCases where provider != .opencode && provider != .deepseek {
+                prefs.setBillingSelection(
+                    BillingPlanSelection(
+                        presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                        isSubscribed: false
+                    ),
+                    for: provider
+                )
+            }
+            return prefs
+        }
+        let prefsTrue = makePrefs(flag: true)
+        let prefsFalse = makePrefs(flag: false)
+
+        let totalTrue = prefsTrue.combinedTotalCost(payload: payload)
+        let totalFalse = prefsFalse.combinedTotalCost(payload: payload)
+
+        XCTAssertNotNil(totalTrue)
+        XCTAssertNotNil(totalFalse)
+        XCTAssertEqual(totalTrue, totalFalse,
+                       "Same reporting mode must produce identical combined total regardless of legacy flag")
+    }
+
+    // MARK: - P1: combinedTotalCost zero-total breakdown must not fall back to monthly
+
+    func testCombinedTotalCostZeroOverlapReturnsZeroNotMonthlyFallback() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Subscription period: May 1–31. Reporting range will be derived from payload dates in June.
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-05-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-05-31"))
+
+        var prefs = AppPreferences(reportingRangeMode: .allAvailable)
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        // Payload date in June — outside the May subscription period (zero overlap).
+        // No API cost rows, so uncovered usage is also zero.
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 0, totalActualTokens: 0,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 0, activeDays: 1,
+                dateRange: .init(start: "2026-06-15", end: "2026-06-15"),
+                updatedAt: "2026-06-15T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-15", model: "unused", provider: "unused",
+                    input: 0, output: 0, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 0, cost: 0, msgCount: 1
+                )
+            ]
+        )
+
+        let total = prefs.combinedTotalCost(payload: payload)
+
+        // Before the P1 fix, hasCost=false caused fallback to combinedMonthlyCost ($10).
+        // After the fix, a resolved reporting range with zero cost must return 0.
+        XCTAssertNotNil(total, "A valid reporting range should produce a result")
+        XCTAssertEqual(total ?? -1, 0, accuracy: 0.01,
+                       "Zero-overlap zero-usage breakdown must return 0, not fall back to monthly $10")
+    }
+
+    // MARK: - Canonical per-provider billing-cycle allocation
+
+    func testProviderIsolationIndependentCycleAllocation() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+
+        var prefs = AppPreferences()
+        // OpenCode: June 1–30 (full overlap with reporting)
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: try XCTUnwrap(formatter.date(from: "2026-06-01")),
+                periodEnd: try XCTUnwrap(formatter.date(from: "2026-06-30")),
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        // Codex: May 1–31 (zero overlap)
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "chatgpt-plus", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: try XCTUnwrap(formatter.date(from: "2026-05-01")),
+                periodEnd: try XCTUnwrap(formatter.date(from: "2026-05-31")),
+                hasPeriodTracking: true
+            ),
+            for: .codex
+        )
+        // Other providers unsubscribed
+        for provider in BillingProvider.allCases where provider != .opencode && provider != .codex {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        // OpenCode: 30/30 overlap → full cycle cost
+        let openCodeCycleDays = 30.0
+        let openCodeCycleCost = (10.0 / 30.4375) * openCodeCycleDays
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode] ?? 0, openCodeCycleCost, accuracy: 0.01)
+        // Codex: 0/31 overlap → cost = 0 (not in fixedCostByProvider)
+        XCTAssertNil(breakdown.fixedCostByProvider[.codex])
+        // Total = opencode only
+        XCTAssertEqual(breakdown.totalCost, openCodeCycleCost, accuracy: 0.01)
+    }
+
+    func testInclusiveMonthEndAllocation() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Full month cycle: June 1–30 inclusive = 30 days
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+        // Reporting last 10 days: June 21–30 inclusive = 10 days
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-21"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        // cycleTotal = ($10 / 30.4375) * 30 ≈ $9.856
+        // allocation = $9.856 * 10/30 ≈ $3.285
+        let cycleTotal = (10.0 / 30.4375) * 30.0
+        let expected = cycleTotal * 10.0 / 30.0
+        XCTAssertEqual(breakdown.totalCost, expected, accuracy: 0.01)
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode] ?? 0, expected, accuracy: 0.01)
+    }
+
+    func testPartialOverlapAllocationWithinReportingRange() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Cycle: June 1–30 (30 days)
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+        // Reporting: June 10–20 (11 days overlap)
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-10"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-20"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        // Overlap: June 10–20 = 11 included days
+        // cycleTotal = ($10 / 30.4375) * 30 ≈ $9.856
+        // allocation = $9.856 * 11/30 ≈ $3.614
+        let cycleTotal = (10.0 / 30.4375) * 30.0
+        let expected = cycleTotal * 11.0 / 30.0
+        XCTAssertEqual(breakdown.totalCost, expected, accuracy: 0.01)
+    }
+
+    func testZeroOverlapProviderContributesZero() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+
+        var prefs = AppPreferences()
+        // Two providers with zero-overlap cycles
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: try XCTUnwrap(formatter.date(from: "2026-04-01")),
+                periodEnd: try XCTUnwrap(formatter.date(from: "2026-04-30")),
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "chatgpt-plus", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: try XCTUnwrap(formatter.date(from: "2026-07-01")),
+                periodEnd: try XCTUnwrap(formatter.date(from: "2026-07-31")),
+                hasPeriodTracking: true
+            ),
+            for: .codex
+        )
+        for provider in BillingProvider.allCases where provider != .opencode && provider != .codex {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        // Both providers have zero overlap → total = 0
+        XCTAssertFalse(breakdown.hasCost)
+        XCTAssertEqual(breakdown.totalCost, 0, accuracy: 0.01)
+        XCTAssertNil(breakdown.fixedCostByProvider[.opencode])
+        XCTAssertNil(breakdown.fixedCostByProvider[.codex])
+    }
+
+    func testFallbackToMonthlyWhenTrackingDisabled() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Period dates set but tracking disabled → fallback to monthly
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-16"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: false
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        XCTAssertEqual(breakdown.totalCost, 10, accuracy: 0.01)
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode], 10)
+    }
+
+    func testNoDoubleCountingWithPerProviderTracking() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        // Payload has opencode-go API usage — should be suppressed (covered by fixed sub)
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 110, totalActualTokens: 110,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 5, totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-06-15", end: "2026-06-15"),
+                updatedAt: "2026-06-15T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-15", model: "test-model", provider: "opencode-go",
+                    input: 100_000, output: 10_000, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 1,
+                    total: 110_000, cost: 5, msgCount: 1
+                )
+            ]
+        )
+        let range = try XCTUnwrap(AppPreferences.reportingRange(from: payload))
+
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload,
+            reportingStart: range.start,
+            reportingEnd: range.end
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        // opencode-go API usage is covered → not in uncoveredUsage
+        let uncoveredKeys = breakdown.uncoveredUsageByProviderKey.keys.map {
+            $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        XCTAssertFalse(uncoveredKeys.contains("opencode-go"))
+        XCTAssertFalse(uncoveredKeys.contains("opencode"))
+        // Total = prorated cycle cost only, not + API
+        let cycleTotal = (10.0 / 30.4375) * 30.0
+        let overlapDays = 1.0  // single-day payload
+        let expectedFixed = cycleTotal * overlapDays / 30.0
+        XCTAssertEqual(breakdown.totalCost, expectedFixed, accuracy: 0.01)
+    }
+
+    // MARK: - Month-granularity exact cycle regression
+
+    func testMonthGranularityFullQuarterYieldsExactThreeMonths() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Jan 1 – Mar 31 inclusive must be exactly 3 monthly units
+        let start = try XCTUnwrap(formatter.date(from: "2026-01-01"))
+        let end = try XCTUnwrap(formatter.date(from: "2026-03-31"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .month,
+                periodStart: start, periodEnd: end,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let cost = try XCTUnwrap(prefs.periodTotalCost(for: .opencode))
+        // 3 full calendar months × $10 = $30 (not 2 + 90/31 ≈ $49)
+        XCTAssertEqual(cost, 30, accuracy: 0.01,
+                       "Full quarter must be exactly 3 × monthlyUSD, not overcounted")
+    }
+
+    func testMonthGranularitySameMonthInclusiveEndUsesFraction() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Jan 1 – Jan 15 inclusive: exclusive end = Jan 16 → months=0, days=15
+        let start = try XCTUnwrap(formatter.date(from: "2026-01-01"))
+        let end = try XCTUnwrap(formatter.date(from: "2026-01-15"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .month,
+                periodStart: start, periodEnd: end,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let cost = try XCTUnwrap(prefs.periodTotalCost(for: .opencode))
+        // 15 days / 31 days in January × $10 ≈ $4.84
+        let expected = 10.0 * 15.0 / 31.0
+        XCTAssertEqual(cost, expected, accuracy: 0.01,
+                       "15-day partial month must be 15/31 of monthlyUSD")
+    }
+
+    // MARK: - Codable migration for BillingPlanSelection period fields
+
+    func testBillingPlanSelectionCodableRoundTripWithPeriodDates() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let start = try XCTUnwrap(formatter.date(from: "2026-01-01"))
+        let end = try XCTUnwrap(formatter.date(from: "2026-12-31"))
+
+        let original = BillingPlanSelection(
+            mode: .preset,
+            presetID: "opencode-go",
+            customMonthlyUSD: nil,
+            isSubscribed: true,
+            periodGranularity: .day,
+            periodStart: start,
+            periodEnd: end,
+            periodPreset: .yearly
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(BillingPlanSelection.self, from: data)
+
+        XCTAssertEqual(decoded.mode, .preset)
+        XCTAssertEqual(decoded.presetID, "opencode-go")
+        XCTAssertNil(decoded.customMonthlyUSD)
+        XCTAssertTrue(decoded.isSubscribed)
+        XCTAssertEqual(decoded.periodGranularity, .day)
+        let decodedStartDay = decoded.periodStart.map { Calendar.autoupdatingCurrent.startOfDay(for: $0) }
+        let expectedStartDay = Calendar.autoupdatingCurrent.startOfDay(for: start)
+        XCTAssertEqual(decodedStartDay, expectedStartDay)
+        let decodedEndDay = decoded.periodEnd.map { Calendar.autoupdatingCurrent.startOfDay(for: $0) }
+        let expectedEndDay = Calendar.autoupdatingCurrent.startOfDay(for: end)
+        XCTAssertEqual(decodedEndDay, expectedEndDay)
+        XCTAssertEqual(decoded.periodPreset, .yearly)
+    }
+
+    func testBillingPlanSelectionDecodeOldFormatDefaultsPeriodFields() throws {
+        let json = """
+        {"mode":"preset","presetId":"opencode-go","isSubscribed":true}
+        """
+        let data = json.data(using: .utf8)!
+        let selection = try JSONDecoder().decode(BillingPlanSelection.self, from: data)
+
+        XCTAssertEqual(selection.mode, .preset)
+        XCTAssertEqual(selection.presetID, "opencode-go")
+        XCTAssertTrue(selection.isSubscribed)
+        XCTAssertEqual(selection.periodGranularity, .month)
+        XCTAssertNil(selection.periodStart)
+        XCTAssertNil(selection.periodEnd)
+        XCTAssertNil(selection.periodPreset)
+    }
+
+    func testBillingPlanSelectionEncodeOmitsNilPeriodDates() throws {
+        let selection = BillingPlanSelection(
+            presetID: "opencode-go",
+            isSubscribed: true,
+            periodGranularity: .month,
+            periodStart: nil,
+            periodEnd: nil,
+            periodPreset: nil
+        )
+        let data = try JSONEncoder().encode(selection)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertNil(json["period_start"])
+        XCTAssertNil(json["period_end"])
+        XCTAssertNil(json["period_preset"])
+        XCTAssertEqual(json["period_granularity"] as? String, "month")
+    }
+
+    // MARK: - hasPeriodTracking migration and behavior
+
+    func testHasPeriodTrackingDefaultsToFalse() {
+        let selection = BillingPlanSelection(presetID: "opencode-go")
+        XCTAssertFalse(selection.hasPeriodTracking)
+    }
+
+    func testHasPeriodTrackingExplicitInitTrue() {
+        let selection = BillingPlanSelection(presetID: "opencode-go", hasPeriodTracking: true)
+        XCTAssertTrue(selection.hasPeriodTracking)
+    }
+
+    func testOldDataWithPeriodDatesDecodesTrackingTrue() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Old JSON with both period dates but no period_tracking key
+        let json = """
+        {"mode":"preset","presetId":"opencode-go","isSubscribed":true,"period_start":728956800,"period_end":733622400,"period_granularity":"day"}
+        """
+        let data = json.data(using: .utf8)!
+        let selection = try JSONDecoder().decode(BillingPlanSelection.self, from: data)
+
+        XCTAssertNotNil(selection.periodStart)
+        XCTAssertNotNil(selection.periodEnd)
+        XCTAssertTrue(selection.hasPeriodTracking,
+                       "Old data with both period dates should decode hasPeriodTracking=true")
+    }
+
+    func testOldDataWithoutPeriodDatesDecodesTrackingFalse() throws {
+        let json = """
+        {"mode":"preset","presetId":"opencode-go","isSubscribed":true}
+        """
+        let data = json.data(using: .utf8)!
+        let selection = try JSONDecoder().decode(BillingPlanSelection.self, from: data)
+
+        XCTAssertNil(selection.periodStart)
+        XCTAssertNil(selection.periodEnd)
+        XCTAssertFalse(selection.hasPeriodTracking)
+    }
+
+    func testOldDataWithOnlyOnePeriodDateDecodesTrackingFalse() throws {
+        let json = """
+        {"mode":"preset","presetId":"opencode-go","isSubscribed":true,"period_start":728956800,"period_granularity":"day"}
+        """
+        let data = json.data(using: .utf8)!
+        let selection = try JSONDecoder().decode(BillingPlanSelection.self, from: data)
+
+        XCTAssertNotNil(selection.periodStart)
+        XCTAssertNil(selection.periodEnd)
+        XCTAssertFalse(selection.hasPeriodTracking,
+                        "Only one period date should NOT trigger hasPeriodTracking=true")
+    }
+
+    func testExplicitTrackingFalseOverridesAutoTrue() throws {
+        let json = """
+        {"mode":"preset","presetId":"opencode-go","isSubscribed":true,"period_start":728956800,"period_end":733622400,"period_tracking":false}
+        """
+        let data = json.data(using: .utf8)!
+        let selection = try JSONDecoder().decode(BillingPlanSelection.self, from: data)
+
+        XCTAssertNotNil(selection.periodStart)
+        XCTAssertNotNil(selection.periodEnd)
+        XCTAssertFalse(selection.hasPeriodTracking,
+                        "Explicit period_tracking:false should not be overridden")
+    }
+
+    func testDisabledTrackingFallsBackToMonthlyInReportingBreakdown() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-07-01"))
+
+        var prefs = AppPreferences()
+        // hasPeriodTracking=false even though dates are set
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodGranularity: .day,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: false
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-16"))
+
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        // Should be full monthly USD ($10), NOT prorated
+        XCTAssertEqual(breakdown.totalCost, 10, accuracy: 0.01)
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode], 10)
+    }
+
+    func testEnabledTrackingWithInvalidDatesFallsBackToMonthly() {
+        var prefs = AppPreferences()
+        // hasPeriodTracking=true but periodStart/periodEnd are nil
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let now = Date()
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload,
+            reportingStart: Calendar.autoupdatingCurrent.date(byAdding: .day, value: -30, to: now)!,
+            reportingEnd: now
+        )
+
+        XCTAssertTrue(breakdown.hasCost)
+        // Safe fallback: no valid dates → monthly USD
+        XCTAssertEqual(breakdown.totalCost, 10, accuracy: 0.01)
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode], 10)
+    }
+
+    func testEnabledTrackingWithSameDayTreatsAsOneDay() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let sameDate = try XCTUnwrap(formatter.date(from: "2026-06-15"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodStart: sameDate, periodEnd: sameDate,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let payload = makeTestPayload(provider: "unused", rawCost: 0)
+        let now = Date()
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload,
+            reportingStart: Calendar.autoupdatingCurrent.date(byAdding: .day, value: -30, to: now)!,
+            reportingEnd: now
+        )
+
+        // Same-day cycle = 1 included day → proportional allocation, not full monthly fallback
+        // 1 day within a 30-day month at $10 = ~$0.33 with .month granularity
+        // Overlap with 30-day window may be 1 day → cost ≈ $0.33
+        if breakdown.hasCost {
+            XCTAssertLessThan(breakdown.totalCost, 10, "Same-day should not fall back to full monthly")
+            if let fixedCost = breakdown.fixedCostByProvider[.opencode] {
+                XCTAssertLessThan(fixedCost, 10, "Same-day fixed cost should be prorated, not full monthly")
+            }
+        }
+    }
+
+    func testPeriodTotalCostRespectsTrackingFlag() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodStart: formatter.date(from: "2026-01-01"),
+                periodEnd: formatter.date(from: "2026-12-31"),
+                hasPeriodTracking: false
+            ),
+            for: .opencode
+        )
+
+        // With tracking disabled, periodTotalCost should return full monthlyUSD ($10)
+        let cost = prefs.periodTotalCost(for: .opencode)
+        XCTAssertEqual(cost ?? 0, 10, accuracy: 0.01)
+    }
+
+    func testHasPeriodTrackingCodableRoundTrip() throws {
+        let original = BillingPlanSelection(
+            presetID: "chatgpt-plus",
+            isSubscribed: true,
+            hasPeriodTracking: true
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(BillingPlanSelection.self, from: data)
+
+        XCTAssertTrue(decoded.hasPeriodTracking)
+        XCTAssertEqual(decoded.presetID, "chatgpt-plus")
+
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(json["period_tracking"] as? Bool, true)
+    }
+
+    // MARK: - ReportingRangeMode tests
+
+    func testReportingRangeModeDefaultsToAllAvailable() {
+        let prefs = AppPreferences()
+        XCTAssertEqual(prefs.reportingRangeMode, .allAvailable)
+    }
+
+    func testReportingRangeModeAllAvailableResolvesPayloadDates() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let payload = makeMultiDatePayload(dates: ["2026-06-01", "2026-06-05"])
+        let range = try XCTUnwrap(AppPreferences.resolveReportingRange(
+            mode: .allAvailable, customBounds: ReportingRangeCustomBounds(), payload: payload
+        ))
+        let calendar = Calendar.autoupdatingCurrent
+        let expectedStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        XCTAssertEqual(calendar.startOfDay(for: range.start), calendar.startOfDay(for: expectedStart))
+    }
+
+    func testReportingRangeModeCurrentMonthStartsAtMonthBegin() {
+        let payload = makeTestPayload(provider: "test", rawCost: 0)
+        let range = AppPreferences.resolveReportingRange(
+            mode: .currentMonth, customBounds: ReportingRangeCustomBounds(), payload: payload
+        )
+        XCTAssertNotNil(range)
+        let calendar = Calendar.autoupdatingCurrent
+        let now = Date()
+        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now))
+        XCTAssertEqual(calendar.startOfDay(for: range!.start), monthStart)
+    }
+
+    func testReportingRangeModeLast30DaysSpans30Days() {
+        let payload = makeTestPayload(provider: "test", rawCost: 0)
+        let range = AppPreferences.resolveReportingRange(
+            mode: .last30Days, customBounds: ReportingRangeCustomBounds(), payload: payload
+        )
+        XCTAssertNotNil(range)
+        let calendar = Calendar.autoupdatingCurrent
+        let expectedStart = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -30, to: Date())!)
+        XCTAssertEqual(calendar.startOfDay(for: range!.start), expectedStart)
+    }
+
+    func testReportingRangeModeCustomWithValidBounds() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let start = try XCTUnwrap(formatter.date(from: "2026-03-01"))
+        let end = try XCTUnwrap(formatter.date(from: "2026-03-31"))
+        let customBounds = ReportingRangeCustomBounds(start: start, end: end)
+
+        let payload = makeTestPayload(provider: "test", rawCost: 0)
+        let range = try XCTUnwrap(AppPreferences.resolveReportingRange(
+            mode: .custom, customBounds: customBounds, payload: payload
+        ))
+
+        let calendar = Calendar.autoupdatingCurrent
+        XCTAssertEqual(calendar.startOfDay(for: range.start), calendar.startOfDay(for: start))
+    }
+
+    func testReportingRangeModeCustomFallsBackOnMissingBounds() {
+        let payload = makeTestPayload(provider: "test", rawCost: 0)
+        let range = AppPreferences.resolveReportingRange(
+            mode: .custom, customBounds: ReportingRangeCustomBounds(start: nil, end: nil),
+            payload: payload
+        )
+        // Should fall back to allAvailable (payload-derived range)
+        XCTAssertNotNil(range)
+    }
+
+    func testReportingRangeModeCustomFallsBackOnInvalidBounds() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let start = try XCTUnwrap(formatter.date(from: "2026-12-31"))
+        let end = try XCTUnwrap(formatter.date(from: "2026-01-01"))
+        let invalidBounds = ReportingRangeCustomBounds(start: start, end: end)
+
+        let payload = makeTestPayload(provider: "test", rawCost: 0)
+        let range = AppPreferences.resolveReportingRange(
+            mode: .custom, customBounds: invalidBounds, payload: payload
+        )
+        // start > end is invalid → falls back to allAvailable
+        XCTAssertNotNil(range)
+    }
+
+    func testFilteredUncoveredUsageOnlyIncludesInRangeRows() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-03"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-05"))
+
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 3_300, totalActualTokens: 3_300,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 3, activeDays: 3,
+                dateRange: .init(start: "2026-06-01", end: "2026-06-07"),
+                updatedAt: "2026-06-07T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-06-01", model: "test", provider: "deepseek",
+                    input: 1_000_000, output: 0, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_100, cost: 100, msgCount: 1
+                ),
+                DashboardPayload.RawRow(
+                    date: "2026-06-04", model: "test", provider: "deepseek",
+                    input: 1_000_000, output: 0, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_100, cost: 200, msgCount: 1
+                ),
+                DashboardPayload.RawRow(
+                    date: "2026-06-07", model: "test", provider: "deepseek",
+                    input: 1_000_000, output: 0, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_100, cost: 300, msgCount: 1
+                )
+            ]
+        )
+
+        var prefs = AppPreferences()
+        for provider in BillingProvider.allCases {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        // Only the June 4 row (cost=200) should be included; June 1 and June 7 should be excluded
+        XCTAssertTrue(breakdown.hasCost)
+        // Raw cost from June 4 row: 200
+        // Synthetic cost for 1M input tokens via deepseek-chat (~$0.14)
+        // Cost = max(raw=200, synthetic=0.14) = 200 (raw > synthetic)
+        XCTAssertEqual(breakdown.totalCost, 200, accuracy: 0.5)
+    }
+
+    func testLegacyPreferencesDecodeDefaultsReportRangeToAllAvailable() throws {
+        let json = """
+        {"language":"zh-Hans","openCodePricingMode":"api"}
+        """
+        let data = json.data(using: .utf8)!
+        let prefs = try JSONDecoder().decode(AppPreferences.self, from: data)
+
+        XCTAssertEqual(prefs.reportingRangeMode, .allAvailable)
+        XCTAssertEqual(prefs.reportingRangeCustomBounds.start, nil)
+        XCTAssertEqual(prefs.reportingRangeCustomBounds.end, nil)
+    }
+
+    func testReportingRangeModeCodableRoundTrip() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let start = try XCTUnwrap(formatter.date(from: "2026-02-01"))
+        let end = try XCTUnwrap(formatter.date(from: "2026-02-28"))
+        let originalBounds = ReportingRangeCustomBounds(start: start, end: end)
+
+        let prefs = AppPreferences(
+            reportingRangeMode: .custom,
+            reportingRangeCustomBounds: originalBounds
+        )
+        let data = try JSONEncoder().encode(prefs)
+        let decoded = try JSONDecoder().decode(AppPreferences.self, from: data)
+
+        XCTAssertEqual(decoded.reportingRangeMode, .custom)
+        XCTAssertEqual(
+            decoded.reportingRangeCustomBounds.start.map { Calendar.autoupdatingCurrent.startOfDay(for: $0) },
+            Calendar.autoupdatingCurrent.startOfDay(for: start)
+        )
+        XCTAssertEqual(
+            decoded.reportingRangeCustomBounds.end.map { Calendar.autoupdatingCurrent.startOfDay(for: $0) },
+            Calendar.autoupdatingCurrent.startOfDay(for: end)
+        )
+    }
+
+    func testCombinedTotalCostRespectsRangeMode() {
+        let payload = makeTestPayload(provider: "deepseek", rawCost: 5)
+        var prefsAll = AppPreferences(
+            periodTotalCostEnabled: true,
+            reportingRangeMode: .allAvailable
+        )
+        var prefsMonth = AppPreferences(
+            periodTotalCostEnabled: true,
+            reportingRangeMode: .currentMonth
+        )
+        func configure(_ prefs: inout AppPreferences) {
+            prefs.setBillingSelection(
+                BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+                for: .opencode
+            )
+            for provider in BillingProvider.allCases where provider != .opencode {
+                prefs.setBillingSelection(
+                    BillingPlanSelection(
+                        presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                        isSubscribed: false
+                    ),
+                    for: provider
+                )
+            }
+        }
+        configure(&prefsAll)
+        configure(&prefsMonth)
+
+        let allCost = prefsAll.combinedTotalCost(payload: payload)
+        XCTAssertNotNil(allCost)
+        let monthCost = prefsMonth.combinedTotalCost(payload: payload)
+        XCTAssertNotNil(monthCost)
+    }
+
     func testTokenHeatmapBuilderMergesSourcesAndSortsCellsChronologically() throws {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -1574,6 +3197,539 @@ final class CodexTokenCostCoreTests: XCTestCase {
         )
     }
 
+    // MARK: - filteredPayloadWithReportingOverrides
+
+    func testFilteredPayloadWithReportingOverridesReturnsNilForEmptyPayload() {
+        var prefs = AppPreferences()
+        prefs.reportingRangeMode = .allAvailable
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 0, totalActualTokens: 0,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 0, activeDays: 0,
+                dateRange: .init(start: nil, end: nil),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: []
+        )
+        let result = prefs.filteredPayloadWithReportingOverrides(
+            payload: payload, mode: .allAvailable
+        )
+        XCTAssertNil(result)
+    }
+
+    func testFilteredPayloadExcludesRowsOutsideRange() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let row1 = DashboardPayload.RawRow(
+            date: "2026-06-01", model: "m1", provider: "p1",
+            input: 1000, output: 100, reasoning: 0,
+            cacheRead: 50, cacheWrite: 25,
+            cacheWriteMissingCount: 1, cacheWriteReportedCount: 2,
+            total: 1100, cost: 0.5, msgCount: 3
+        )
+        let row2 = DashboardPayload.RawRow(
+            date: "2026-06-15", model: "m2", provider: "p2",
+            input: 2000, output: 200, reasoning: 0,
+            cacheRead: 100, cacheWrite: 50,
+            cacheWriteMissingCount: 2, cacheWriteReportedCount: 3,
+            total: 2200, cost: 1.0, msgCount: 5
+        )
+        let row3outside = DashboardPayload.RawRow(
+            date: "2026-07-02", model: "m3", provider: "p3",
+            input: 500, output: 50, reasoning: 0,
+            cacheRead: 10, cacheWrite: 5,
+            cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+            total: 550, cost: 0.2, msgCount: 1
+        )
+
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 3850, totalActualTokens: 3850,
+                totalCacheReadTokens: 160, totalCacheWriteTokens: 80,
+                totalCacheTokens: 240, totalCost: 1.7,
+                totalMessages: 9, activeDays: 3,
+                dateRange: .init(start: "2026-06-01", end: "2026-07-02"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [row1, row2, row3outside]
+        )
+
+        var prefs = AppPreferences()
+        let customStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let customEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+        prefs.reportingRangeMode = .custom
+        prefs.reportingRangeCustomBounds = ReportingRangeCustomBounds(start: customStart, end: customEnd)
+
+        let result = try XCTUnwrap(prefs.filteredPayloadWithReportingOverrides(
+            payload: payload,
+            mode: prefs.reportingRangeMode,
+            customBounds: prefs.reportingRangeCustomBounds
+        ))
+        let filtered = result.payload
+
+        XCTAssertEqual(filtered.rawData.count, 2, "Row outside range (July 2) should be excluded")
+        let dates = Set(filtered.rawData.map(\.date))
+        XCTAssertTrue(dates.contains("2026-06-01"))
+        XCTAssertTrue(dates.contains("2026-06-15"))
+        XCTAssertFalse(dates.contains("2026-07-02"))
+    }
+
+    func testFilteredPayloadRecalculatesSummaryFromFilteredRows() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let row1 = DashboardPayload.RawRow(
+            date: "2026-06-10", model: "m1", provider: "p1",
+            input: 1000, output: 200, reasoning: 0,
+            cacheRead: 30, cacheWrite: 10,
+            cacheWriteMissingCount: 0, cacheWriteReportedCount: 1,
+            total: 1200, cost: 0.8, msgCount: 2
+        )
+        let row2 = DashboardPayload.RawRow(
+            date: "2026-06-10", model: "m2", provider: "p2",
+            input: 500, output: 100, reasoning: 50,
+            cacheRead: 20, cacheWrite: 5,
+            cacheWriteMissingCount: 1, cacheWriteReportedCount: 2,
+            total: 650, cost: 0.3, msgCount: 1
+        )
+        let rowOutside = DashboardPayload.RawRow(
+            date: "2026-05-15", model: "m3", provider: "p3",
+            input: 300, output: 50, reasoning: 0,
+            cacheRead: 5, cacheWrite: 0,
+            cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+            total: 350, cost: 0.1, msgCount: 1
+        )
+
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 2200, totalActualTokens: 2200,
+                totalCacheReadTokens: 55, totalCacheWriteTokens: 15,
+                totalCacheTokens: 70, totalCost: 1.2,
+                totalMessages: 4, activeDays: 2,
+                dateRange: .init(start: "2026-05-15", end: "2026-06-10"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [row1, row2, rowOutside]
+        )
+
+        var prefs = AppPreferences()
+        let customStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let customEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+        prefs.reportingRangeMode = .custom
+        prefs.reportingRangeCustomBounds = ReportingRangeCustomBounds(start: customStart, end: customEnd)
+
+        let result = try XCTUnwrap(prefs.filteredPayloadWithReportingOverrides(
+            payload: payload,
+            mode: prefs.reportingRangeMode,
+            customBounds: prefs.reportingRangeCustomBounds
+        ))
+        let filtered = result.payload
+
+        XCTAssertEqual(filtered.rawData.count, 2)
+        XCTAssertEqual(filtered.summary.totalTokens, 1200 + 650)
+        XCTAssertEqual(filtered.summary.totalActualTokens, 1000 + 200 + 500 + 100 + 50)
+        XCTAssertEqual(filtered.summary.totalCacheReadTokens, 30 + 20)
+        XCTAssertEqual(filtered.summary.totalCacheWriteTokens, 10 + 5)
+        XCTAssertEqual(filtered.summary.totalCost, 0.8 + 0.3)
+        XCTAssertEqual(filtered.summary.totalMessages, 2 + 1)
+        XCTAssertEqual(filtered.summary.activeDays, 1)
+        XCTAssertEqual(filtered.summary.dateRange.start, "2026-06-10")
+        XCTAssertEqual(filtered.summary.dateRange.end, "2026-06-10")
+
+        // dailyTotals
+        XCTAssertEqual(filtered.dailyTotals["2026-06-10"], 1200 + 650)
+        // modelTotals
+        XCTAssertEqual(filtered.modelTotals["m1"], 1200)
+        XCTAssertEqual(filtered.modelTotals["m2"], 650)
+        // providerCosts
+        XCTAssertEqual(filtered.providerCosts["p1"], 0.8)
+        XCTAssertEqual(filtered.providerCosts["p2"], 0.3)
+        // providerTotals
+        let p1Total = try XCTUnwrap(filtered.providerTotals["p1"])
+        XCTAssertEqual(p1Total.input, 1000)
+        XCTAssertEqual(p1Total.output, 200)
+        XCTAssertEqual(p1Total.cacheRead, 30)
+        XCTAssertEqual(p1Total.cacheWrite, 10)
+        XCTAssertEqual(p1Total.total, 1200)
+        XCTAssertEqual(p1Total.cost, 0.8)
+        XCTAssertEqual(p1Total.messages, 2)
+    }
+
+    func testFilteredPayloadOverridesIncludeBothRawAndLegacyKeys() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let row = DashboardPayload.RawRow(
+            date: "2026-06-15", model: "deepseek-chat", provider: "deepseek",
+            input: 1_000_000, output: 0, reasoning: 0,
+            cacheRead: 0, cacheWrite: 0,
+            cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+            total: 1_000_000, cost: 0.14, msgCount: 1
+        )
+
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 1_000_000, totalActualTokens: 1_000_000,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0,
+                totalCacheTokens: 0, totalCost: 0.14,
+                totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-06-15", end: "2026-06-15"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [row]
+        )
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "opencode-go", isSubscribed: true),
+            for: .opencode
+        )
+        prefs.setBillingSelection(
+            BillingPlanSelection(presetID: "mimo-current-default", isSubscribed: true),
+            for: .xiaomiMimo
+        )
+        for provider in BillingProvider.allCases where provider != .opencode && provider != .xiaomiMimo {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+        prefs.reportingRangeMode = .allAvailable
+
+        let result = try XCTUnwrap(prefs.filteredPayloadWithReportingOverrides(
+            payload: payload, mode: .allAvailable
+        ))
+
+        // Verify both raw and legacy keys exist
+        XCTAssertGreaterThan(result.overrides["opencode"] ?? 0, 0, "Should include raw key 'opencode'")
+        XCTAssertGreaterThan(result.overrides["opencode-go"] ?? 0, 0, "Should include legacy key 'opencode-go'")
+        XCTAssertGreaterThan(result.overrides["xiaomi-mimo"] ?? 0, 0, "Should include raw key 'xiaomi-mimo'")
+        XCTAssertGreaterThan(result.overrides["xiaomi-token-plan-cn"] ?? 0, 0, "Should include legacy key 'xiaomi-token-plan-cn'")
+        // Same cost for both keys
+        XCTAssertEqual(result.overrides["opencode"], result.overrides["opencode-go"])
+        XCTAssertEqual(result.overrides["xiaomi-mimo"], result.overrides["xiaomi-token-plan-cn"])
+    }
+
+    // MARK: - P0: Zero-overlap subscription must not suppress API costs (§5.3)
+
+    func testReportingCostBreakdownZeroOverlapIncludesUncoveredAPIUsage() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Opencode subscription: May 1–31. Reporting range: June 1–30 (zero overlap).
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-05-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-05-31"))
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-06-01"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-06-30"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        // Build a payload with date inside the reporting range (June).
+        let date = "2026-06-15"
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 110000, totalActualTokens: 110000,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 5.0, totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: date, end: date),
+                updatedAt: "2026-06-15T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: date, model: "gpt-5.4", provider: "opencode-go",
+                    input: 100000, output: 10000, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 1,
+                    total: 110000, cost: 5.0, msgCount: 1
+                )
+            ]
+        )
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        // Zero overlap → fixed subscription cost = 0 per §5.3.
+        XCTAssertEqual(breakdown.fixedCostByProvider[.opencode] ?? 0, 0, accuracy: 0.01)
+        // API usage must be included since subscription contributed $0.
+        XCTAssertGreaterThan(breakdown.totalCost, 0, "Zero-overlap subscription must not suppress API usage")
+        let uncovered = breakdown.uncoveredUsageByProviderKey
+        let opencodeCost = uncovered["opencode-go"] ?? uncovered["opencode"] ?? 0
+        XCTAssertGreaterThan(opencodeCost, 0, "Uncovered API usage should be charged")
+    }
+
+    func testReportingCostBreakdownOverlapBillingBlocksAPIUsage() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        // Both period and reporting cover May (full overlap).
+        let periodStart = try XCTUnwrap(formatter.date(from: "2026-05-01"))
+        let periodEnd = try XCTUnwrap(formatter.date(from: "2026-05-31"))
+        let reportingStart = try XCTUnwrap(formatter.date(from: "2026-05-01"))
+        let reportingEnd = try XCTUnwrap(formatter.date(from: "2026-05-31"))
+
+        var prefs = AppPreferences()
+        prefs.setBillingSelection(
+            BillingPlanSelection(
+                presetID: "opencode-go", isSubscribed: true,
+                periodStart: periodStart, periodEnd: periodEnd,
+                hasPeriodTracking: true
+            ),
+            for: .opencode
+        )
+        for provider in BillingProvider.allCases where provider != .opencode {
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    presetID: BillingPlanCatalog.defaultSelection(for: provider).presetID,
+                    isSubscribed: false
+                ),
+                for: provider
+            )
+        }
+
+        let date = "2026-05-15"
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 110000, totalActualTokens: 110000,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 5.0, totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: date, end: date),
+                updatedAt: "2026-05-15T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: date, model: "gpt-5.4", provider: "opencode-go",
+                    input: 100000, output: 10000, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 1,
+                    total: 110000, cost: 5.0, msgCount: 1
+                )
+            ]
+        )
+        // Full overlap: subscription period covers the reporting range. Fixed subscription contributes.
+        let breakdown = prefs.reportingCostBreakdown(
+            payload: payload, reportingStart: reportingStart, reportingEnd: reportingEnd
+        )
+
+        XCTAssertGreaterThan(breakdown.fixedCostByProvider[.opencode] ?? 0, 0)
+        XCTAssertEqual(breakdown.uncoveredUsageByProviderKey["opencode-go"] ?? 0.0, 0.0, accuracy: 0.0)
+    }
+
+    // MARK: - Cache hit-rate denominator uses input + cacheRead
+
+    func testCacheHitRateDenominatorUsesInputPlusCacheRead() {
+        let rows: [DashboardPayload.RawRow] = [
+            DashboardPayload.RawRow(
+                date: "2026-07-01", model: "gpt-5.4", provider: "openai",
+                input: 200, output: 50, reasoning: 0,
+                cacheRead: 100, cacheWrite: 0,
+                cacheWriteMissingCount: 0, cacheWriteReportedCount: 1,
+                total: 350, cost: 0, msgCount: 1
+            )
+        ]
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 350, totalActualTokens: 250, totalCacheReadTokens: 100,
+                totalCacheWriteTokens: 0, totalCacheTokens: 100, totalCost: 0,
+                totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-07-01", end: "2026-07-01"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: ["2026-07-01": 350],
+            modelTotals: ["gpt-5.4": 350],
+            providerCosts: ["openai": 0],
+            providerTotals: [:],
+            rawData: rows
+        )
+
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        // Denominator = input + cacheRead = 200 + 100 = 300
+        // rate = 100 / 300 ≈ 0.333
+        let expectedRate = 100.0 / (200.0 + 100.0)
+        XCTAssertEqual(analytics.cache.cacheHitRate, expectedRate, accuracy: 0.001,
+                       "Aggregate cache hit rate must use input+cacheRead denominator")
+
+        guard let openaiRow = analytics.providerCacheRows.first(where: { $0.key == "openai" }) else {
+            XCTFail("Expected openai provider cache row"); return
+        }
+        XCTAssertEqual(openaiRow.cacheRate, expectedRate, accuracy: 0.001,
+                       "Per-provider cache rate must use input+cacheRead denominator")
+    }
+
+    func testCacheHitRateWithOutputDoesNotInflateDenominator() {
+        // High output should not inflate the denominator — only input matters.
+        let rows: [DashboardPayload.RawRow] = [
+            DashboardPayload.RawRow(
+                date: "2026-07-01", model: "gpt-5.4", provider: "deepseek-api-cn",
+                input: 100, output: 900, reasoning: 0,
+                cacheRead: 50, cacheWrite: 0,
+                cacheWriteMissingCount: 0, cacheWriteReportedCount: 1,
+                total: 1050, cost: 0, msgCount: 1
+            )
+        ]
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 1050, totalActualTokens: 1000, totalCacheReadTokens: 50,
+                totalCacheWriteTokens: 0, totalCacheTokens: 50, totalCost: 0,
+                totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-07-01", end: "2026-07-01"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: ["2026-07-01": 1050],
+            modelTotals: ["gpt-5.4": 1050],
+            providerCosts: ["deepseek-api-cn": 0],
+            providerTotals: [:],
+            rawData: rows
+        )
+
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        // With old denominator (actualTokens + cacheRead = 1000 + 50 = 1050), rate = 50/1050 ≈ 0.0476
+        // With new denominator (input + cacheRead = 100 + 50 = 150), rate = 50/150 ≈ 0.333
+        let expectedRate = 50.0 / 150.0
+        XCTAssertEqual(analytics.cache.cacheHitRate, expectedRate, accuracy: 0.001,
+                       "Cache hit rate denominator must exclude output tokens")
+        XCTAssertGreaterThan(analytics.cache.cacheHitRate, 0.3,
+                            "High output should not dilute cache hit rate")
+
+        guard let dsRow = analytics.providerCacheRows.first(where: { $0.key == "deepseek-api-cn" }) else {
+            XCTFail("Expected deepseek provider cache row"); return
+        }
+        XCTAssertEqual(dsRow.cacheRate, expectedRate, accuracy: 0.001)
+    }
+
+    // MARK: - Ollama cache estimates do not alter billing/cost
+
+    func testOllamaEstimatesNeverLeakToActualOrCost() {
+        // Ollama cloud row with cacheRead=0 triggers estimation.
+        let rows: [DashboardPayload.RawRow] = [
+            DashboardPayload.RawRow(
+                date: "2026-07-01", model: "deepseek-v4-flash", provider: "ollama-cloud",
+                input: 1000, output: 100, reasoning: 0,
+                cacheRead: 0, cacheWrite: 0,
+                cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                total: 1100, cost: 0.05, msgCount: 1
+            )
+        ]
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 1100, totalActualTokens: 1100, totalCacheReadTokens: 0,
+                totalCacheWriteTokens: 0, totalCacheTokens: 0, totalCost: 0.05,
+                totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-07-01", end: "2026-07-01"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: ["2026-07-01": 1100],
+            modelTotals: ["deepseek-v4-flash": 1100],
+            providerCosts: ["ollama-cloud": 0.05],
+            providerTotals: [:],
+            rawData: rows
+        )
+
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+        // actualTokens must remain unchanged (estimation does not affect billing).
+        XCTAssertEqual(analytics.overview.totalActualTokens, 1100, accuracy: 0.01,
+                       "Ollama cache estimation must not alter actual/billed tokens")
+
+        // Estimated cache read should be present in cache summary.
+        XCTAssertGreaterThan(analytics.cache.estimatedCacheReadTokens, 0,
+                            "Estimated cache read should be present")
+        XCTAssertTrue(analytics.cache.hasEstimates)
+
+        // cacheSavedCost must NOT be inflated by estimates (only uses real cacheRead).
+        XCTAssertEqual(analytics.cache.cacheSavedCost, 0, accuracy: 0.001,
+                       "cacheSavedCost must use only real cacheRead")
+    }
+
+    // MARK: - Unknown model/provider rows are retained
+
+    func testDashboardPayloadRetainsUnknownModelAndProvider() {
+        let rows: [DashboardPayload.RawRow] = [
+            DashboardPayload.RawRow(
+                date: "2026-07-01", model: "unknown", provider: "unknown",
+                input: 100, output: 50, reasoning: 0,
+                cacheRead: 0, cacheWrite: 0,
+                cacheWriteMissingCount: 1, cacheWriteReportedCount: 0,
+                total: 150, cost: 0, msgCount: 2
+            ),
+            DashboardPayload.RawRow(
+                date: "2026-07-01", model: "gpt-5.4", provider: "openai",
+                input: 200, output: 100, reasoning: 0,
+                cacheRead: 10, cacheWrite: 5,
+                cacheWriteMissingCount: 0, cacheWriteReportedCount: 2,
+                total: 315, cost: 0, msgCount: 3
+            )
+        ]
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 465, totalActualTokens: 450, totalCacheReadTokens: 10,
+                totalCacheWriteTokens: 5, totalCacheTokens: 15, totalCost: 0,
+                totalMessages: 5, activeDays: 1,
+                dateRange: .init(start: "2026-07-01", end: "2026-07-01"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: ["2026-07-01": 465],
+            modelTotals: ["unknown": 150, "gpt-5.4": 315],
+            providerCosts: ["unknown": 0, "openai": 0],
+            providerTotals: [:],
+            rawData: rows
+        )
+
+        // Both rows must be present.
+        XCTAssertEqual(payload.rawData.count, 2)
+        XCTAssertTrue(payload.rawData.contains(where: { $0.model == "unknown" && $0.provider == "unknown" }),
+                      "Rows with unknown model/provider must be retained")
+        XCTAssertTrue(payload.rawData.contains(where: { $0.model == "gpt-5.4" && $0.provider == "openai" }))
+
+        // Total tokens count both rows.
+        XCTAssertEqual(payload.totalInputTokens, 300, accuracy: 0.01)
+        XCTAssertEqual(payload.totalActualInputTokens, 300, accuracy: 0.01)
+
+        // Analytics must include the unknown provider.
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+        XCTAssertTrue(analytics.providerCacheRows.contains(where: { $0.key == "unknown" }),
+                      "Analytics must include rows with unknown provider")
+    }
+
     // MARK: - Helpers
 
     private func makeTestPayload(provider: String, rawCost: Double) -> DashboardPayload {
@@ -1611,6 +3767,31 @@ final class CodexTokenCostCoreTests: XCTestCase {
                     msgCount: 1
                 )
             ]
+        )
+    }
+
+    private func makeMultiDatePayload(dates: [String]) -> DashboardPayload {
+        let rows: [DashboardPayload.RawRow] = dates.map { date in
+            DashboardPayload.RawRow(
+                date: date, model: "test-model", provider: "test-provider",
+                input: 1000, output: 100, reasoning: 0,
+                cacheRead: 0, cacheWrite: 0,
+                cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                total: 1100, cost: 0, msgCount: 1
+            )
+        }
+        let sorted = dates.sorted()
+        return DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: Double(rows.count) * 1100,
+                totalActualTokens: Double(rows.count) * 1100,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: rows.count, activeDays: dates.count,
+                dateRange: .init(start: sorted.first, end: sorted.last),
+                updatedAt: "2026-06-15T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: rows
         )
     }
 
@@ -2039,6 +4220,460 @@ final class CodexTokenCostCoreTests: XCTestCase {
         merged.rawData.append(contentsOf: b.rawData)
         return merged
     }
+
+    // MARK: — Local calendar day regression (date-only keys must not shift)
+
+    func testDateOnlyKeyPreservesLocalCalendarDay() throws {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        let dateString = "2026-07-20"
+        let parsed = try XCTUnwrap(formatter.date(from: dateString))
+        let calendar = Calendar.autoupdatingCurrent
+        let dayStart = calendar.startOfDay(for: parsed)
+
+        let components = calendar.dateComponents([.year, .month, .day], from: dayStart)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 7)
+        XCTAssertEqual(components.day, 20)
+    }
+
+    func testReportingRangePreservesAllLocalDayKeys() throws {
+        let dates = ["2026-07-18", "2026-07-19", "2026-07-20"]
+        let payload = makeMultiDatePayload(dates: dates)
+        let range = try XCTUnwrap(AppPreferences.reportingRange(from: payload))
+
+        let calendar = Calendar.autoupdatingCurrent
+        let rangeStartDay = calendar.startOfDay(for: range.start)
+        let rangeEndDay = calendar.startOfDay(for: range.end)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        for date in dates {
+            guard let parsed = formatter.date(from: date) else {
+                XCTFail("Could not parse \(date)")
+                return
+            }
+            let localDay = calendar.startOfDay(for: parsed)
+            XCTAssertGreaterThanOrEqual(localDay, rangeStartDay, "\(date) should be >= range start")
+            XCTAssertLessThanOrEqual(localDay, rangeEndDay, "\(date) should be <= range end")
+        }
+    }
+
+    func testChartTrendPointsPreserveLocalCalendarDay() {
+        let row = DashboardPayload.RawRow(
+            date: "2026-07-20", model: "test", provider: "test",
+            input: 100, output: 10, reasoning: 0,
+            cacheRead: 0, cacheWrite: 0,
+            cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+            total: 110, cost: 0, msgCount: 1
+        )
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 110, totalActualTokens: 110,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-07-20", end: "2026-07-20"),
+                updatedAt: "2026-07-20T12:00:00Z"
+            ),
+            dailyTotals: [:], modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: [row]
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+        XCTAssertEqual(analytics.trendPoints.count, 1)
+        guard let point = analytics.trendPoints.first else {
+            XCTFail("Expected one trend point")
+            return
+        }
+        let calendar = Calendar.autoupdatingCurrent
+        let components = calendar.dateComponents([.year, .month, .day], from: point.date)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 7)
+        XCTAssertEqual(components.day, 20)
+    }
+
+    // MARK: - AmountConsumptionRateCalculator
+
+    func testAmountRateFirstSampleIsPending() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let snapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: Date(),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 14.0)
+            ]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [snapshot])
+        let rate = computed.first?.valueEntries?.first?.amountConsumptionRate
+        XCTAssertNil(rate, "First sample with no history should return nil")
+    }
+
+    func testAmountRateDecreasingAmountYieldsPositiveBurn() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let firstSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime,
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 14.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([firstSnapshot])
+
+        let secondSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(720),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 10.0)
+            ]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [secondSnapshot])
+        let rate = computed.first?.valueEntries?.first?.amountConsumptionRate
+
+        XCTAssertNotNil(rate)
+        XCTAssertGreaterThan(rate?.perHour ?? 0, 0, "Decreasing amount should yield positive burn rate")
+        XCTAssertEqual(rate?.perDay ?? 0, (rate?.perHour ?? 0) * 24, accuracy: 0.001)
+        XCTAssertGreaterThan(rate?.confidence ?? 0, 0)
+    }
+
+    func testAmountRateUnchangedAmountYieldsZero() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let firstSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime,
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 14.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([firstSnapshot])
+
+        let secondSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(720),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 14.0)
+            ]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [secondSnapshot])
+        let rate = computed.first?.valueEntries?.first?.amountConsumptionRate
+
+        XCTAssertNotNil(rate)
+        XCTAssertEqual(rate?.perHour ?? -1, 0, accuracy: 0.001, "Unchanged amount should yield zero burn rate")
+        XCTAssertEqual(rate?.perDay ?? -1, 0, accuracy: 0.001)
+    }
+
+    func testAmountRateReplenishmentReturnsNil() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let firstSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime,
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 10.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([firstSnapshot])
+
+        let secondSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(720),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 14.0)
+            ]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [secondSnapshot])
+        let rate = computed.first?.valueEntries?.first?.amountConsumptionRate
+
+        XCTAssertNil(rate, "Replenishment (increase) should return nil, not compute a burn rate")
+    }
+
+    func testAmountRateReplenishmentResetsHistory() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let firstSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime,
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 10.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([firstSnapshot])
+
+        let replenishSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(720),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 14.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([replenishSnapshot])
+
+        let thirdSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(1440),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 12.0)
+            ]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [thirdSnapshot])
+        let rate = computed.first?.valueEntries?.first?.amountConsumptionRate
+
+        XCTAssertNotNil(rate, "After replenishment reset, stored baseline + declining current yields valid rate")
+        XCTAssertGreaterThan(rate?.perHour ?? 0, 0, "Decline from replenished baseline should yield positive burn")
+        // 14→12 over 720s: perHour = (2/720) * 3600 = 10
+        XCTAssertEqual(rate?.perHour ?? 0, 10, accuracy: 0.001)
+    }
+
+    func testAmountRateCurrenciesIsolated() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let firstSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime,
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 14.0),
+                BalanceValueEntry(label: "USD", currencyCode: "USD", amount: 2.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([firstSnapshot])
+
+        let secondSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(720),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 10.0),
+                BalanceValueEntry(label: "USD", currencyCode: "USD", amount: 2.0)
+            ]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [secondSnapshot])
+        let cnyRate = computed.first?.valueEntries?.first?.amountConsumptionRate
+        let usdRate = computed.first?.valueEntries?.last?.amountConsumptionRate
+
+        XCTAssertNotNil(cnyRate)
+        XCTAssertGreaterThan(cnyRate?.perHour ?? 0, 0, "CNY decreasing → positive burn")
+        XCTAssertNotNil(usdRate)
+        XCTAssertEqual(usdRate?.perHour ?? -1, 0, accuracy: 0.001, "USD unchanged → zero burn")
+    }
+
+    func testAmountRateEffectiveSpanTooShortReturnsNil() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let firstSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime,
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 14.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([firstSnapshot])
+
+        let secondSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(120),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 13.0)
+            ]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [secondSnapshot])
+        let rate = computed.first?.valueEntries?.first?.amountConsumptionRate
+
+        XCTAssertNil(rate, "Effective span under 5 min should return nil")
+    }
+
+    func testAmountRateOldSnapshotDecodePreservesNilRate() throws {
+        let oldJSON = """
+        {"label":"CNY","currency_code":"CNY","amount":14.0}
+        """
+        let data = Data(oldJSON.utf8)
+        let entry = try JSONDecoder().decode(BalanceValueEntry.self, from: data)
+        XCTAssertEqual(entry.amount, 14.0)
+        XCTAssertNil(entry.amountConsumptionRate, "Old snapshots without amountConsumptionRate should decode as nil")
+    }
+
+    func testAmountRateCodableRoundTrip() throws {
+        let entry = BalanceValueEntry(
+            label: "CNY",
+            currencyCode: "CNY",
+            amount: 10.0,
+            grantedAmount: 5.0,
+            toppedUpAmount: 2.0,
+            amountConsumptionRate: BalanceAmountConsumptionRate(perHour: 1.5, perDay: 36.0, confidence: 0.8)
+        )
+
+        let data = try JSONEncoder().encode(entry)
+        let decoded = try JSONDecoder().decode(BalanceValueEntry.self, from: data)
+
+        XCTAssertEqual(decoded.amount, 10.0)
+        XCTAssertEqual(decoded.grantedAmount, 5.0)
+        XCTAssertEqual(decoded.toppedUpAmount, 2.0)
+        XCTAssertEqual(decoded.amountConsumptionRate?.perHour, 1.5)
+        XCTAssertEqual(decoded.amountConsumptionRate?.perDay, 36.0)
+        XCTAssertEqual(decoded.amountConsumptionRate?.confidence, 0.8)
+    }
+
+    func testAmountRateComputePreservesQuotaWindows() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let original = BalanceSnapshot(
+            provider: .codex,
+            fetchedAt: Date(),
+            isAvailable: true,
+            usagePercent: 0.5,
+            quotaWindows: [
+                BalanceQuotaWindow(label: "5h", usedRatio: 0.4, remainingRatio: 0.6, resetAt: Date().addingTimeInterval(3600))
+            ],
+            valueEntries: [BalanceValueEntry(label: "余额", currencyCode: "CNY", amount: 100)]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [original]).first!
+
+        XCTAssertEqual(computed.provider, original.provider)
+        XCTAssertEqual(computed.usagePercent, original.usagePercent)
+        XCTAssertEqual(computed.quotaWindows?.count, 1)
+        XCTAssertEqual(computed.quotaWindows?.first?.usedRatio, 0.4)
+        XCTAssertEqual(computed.valueEntries?.count, 1)
+        XCTAssertEqual(computed.valueEntries?.first?.amount, 100)
+    }
+
+    func testAmountRateWithoutValueEntriesReturnsUnchanged() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let snapshot = BalanceSnapshot(
+            provider: .codex,
+            fetchedAt: Date(),
+            isAvailable: true,
+            usagePercent: 0.3
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [snapshot]).first!
+        XCTAssertEqual(computed.usagePercent, 0.3)
+        XCTAssertNil(computed.valueEntries)
+    }
+
+    func testAmountRateCaseInsensitiveCurrencyCode() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let firstSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime,
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "余额", currencyCode: "cny", amount: 14.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([firstSnapshot])
+
+        let secondSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(720),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "余额", currencyCode: "CNY", amount: 10.0)
+            ]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [secondSnapshot])
+        let rate = computed.first?.valueEntries?.first?.amountConsumptionRate
+
+        XCTAssertNotNil(rate, "CNY and cny should share the same history key")
+        XCTAssertGreaterThan(rate?.perHour ?? 0, 0, "Shared history should produce a burn rate")
+    }
+
+    func testAmountRateReplenishmentWithinDebounceResetsHistory() {
+        AmountConsumptionRateCalculator.resetHistoryForTesting()
+        defer { AmountConsumptionRateCalculator.resetHistoryForTesting() }
+
+        let baseTime = Date(timeIntervalSince1970: 1_700_000_000)
+
+        // First sample: baseline at 10.0
+        let firstSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime,
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 10.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([firstSnapshot])
+
+        // Replenishment within debounce (only 5s since last sample, well under 600s)
+        let replenishSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(5),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 20.0)
+            ]
+        )
+        AmountConsumptionRateCalculator.store([replenishSnapshot])
+
+        // Third sample: decline from new baseline after debounce
+        let thirdSnapshot = BalanceSnapshot(
+            provider: .deepseek,
+            fetchedAt: baseTime.addingTimeInterval(720),
+            isAvailable: true,
+            valueEntries: [
+                BalanceValueEntry(label: "CNY", currencyCode: "CNY", amount: 18.0)
+            ]
+        )
+
+        let computed = AmountConsumptionRateCalculator.compute(current: [thirdSnapshot])
+        let rate = computed.first?.valueEntries?.first?.amountConsumptionRate
+
+        XCTAssertNotNil(rate, "After within-debounce replenishment reset, baseline should be 20→18")
+        // 20→18 over (720-5)s: perHour = (2/715) * 3600 ≈ 10.0699
+        XCTAssertEqual(rate?.perHour ?? 0, 10.0699, accuracy: 0.1)
+    }
 }
 
 // MARK: - Test Helpers
@@ -2083,6 +4718,33 @@ private final class TokenCapturingMockChecker: BalanceChecker, @unchecked Sendab
             fetchedAt: Date(),
             isAvailable: true
         )
+    }
+}
+
+private final class CancellingMockChecker: BalanceChecker, @unchecked Sendable {
+    let providerKind: BalanceProviderKind
+
+    init(providerKind: BalanceProviderKind) {
+        self.providerKind = providerKind
+    }
+
+    func fetch(authToken: String) async throws -> BalanceSnapshot {
+        throw CancellationError()
+    }
+}
+
+private final class SleepingMockChecker: BalanceChecker, @unchecked Sendable {
+    let providerKind: BalanceProviderKind
+    let sleepNanos: UInt64
+
+    init(providerKind: BalanceProviderKind, sleepNanos: UInt64) {
+        self.providerKind = providerKind
+        self.sleepNanos = sleepNanos
+    }
+
+    func fetch(authToken: String) async throws -> BalanceSnapshot {
+        try await Task.sleep(nanoseconds: sleepNanos)
+        return BalanceSnapshot(provider: providerKind, fetchedAt: Date(), isAvailable: true)
     }
 }
 

@@ -97,11 +97,11 @@ public final class TokenDatabaseClient {
     private func fetchUsageRows(in db: OpaquePointer) throws -> [UsageAggregateRow] {
         let sql = buildUsageQuery(includeDate: true, dateFiltered: false, groupBy: "usage_date, model_id, provider_id", orderBy: "usage_date ASC, total_tokens DESC", includeCacheWriteStatus: true)
         return try executeStatement(sql: sql, in: db) { statement -> UsageAggregateRow? in
-            guard let date = columnText(statement, 0),
-                  let model = columnText(statement, 1),
-                  let provider = columnText(statement, 2) else {
+            guard let date = columnText(statement, 0) else {
                 return nil
             }
+            let model = columnText(statement, 1) ?? "unknown"
+            let provider = columnText(statement, 2) ?? "unknown"
             return UsageAggregateRow(
                 date: date,
                 model: model,
@@ -254,8 +254,8 @@ public final class TokenDatabaseClient {
         if dateFiltered {
             query += """
 
-            AND datetime(time_created/1000, 'unixepoch') >= ?
-            AND datetime(time_created/1000, 'unixepoch') < ?
+            AND datetime(time_created/1000, 'unixepoch', 'localtime') >= ?
+            AND datetime(time_created/1000, 'unixepoch', 'localtime') < ?
             """
         }
         query += """
@@ -269,7 +269,7 @@ public final class TokenDatabaseClient {
     private func buildUsageSelect(includeDate: Bool, includeCacheWriteStatus: Bool) -> String {
         var columns: [String] = []
         if includeDate {
-            columns.append("date(datetime(time_created/1000, 'unixepoch')) as usage_date")
+            columns.append("date(time_created/1000, 'unixepoch', 'localtime') as usage_date")
         }
         columns.append(contentsOf: [
             "LOWER(TRIM(json_extract(data, '$.modelID'))) as model_id",

@@ -77,6 +77,37 @@ final class AppPreferencesModel: ObservableObject {
         return trimmed
     }
 
+    private func reportingRangeCustomBoundsAreUsable(_ bounds: ReportingRangeCustomBounds) -> Bool {
+        guard let start = bounds.start, let end = bounds.end else { return false }
+        return start <= end
+    }
+
+    private func monthReportingRangeCustomBounds(referenceDate: Date = Date()) -> ReportingRangeCustomBounds {
+        let calendar = Calendar.autoupdatingCurrent
+        if let monthInterval = calendar.dateInterval(of: .month, for: referenceDate) {
+            let end = calendar.date(byAdding: .second, value: -1, to: monthInterval.end) ?? monthInterval.end
+            return ReportingRangeCustomBounds(start: monthInterval.start, end: end)
+        }
+
+        let start = calendar.startOfDay(for: referenceDate)
+        let end = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: referenceDate) ?? referenceDate
+        return ReportingRangeCustomBounds(start: start, end: end)
+    }
+
+    private func normalizedReportingRangeCustomBounds(start: Date, end: Date) -> ReportingRangeCustomBounds {
+        let calendar = Calendar.autoupdatingCurrent
+        let lower = min(start, end)
+        let upper = max(start, end)
+        let normalizedStart = calendar.startOfDay(for: lower)
+        let normalizedEnd: Date
+        if let dayInterval = calendar.dateInterval(of: .day, for: upper) {
+            normalizedEnd = calendar.date(byAdding: .second, value: -1, to: dayInterval.end) ?? dayInterval.end
+        } else {
+            normalizedEnd = upper
+        }
+        return ReportingRangeCustomBounds(start: normalizedStart, end: normalizedEnd)
+    }
+
     var languageBinding: Binding<AppDisplayLanguage> {
         Binding(
             get: { self.preferences.language },
@@ -197,12 +228,306 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
+    private var periodDebounceTask: Task<Void, Never>?
+
+    private func updatePreferencesDebounced(_ mutate: @escaping (inout AppPreferences) -> Void) {
+        var updated = preferences
+        mutate(&updated)
+        preferences = updated
+        AppLocalization.setLanguage(updated.language)
+        periodDebounceTask?.cancel()
+        periodDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            persistPreferences()
+        }
+    }
+
+    func periodGranularityBinding(for provider: BillingProvider) -> Binding<PeriodGranularity> {
+        Binding(
+            get: { self.preferences.billingSelection(for: provider).periodGranularity },
+            set: { newValue in
+                self.updatePreferences { preferences in
+                    var selection = preferences.billingSelection(for: provider)
+                    selection.periodGranularity = newValue
+                    preferences.setBillingSelection(selection, for: provider)
+                }
+            }
+        )
+    }
+
+    func periodStartBinding(for provider: BillingProvider) -> Binding<Date> {
+        Binding(
+            get: {
+                self.preferences.billingSelection(for: provider).periodStart
+                    ?? self.defaultCustomPeriodTrackingDates().start
+            },
+            set: { newValue in
+                self.updatePreferencesDebounced { preferences in
+                    var selection = preferences.billingSelection(for: provider)
+                    selection.hasPeriodTracking = true
+                    selection.periodPreset = nil
+                    if let end = selection.periodEnd, end < newValue {
+                        selection.periodEnd = newValue
+                    }
+                    if selection.periodEnd == nil {
+                        selection.periodEnd = newValue
+                    }
+                    selection.periodStart = newValue
+                    preferences.setBillingSelection(selection, for: provider)
+                }
+            }
+        )
+    }
+
+    func periodEndBinding(for provider: BillingProvider) -> Binding<Date> {
+        Binding(
+            get: {
+                self.preferences.billingSelection(for: provider).periodEnd
+                    ?? self.defaultCustomPeriodTrackingDates().end
+            },
+            set: { newValue in
+                self.updatePreferencesDebounced { preferences in
+                    var selection = preferences.billingSelection(for: provider)
+                    selection.hasPeriodTracking = true
+                    selection.periodPreset = nil
+                    if let start = selection.periodStart, start > newValue {
+                        selection.periodStart = newValue
+                    }
+                    if selection.periodStart == nil {
+                        selection.periodStart = newValue
+                    }
+                    selection.periodEnd = newValue
+                    preferences.setBillingSelection(selection, for: provider)
+                }
+            }
+        )
+    }
+
+    private func defaultCustomPeriodTrackingDates(referenceDate: Date = Date()) -> (start: Date, end: Date) {
+        let calendar = Calendar.autoupdatingCurrent
+        let start = calendar.startOfDay(for: referenceDate)
+        let end = calendar.date(byAdding: .month, value: 1, to: start) ?? start
+        return (start, end)
+    }
+
+    func hasPeriodTrackingBinding(for provider: BillingProvider) -> Binding<Bool> {
+        Binding(
+            get: { self.preferences.billingSelection(for: provider).hasPeriodTracking },
+            set: { newValue in
+                if newValue {
+                    let current = self.preferences.billingSelection(for: provider)
+                    if current.periodStart == nil, current.periodEnd == nil {
+                        self.initializeMonthlyPeriodTracking(for: provider)
+                        return
+                    }
+                }
+
+                self.updatePreferences { preferences in
+                    var selection = preferences.billingSelection(for: provider)
+                    selection.hasPeriodTracking = newValue
+                    preferences.setBillingSelection(selection, for: provider)
+                }
+            }
+        )
+    }
+
+    func periodPresetBinding(for provider: BillingProvider) -> Binding<PeriodPreset?> {
+        Binding(
+            get: { self.preferences.billingSelection(for: provider).periodPreset },
+            set: { newValue in
+                guard let newValue else {
+                    self.prepareCustomPeriodTracking(for: provider)
+                    return
+                }
+
+                self.applyPeriodPreset(newValue, for: provider)
+            }
+        )
+    }
+
+    func applyPeriodPreset(_ preset: PeriodPreset, for provider: BillingProvider) {
+        updatePreferences { preferences in
+            var selection = preferences.billingSelection(for: provider)
+            let now = Date()
+            let calendar = Calendar.autoupdatingCurrent
+            let endDate: Date
+            switch preset {
+            case .monthly:
+                endDate = calendar.date(byAdding: .month, value: 1, to: now) ?? now
+            case .quarterly:
+                endDate = calendar.date(byAdding: .month, value: 3, to: now) ?? now
+            case .yearly:
+                endDate = calendar.date(byAdding: .year, value: 1, to: now) ?? now
+            }
+            selection.hasPeriodTracking = true
+            selection.periodStart = now
+            selection.periodEnd = endDate
+            selection.periodPreset = preset
+            selection.periodGranularity = .month
+            preferences.setBillingSelection(selection, for: provider)
+        }
+    }
+
+    func clearCustomPeriodDates(for provider: BillingProvider) {
+        updatePreferences { preferences in
+            var selection = preferences.billingSelection(for: provider)
+            selection.periodStart = nil
+            selection.periodEnd = nil
+            selection.periodPreset = nil
+            preferences.setBillingSelection(selection, for: provider)
+        }
+    }
+
+    func resetCustomPeriodDates(for provider: BillingProvider) {
+        updatePreferences { preferences in
+            var selection = preferences.billingSelection(for: provider)
+            selection.hasPeriodTracking = true
+            selection.periodStart = nil
+            selection.periodEnd = nil
+            selection.periodPreset = nil
+            preferences.setBillingSelection(selection, for: provider)
+        }
+    }
+
+    private func prepareCustomPeriodTracking(for provider: BillingProvider) {
+        updatePreferences { preferences in
+            var selection = preferences.billingSelection(for: provider)
+            selection.hasPeriodTracking = true
+            selection.periodPreset = nil
+
+            if let start = selection.periodStart,
+               let end = selection.periodEnd,
+               start <= end {
+                preferences.setBillingSelection(selection, for: provider)
+                return
+            }
+
+            let defaults = defaultCustomPeriodTrackingDates()
+            selection.periodStart = defaults.start
+            selection.periodEnd = defaults.end
+            preferences.setBillingSelection(selection, for: provider)
+        }
+    }
+
+    func initializeMonthlyPeriodTracking(for provider: BillingProvider) {
+        updatePreferences { preferences in
+            var selection = preferences.billingSelection(for: provider)
+            let now = Date()
+            let calendar = Calendar.autoupdatingCurrent
+            selection.hasPeriodTracking = true
+            selection.periodStart = now
+            selection.periodEnd = calendar.date(byAdding: .month, value: 1, to: now) ?? now
+            selection.periodPreset = .monthly
+            selection.periodGranularity = .month
+            preferences.setBillingSelection(selection, for: provider)
+        }
+    }
+
+    var reportingRangeModeBinding: Binding<ReportingRangeMode> {
+        Binding(
+            get: { self.preferences.reportingRangeMode },
+            set: { newValue in
+                if newValue == .custom, !self.reportingRangeCustomBoundsAreUsable(self.preferences.reportingRangeCustomBounds) {
+                    self.updatePreferences { prefs in
+                        prefs.reportingRangeMode = .custom
+                        prefs.reportingRangeCustomBounds = self.monthReportingRangeCustomBounds()
+                    }
+                    return
+                }
+
+                self.updatePreferences { prefs in
+                    prefs.reportingRangeMode = newValue
+                }
+            }
+        )
+    }
+
+    var reportingRangeCustomStartBinding: Binding<Date?> {
+        Binding(
+            get: { self.preferences.reportingRangeCustomBounds.start },
+            set: { newValue in
+                self.updatePreferencesDebounced { prefs in
+                    prefs.reportingRangeMode = .custom
+                    prefs.reportingRangeCustomBounds.start = newValue
+                }
+            }
+        )
+    }
+
+    var reportingRangeCustomEndBinding: Binding<Date?> {
+        Binding(
+            get: { self.preferences.reportingRangeCustomBounds.end },
+            set: { newValue in
+                self.updatePreferencesDebounced { prefs in
+                    prefs.reportingRangeMode = .custom
+                    prefs.reportingRangeCustomBounds.end = newValue
+                }
+            }
+        )
+    }
+
+    func resetReportingRangeCustomBounds() {
+        updatePreferences { prefs in
+            prefs.reportingRangeMode = .custom
+            prefs.reportingRangeCustomBounds = monthReportingRangeCustomBounds()
+        }
+    }
+
+    func setReportingRangeCustomBounds(start: Date, end: Date) {
+        updatePreferences { prefs in
+            prefs.reportingRangeMode = .custom
+            prefs.reportingRangeCustomBounds = normalizedReportingRangeCustomBounds(start: start, end: end)
+        }
+    }
+
+    func initializeReportingRangeCustomBounds() {
+        updatePreferences { prefs in
+            prefs.reportingRangeMode = .custom
+            prefs.reportingRangeCustomBounds = monthReportingRangeCustomBounds()
+        }
+    }
+
+    var reportingRangeBasisLabel: String {
+        switch preferences.reportingRangeMode {
+        case .allAvailable: return AppLocalization.text("settings.billing.reportingRange.mode.allAvailable")
+        case .currentMonth: return AppLocalization.text("settings.billing.reportingRange.mode.currentMonth")
+        case .last30Days: return AppLocalization.text("settings.billing.reportingRange.mode.last30Days")
+        case .custom: return AppLocalization.text("settings.billing.reportingRange.mode.custom")
+        }
+    }
+
+    func reportingRangeDateRange(for payload: DashboardPayload) -> (start: Date, end: Date)? {
+        AppPreferences.resolveReportingRange(
+            mode: preferences.reportingRangeMode,
+            customBounds: preferences.reportingRangeCustomBounds,
+            payload: payload
+        )
+    }
+
+    func reportingCostBreakdown(for payload: DashboardPayload) -> ReportingCostBreakdown? {
+        guard let range = reportingRangeDateRange(for: payload) else { return nil }
+        return preferences.reportingCostBreakdown(payload: payload, reportingStart: range.start, reportingEnd: range.end)
+    }
+
     var balanceEnabledBinding: Binding<Bool> {
         Binding(
             get: { self.preferences.balanceEnabled },
             set: { newValue in
                 self.updatePreferences { preferences in
                     preferences.balanceEnabled = newValue
+                }
+            }
+        )
+    }
+
+    var balanceMenuBarExtraEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.balanceMenuBarExtraEnabled },
+            set: { newValue in
+                guard newValue != self.preferences.balanceMenuBarExtraEnabled else { return }
+                self.updatePreferences { preferences in
+                    preferences.balanceMenuBarExtraEnabled = newValue
                 }
             }
         )
@@ -332,6 +657,39 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
+    var balanceFloatingPanelEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.balanceFloatingPanelEnabled },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.balanceFloatingPanelEnabled = newValue
+                }
+            }
+        )
+    }
+
+    var balanceFloatingPanelAlwaysOnTopBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.balanceFloatingPanelAlwaysOnTop },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.balanceFloatingPanelAlwaysOnTop = newValue
+                }
+            }
+        )
+    }
+
+    var balanceFloatingPanelDisplayModeBinding: Binding<BalanceFloatingPanelDisplayMode> {
+        Binding(
+            get: { self.preferences.balanceFloatingPanelDisplayMode },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.balanceFloatingPanelDisplayMode = newValue
+                }
+            }
+        )
+    }
+
     var credentialSourceModeBinding: Binding<CredentialSourceMode> {
         Binding(
             get: { self.preferences.credentialSourceMode },
@@ -340,6 +698,17 @@ final class AppPreferencesModel: ObservableObject {
                     prefs.credentialSourceMode = newValue
                 }
                 CredentialBootstrapService.shared.clearCache()
+            }
+        )
+    }
+
+    var periodTotalCostEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.periodTotalCostEnabled },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.periodTotalCostEnabled = newValue
+                }
             }
         )
     }

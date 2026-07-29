@@ -37,6 +37,8 @@ enum UpdateError: LocalizedError {
     case downloadVerificationFailed
     case unzipFailed
     case noReleaseAsset
+    case releaseFetchFailed(statusCode: Int)
+    case rateLimited
 
     var errorDescription: String? {
         switch self {
@@ -48,6 +50,10 @@ enum UpdateError: LocalizedError {
             return "Failed to extract downloaded archive"
         case .noReleaseAsset:
             return "No downloadable asset found in release"
+        case .releaseFetchFailed(let code):
+            return "GitHub API returned HTTP \(code)"
+        case .rateLimited:
+            return "GitHub API rate limit exceeded — try again later"
         }
     }
 }
@@ -112,22 +118,29 @@ enum UpdateChecker {
         guard let url = URL(string: "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest") else {
             return nil
         }
-
+    
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        request.setValue("Token-Cost-App-OC-Codex/\(currentVersion)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
-
+    
         let session = URLSession(configuration: .ephemeral)
         let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
+    
+        guard let httpResponse = response as? HTTPURLResponse else {
             return nil
         }
-
-        let decoder = JSONDecoder()
-        return try decoder.decode(GitHubRelease.self, from: data)
+    
+        switch httpResponse.statusCode {
+        case 200:
+            let decoder = JSONDecoder()
+            return try decoder.decode(GitHubRelease.self, from: data)
+        case 403, 429:
+            throw UpdateError.rateLimited
+        default:
+            throw UpdateError.releaseFetchFailed(statusCode: httpResponse.statusCode)
+        }
     }
 
     static func isUpdateAvailable(latestVersion: String) -> Bool {
@@ -268,6 +281,58 @@ enum UpdateChecker {
     // MARK: - Helper: Find download asset
 
     static func findZipAsset(in release: GitHubRelease) -> GitHubAsset? {
-        release.assets.first { $0.name.hasSuffix(".zip") }
+        release.assets.first { asset in
+            asset.name.hasPrefix("Token-Cost-App-OC-Codex-")
+                && asset.name.contains("-macOS-")
+                && asset.name.hasSuffix(".zip")
+        } ?? release.assets.first { asset in
+            asset.name.hasSuffix(".zip") && !asset.name.hasPrefix("Source")
+        }
+    }
+
+    // MARK: - Install (原子替换 + 重启)
+
+    /// 原子替换当前 app bundle，返回新 app 路径供重启使用。
+    /// 先将旧 app rename 为 .old（同卷原子操作），再将新 app 移到原位。
+    /// 若移动失败，从 .old 恢复旧 app。跨卷移动失败时抛错。
+    static func replaceAppBundle(
+        currentAppURL: URL,
+        newAppURL: URL,
+        backupName: String = "Token Cost App - OC Codex.old"
+    ) throws -> URL {
+        let parentDir = currentAppURL.deletingLastPathComponent()
+        let backupURL = parentDir.appendingPathComponent(backupName)
+
+        try? FileManager.default.removeItem(at: backupURL)
+        try FileManager.default.moveItem(at: currentAppURL, to: backupURL)
+
+        do {
+            try FileManager.default.moveItem(at: newAppURL, to: currentAppURL)
+        } catch {
+            try? FileManager.default.moveItem(at: backupURL, to: currentAppURL)
+            throw error
+        }
+
+        return currentAppURL
+    }
+
+    /// 清理上次替换留下的 .old 备份（下次启动时调用）。
+    static func cleanupOldBackup(
+        in parentDir: URL,
+        backupName: String = "Token Cost App - OC Codex.old"
+    ) {
+        let oldURL = parentDir.appendingPathComponent(backupName)
+        try? FileManager.default.removeItem(at: oldURL)
+    }
+
+    /// 启动 detached shell 进程：sleep 1 秒后 open 新 app，再由调用方 terminate。
+    static func scheduleRelaunch(at appURL: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 1; open \"\(appURL.path)\""]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        try process.run()
     }
 }

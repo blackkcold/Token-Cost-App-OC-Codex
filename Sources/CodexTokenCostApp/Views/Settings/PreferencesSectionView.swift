@@ -57,7 +57,7 @@ struct PreferencesSectionView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(palette.subtitle)
 
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 8)], spacing: 8) {
                 ForEach(TokenCostThemeChoice.allCases, id: \.rawValue) { theme in
                     let themePalette = TokenCostPalette(theme: theme)
                     let isSelected = appPreferencesModel.preferences.theme == theme
@@ -65,14 +65,29 @@ struct PreferencesSectionView: View {
                         appPreferencesModel.themeBinding.wrappedValue = theme
                     } label: {
                         VStack(spacing: 6) {
-                            Circle()
-                                .fill(themePalette.accent.gradient)
-                                .frame(width: 28, height: 28)
-                                .overlay(
-                                    Circle()
-                                        .strokeBorder(isSelected ? palette.title : Color.clear, lineWidth: 2)
-                                )
-                                .shadow(color: themePalette.accent.opacity(isSelected ? 0.4 : 0.15), radius: isSelected ? 6 : 3)
+                            if theme == .system {
+                                Image(systemName: "circle.lefthalf.filled")
+                                    .font(.system(size: 22, weight: .medium))
+                                    .foregroundStyle(palette.title)
+                                    .frame(width: 28, height: 28)
+                                    .background(
+                                        Circle()
+                                            .fill(themePalette.accent.opacity(isSelected ? 0.25 : 0.10))
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .strokeBorder(isSelected ? palette.title : Color.clear, lineWidth: 2)
+                                    )
+                            } else {
+                                Circle()
+                                    .fill(themePalette.accent.gradient)
+                                    .frame(width: 28, height: 28)
+                                    .overlay(
+                                        Circle()
+                                            .strokeBorder(isSelected ? palette.title : Color.clear, lineWidth: 2)
+                                    )
+                                    .shadow(color: themePalette.accent.opacity(isSelected ? 0.4 : 0.15), radius: isSelected ? 6 : 3)
+                            }
 
                             Text(theme.displayName)
                                 .font(.caption2)

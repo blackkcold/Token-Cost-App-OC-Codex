@@ -36,13 +36,13 @@ struct TokenHeatmapGrid: View {
                 .frame(maxWidth: .infinity, minHeight: gridHeight, maxHeight: gridHeight, alignment: .center)
 
                 HStack(spacing: 4) {
-                    Text("少").font(.system(size: 8)).foregroundStyle(palette.subtitle)
+                    Text("少").font(.caption2).foregroundStyle(palette.subtitle)
                     ForEach([0.0, 0.25, 0.5, 0.75, 1.0], id: \.self) { lvl in
                         RoundedRectangle(cornerRadius: 2)
                             .fill(heatmapColor(intensity: lvl))
                             .frame(width: 8, height: 8)
                     }
-                    Text("多").font(.system(size: 8)).foregroundStyle(palette.subtitle)
+                    Text("多").font(.caption2).foregroundStyle(palette.subtitle)
                 }
                 .frame(height: legendHeight)
             }

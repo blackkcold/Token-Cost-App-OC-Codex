@@ -9,7 +9,7 @@ struct OpenCodeSectionView: View {
     @Binding var manualDatabasePageIndex: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 10) {
             scanRootsCard
             manualDatabasesCard
             scanSettingsCard
@@ -39,8 +39,7 @@ struct OpenCodeSectionView: View {
                         .foregroundStyle(palette.subtitle)
                         .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                 } else {
-                    ForEach(Array(paginatedRoots.enumerated()), id: \.offset) { offset, path in
-                        let realIndex = startIndex + offset
+                    ForEach(Array(zip(paginatedRoots.indices, paginatedRoots)), id: \.0) { realIndex, path in
                         HStack(spacing: 8) {
                             Image(systemName: "folder")
                                 .font(.caption2)
@@ -59,6 +58,7 @@ struct OpenCodeSectionView: View {
                                     .foregroundStyle(.red)
                             }
                             .buttonStyle(.borderless)
+                            .help("Remove scan root")
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -125,8 +125,7 @@ struct OpenCodeSectionView: View {
                         .foregroundStyle(palette.subtitle)
                         .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                 } else {
-                    ForEach(Array(paginatedPaths.enumerated()), id: \.offset) { offset, path in
-                        let realIndex = startIndex + offset
+                    ForEach(Array(zip(paginatedPaths.indices, paginatedPaths)), id: \.0) { realIndex, path in
                         HStack(spacing: 8) {
                             Image(systemName: "doc")
                                 .font(.caption2)
@@ -145,6 +144,7 @@ struct OpenCodeSectionView: View {
                                     .foregroundStyle(.red)
                             }
                             .buttonStyle(.borderless)
+                            .help("Remove database path")
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)

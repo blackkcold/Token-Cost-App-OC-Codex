@@ -32,8 +32,10 @@ release/latest/*.zip
 release/latest/*.dmg
 release/v*.*.*/*.app
 release/v*.*.*/*.zip
+release/v*.*.*/*.dmg
 release/v*.*.*-*/*.app
 release/v*.*.*-*/*.zip
+release/v*.*.*-*/*.dmg
 release/release-notes/
 
 # Keep these release metadata files

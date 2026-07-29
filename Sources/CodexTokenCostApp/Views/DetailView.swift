@@ -19,7 +19,6 @@ struct DetailView: View {
     @State private var cachedStackedWindow: RecentStackedWindow?
     @State private var analyticsRefreshGeneration = 0
 
-    private let recentWindowLimit = 100
     private let sectionPageSize = 20
     private let modelComparisonCollapsedLimit = 10
     private var overviewColumns: [GridItem] {
@@ -98,11 +97,30 @@ struct DetailView: View {
     private var analyticsRefreshID: String {
         let updatedAt = model.selectedPayload?.summary.updatedAt ?? ""
         let showZero = model.settings.showZeroUsageXiaomiProvider ? "1" : "0"
-        let overrides = appPreferencesModel.preferences.billingOverridesByProviderKey()
-            .map { "\($0.key)=\($0.value)" }
-            .sorted()
-            .joined(separator: "|")
-        return "\(updatedAt)|\(showZero)|\(overrides)"
+        let rangeMode = appPreferencesModel.preferences.reportingRangeMode.rawValue
+        let customStart = appPreferencesModel.preferences.reportingRangeCustomBounds.start
+            .map { $0.timeIntervalSince1970.description } ?? ""
+        let customEnd = appPreferencesModel.preferences.reportingRangeCustomBounds.end
+            .map { $0.timeIntervalSince1970.description } ?? ""
+        return "\(updatedAt)|\(showZero)|\(rangeMode)|\(customStart)|\(customEnd)"
+    }
+
+    private var reportingTotalCost: Double? {
+        detailReportingTotalCost(payload: model.selectedPayload, preferences: appPreferencesModel.preferences)
+    }
+
+    private var totalCostBasisLabel: String {
+        let prefs = appPreferencesModel.preferences
+        switch prefs.reportingRangeMode {
+        case .allAvailable:
+            return AppLocalization.text("detail.overview.totalCostSubtitle")
+        case .currentMonth:
+            return AppLocalization.text("settings.billing.reportingRange.mode.currentMonth")
+        case .last30Days:
+            return AppLocalization.text("settings.billing.reportingRange.mode.last30Days")
+        case .custom:
+            return AppLocalization.text("settings.billing.reportingRange.mode.custom")
+        }
     }
 
     private func analyticsLoadingCard(_ payload: DashboardPayload) -> some View {
@@ -119,18 +137,33 @@ struct DetailView: View {
         }
 
         let showZero = model.settings.showZeroUsageXiaomiProvider
-        let overrides = appPreferencesModel.preferences.billingOverridesByProviderKey()
+        let prefs = appPreferencesModel.preferences
+        let result = prefs.filteredPayloadWithReportingOverrides(
+            payload: payload,
+            mode: prefs.reportingRangeMode,
+            customBounds: prefs.reportingRangeCustomBounds
+        )
+        let effectivePayload: DashboardPayload
+        let effectiveOverrides: [String: Double]
+        if let (filteredPayload, overrides) = result {
+            effectivePayload = filteredPayload
+            effectiveOverrides = overrides
+        } else {
+            effectivePayload = payload
+            effectiveOverrides = prefs.billingOverridesByProviderKey()
+        }
+
         let analytics = await Task.detached(priority: .userInitiated) {
             TokenCostDashboardAnalytics(
-                payload: payload,
+                payload: effectivePayload,
                 showZeroUsageXiaomiProvider: showZero,
-                billingOverridesByProviderKey: overrides
+                billingOverridesByProviderKey: effectiveOverrides
             )
         }.value
 
         guard generation == analyticsRefreshGeneration else { return }
         cachedAnalytics = analytics
-        cachedStackedWindow = recentStackedWindow(from: analytics)
+        cachedStackedWindow = stackedWindow(from: analytics)
     }
 
     private func sourceHeader(_ source: TokenCostSource) -> some View {
@@ -189,8 +222,8 @@ struct DetailView: View {
                 )
                 TokenMetricCard(
                     title: AppLocalization.text("detail.overview.totalCost"),
-                    value: TokenCostFormatters.currency(analytics.overview.totalCost, displayCurrency: appPreferencesModel.preferences.displayCurrency),
-                    subtitle: AppLocalization.text("detail.overview.totalCostSubtitle"),
+                    value: TokenCostFormatters.currency(reportingTotalCost ?? analytics.overview.totalCost, displayCurrency: appPreferencesModel.preferences.displayCurrency),
+                    subtitle: totalCostBasisLabel,
                     tint: .green,
                     palette: palette,
                     compact: true
@@ -408,7 +441,7 @@ struct DetailView: View {
     }
 
     private func stackedSection(_ analytics: TokenCostDashboardAnalytics) -> some View {
-        let window = cachedStackedWindow ?? recentStackedWindow(from: analytics)
+        let window = cachedStackedWindow ?? stackedWindow(from: analytics)
         let pageCount = max((window.dates.count + sectionPageSize - 1) / sectionPageSize, 1)
         let clampedPage = min(max(stackedPageIndex, 0), pageCount - 1)
         let startIndex = clampedPage * sectionPageSize
@@ -421,7 +454,7 @@ struct DetailView: View {
 
         return TokenSectionCard(
             title: AppLocalization.text("detail.stacked.title"),
-            subtitle: AppLocalization.format("detail.stacked.subtitle", recentWindowLimit),
+            subtitle: AppLocalization.format("detail.stacked.subtitle", window.dates.count),
             trailing: nil,
             palette: palette
         ) {
@@ -432,8 +465,7 @@ struct DetailView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     stackedLegend(window.series)
                     VStack(spacing: 8) {
-                        ForEach(Array(visibleDates.enumerated()), id: \.offset) { offset, dateLabel in
-                            let index = visibleDateIndexes[offset]
+                        ForEach(Array(zip(visibleDates, visibleDateIndexes)), id: \.0) { dateLabel, index in
                             StackedDayRow(
                                 dateLabel: dateLabel,
                                 total: dayTotal(at: index, series: window.series),
@@ -456,12 +488,7 @@ struct DetailView: View {
     }
 
     private func detailSection(_ analytics: TokenCostDashboardAnalytics) -> some View {
-        let windowRows = recentDetailWindowRows(from: analytics)
-        let rows = sortDetailRows(
-            windowRows,
-            field: detailSortField,
-            direction: detailSortDirection
-        )
+        let rows = detailRows(from: analytics, sortField: detailSortField, direction: detailSortDirection)
         let pageCount = max((rows.count + sectionPageSize - 1) / sectionPageSize, 1)
         let clampedPage = min(max(detailPageIndex, 0), pageCount - 1)
         let startIndex = clampedPage * sectionPageSize
@@ -470,7 +497,7 @@ struct DetailView: View {
 
         return TokenSectionCard(
             title: AppLocalization.text("detail.sessions.title"),
-            subtitle: AppLocalization.format("detail.sessions.subtitle", windowRows.count),
+            subtitle: AppLocalization.format("detail.sessions.subtitle", rows.count),
             trailing: AnyView(detailSortControls),
             palette: palette
         ) {
@@ -607,7 +634,7 @@ struct DetailView: View {
             Color.clear
         } else {
             Text(result.rule.displayName)
-                .font(.system(size: 9, weight: .medium))
+                .font(.caption.weight(.medium))
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
                 .background(classificationTint(result.rule).opacity(0.15), in: Capsule())
@@ -678,7 +705,7 @@ struct DetailView: View {
 
     private func stackedLegend(_ series: [DetailStackSeries]) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 10)], spacing: 10) {
-            ForEach(Array(series.enumerated()), id: \.offset) { index, item in
+            ForEach(Array(series.enumerated()), id: \.element.id) { index, item in
                 HStack(spacing: 8) {
                     ZStack {
                         Circle()
@@ -738,14 +765,10 @@ struct DetailView: View {
     }
 
     private func cacheDistributionRow(for row: TokenCostDashboardAnalytics.ProviderCacheRow) -> some View {
-        let total = row.hasEstimates
-            ? row.inputTokens + row.cacheReadTokens
-            : row.actualTokens + row.cacheReadTokens
-
         return DistributionRow(
             title: row.displayName,
             value: row.cacheReadTokens,
-            total: max(total, 1),
+            total: max(detailCacheDistributionTotal(for: row), 1),
             tint: TokenCostSeriesPalette.color(for: row.colorKey),
             palette: palette,
             suffix: cacheRowSuffix(for: row)
@@ -829,123 +852,100 @@ struct DetailView: View {
         )
     }
 
-    private func recentDetailWindowRows(from analytics: TokenCostDashboardAnalytics) -> [DashboardPayload.RawRow] {
-        Array(
-            analytics.sortedDetailRows(sortField: .date, direction: .descending)
-                .prefix(recentWindowLimit)
+}
+
+func stackedWindow(from analytics: TokenCostDashboardAnalytics) -> RecentStackedWindow {
+    let windowRows = analytics.sortedDetailRows(sortField: .date, direction: .descending)
+    let groupedByDate = Dictionary(grouping: windowRows, by: \.date)
+    let sortedDates = groupedByDate.keys.sorted(by: >)
+
+    var totalByModel: [String: Double] = [:]
+    for row in windowRows {
+        let key = stackedModelKey(row.model)
+        totalByModel[key, default: 0] += row.total
+    }
+
+    let topModelKeys = totalByModel
+        .map { ($0.key, $0.value) }
+        .sorted { lhs, rhs in
+            if lhs.1 == rhs.1 {
+                return lhs.0.localizedCaseInsensitiveCompare(rhs.0) == .orderedAscending
+            }
+            return lhs.1 > rhs.1
+        }
+        .prefix(8)
+        .map { $0.0 }
+
+    let topModelSet = Set(topModelKeys)
+    var series: [DetailStackSeries] = topModelKeys.map { modelKey in
+        let values = sortedDates.map { date in
+            groupedByDate[date, default: []].reduce(0) { partialResult, row in
+                stackedModelKey(row.model) == modelKey ? partialResult + row.total : partialResult
+            }
+        }
+        return DetailStackSeries(
+            label: modelKey,
+            values: values,
+            total: values.reduce(0, +),
+            colorKey: modelKey,
+            isOther: false
         )
     }
 
-    private func sortDetailRows(
-        _ rows: [DashboardPayload.RawRow],
-        field: TokenCostDetailSortField,
-        direction: TokenCostSortDirection
-    ) -> [DashboardPayload.RawRow] {
-        let sorted = rows.sorted { lhs, rhs in
-            compareDetailRows(lhs, rhs, field: field)
-        }
-        return direction == .ascending ? sorted : Array(sorted.reversed())
-    }
-
-    private func compareDetailRows(
-        _ lhs: DashboardPayload.RawRow,
-        _ rhs: DashboardPayload.RawRow,
-        field: TokenCostDetailSortField
-    ) -> Bool {
-        switch field {
-        case .date:
-            return compareString(lhs.date, rhs.date)
-        case .model:
-            return compareString(lhs.model, rhs.model)
-        case .provider:
-            return compareString(lhs.provider, rhs.provider)
-        case .input:
-            return compareNumeric(lhs.input, rhs.input)
-        case .output:
-            return compareNumeric(lhs.output, rhs.output)
-        case .cacheRead:
-            return compareNumeric(lhs.cacheRead, rhs.cacheRead)
-        case .cacheWrite:
-            return compareNumeric(lhs.cacheWrite, rhs.cacheWrite)
-        case .total:
-            return compareNumeric(lhs.total, rhs.total)
-        case .cost:
-            return compareNumeric(lhs.cost, rhs.cost)
+    let otherValues = sortedDates.map { date in
+        groupedByDate[date, default: []].reduce(0) { partialResult, row in
+            topModelSet.contains(stackedModelKey(row.model)) ? partialResult : partialResult + row.total
         }
     }
 
-    private func compareString(_ lhs: String, _ rhs: String) -> Bool {
-        lhs.localizedStandardCompare(rhs) == .orderedAscending
-    }
-
-    private func compareNumeric(_ lhs: Double, _ rhs: Double) -> Bool {
-        lhs < rhs
-    }
-
-    private func recentStackedWindow(from analytics: TokenCostDashboardAnalytics) -> RecentStackedWindow {
-        let windowRows = recentDetailWindowRows(from: analytics)
-        let groupedByDate = Dictionary(grouping: windowRows, by: \.date)
-        let sortedDates = groupedByDate.keys.sorted(by: >)
-
-        var totalByModel: [String: Double] = [:]
-        for row in windowRows {
-            let key = stackedModelKey(row.model)
-            totalByModel[key, default: 0] += row.total
-        }
-
-        let topModelKeys = totalByModel
-            .map { ($0.key, $0.value) }
-            .sorted { lhs, rhs in
-                if lhs.1 == rhs.1 {
-                    return lhs.0.localizedCaseInsensitiveCompare(rhs.0) == .orderedAscending
-                }
-                return lhs.1 > rhs.1
-            }
-            .prefix(8)
-            .map { $0.0 }
-
-        let topModelSet = Set(topModelKeys)
-        var series: [DetailStackSeries] = topModelKeys.map { modelKey in
-            let values = sortedDates.map { date in
-                groupedByDate[date, default: []].reduce(0) { partialResult, row in
-                    stackedModelKey(row.model) == modelKey ? partialResult + row.total : partialResult
-                }
-            }
-            return DetailStackSeries(
-                label: modelKey,
-                values: values,
-                total: values.reduce(0, +),
-                colorKey: modelKey,
-                isOther: false
+    if otherValues.contains(where: { $0 > 0 }) {
+        series.append(
+            DetailStackSeries(
+                label: AppLocalization.text("common.other"),
+                values: otherValues,
+                total: otherValues.reduce(0, +),
+                colorKey: "other-models",
+                isOther: true
             )
-        }
-
-        let otherValues = sortedDates.map { date in
-            groupedByDate[date, default: []].reduce(0) { partialResult, row in
-                topModelSet.contains(stackedModelKey(row.model)) ? partialResult : partialResult + row.total
-            }
-        }
-
-        if otherValues.contains(where: { $0 > 0 }) {
-            series.append(
-                DetailStackSeries(
-                    label: AppLocalization.text("common.other"),
-                    values: otherValues,
-                    total: otherValues.reduce(0, +),
-                    colorKey: "other-models",
-                    isOther: true
-                )
-            )
-        }
-
-        return RecentStackedWindow(dates: sortedDates, series: series)
+        )
     }
 
-    private func stackedModelKey(_ model: String) -> String {
-        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "unknown" : trimmed
-    }
+    return RecentStackedWindow(dates: sortedDates, series: series)
+}
 
+func detailRows(
+    from analytics: TokenCostDashboardAnalytics,
+    sortField: TokenCostDetailSortField,
+    direction: TokenCostSortDirection
+) -> [DashboardPayload.RawRow] {
+    analytics.sortedDetailRows(sortField: sortField, direction: direction)
+}
+
+func detailReportingTotalCost(
+    payload: DashboardPayload?,
+    preferences: AppPreferences
+) -> Double? {
+    guard let payload else { return nil }
+    if let breakdown = preferences.reportingCostBreakdown(
+        payload: payload,
+        mode: preferences.reportingRangeMode,
+        customBounds: preferences.reportingRangeCustomBounds
+    ) {
+        return breakdown.totalCost
+    }
+    return preferences.combinedMonthlyCost(payload: payload)
+}
+
+func detailCacheDistributionTotal(for row: TokenCostDashboardAnalytics.ProviderCacheRow) -> Double {
+    row.inputTokens + row.cacheReadTokens
+}
+
+func stackedModelKey(_ model: String) -> String {
+    let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? "unknown" : trimmed
+}
+
+private extension DetailView {
     private var loadingCard: some View {
         TokenSectionCard(title: AppLocalization.text("detail.loading.title"), subtitle: AppLocalization.text("detail.loading.subtitle"), trailing: nil, palette: palette) {
             HStack {
@@ -979,12 +979,12 @@ struct DetailView: View {
     }
 }
 
-private struct RecentStackedWindow {
+struct RecentStackedWindow {
     var dates: [String]
     var series: [DetailStackSeries]
 }
 
-private struct DetailStackSeries: Identifiable {
+struct DetailStackSeries: Identifiable {
     var id: String { colorKey }
 
     var label: String
@@ -1057,7 +1057,7 @@ private struct StackedDayRow: View {
                         .fill(Color.primary.opacity(0.06))
 
                     HStack(spacing: 1) {
-                        ForEach(Array(series.enumerated()), id: \.offset) { index, item in
+                        ForEach(Array(series.enumerated()), id: \.element.id) { index, item in
                             let value = item.values[safe: dateIndex] ?? 0
                             if value > 0 {
                                 RoundedRectangle(cornerRadius: 999, style: .continuous)

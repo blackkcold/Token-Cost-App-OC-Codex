@@ -34,6 +34,15 @@ final class WindowLifecycleManager {
         window.identifier?.rawValue == "main"
     }
 
+    /// Returns `true` only for windows whose identifiers match the
+    /// managed scene set: main, settings, pricing-doc, dev-doc.
+    /// Transient MenuBarExtra panels and other unidentified windows
+    /// are excluded so they cannot spuriously flip Dock policy.
+    func isManagedWindow(_ window: NSWindow) -> Bool {
+        guard let identifier = window.identifier?.rawValue else { return false }
+        return identifier == "main" || isTrackedSupplementaryWindow(identifier: identifier)
+    }
+
     func windowDidOpen(identifier: String) {
         if identifier == "main" {
             mainWindowOpen = true

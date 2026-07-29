@@ -10,7 +10,7 @@ struct CodexSectionView: View {
     @Binding var codexManualPageIndex: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 10) {
             discoverySourcesCard
             sourceRootsCard
             manualSourcesCard
@@ -56,7 +56,7 @@ struct CodexSectionView: View {
                                     SourceStatusPill(source: source, palette: palette)
                                     if let origin = source.originURL {
                                         Text(verbatim: abbreviatePath(origin.path))
-                                            .font(.system(size: 9))
+                                            .font(.caption)
                                             .foregroundStyle(palette.subtitle)
                                             .lineLimit(1)
                                             .truncationMode(.middle)
@@ -122,8 +122,7 @@ struct CodexSectionView: View {
                         .foregroundStyle(palette.subtitle)
                         .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                 } else {
-                    ForEach(Array(paginatedRoots.enumerated()), id: \.offset) { offset, path in
-                        let realIndex = startIndex + offset
+                    ForEach(Array(zip(paginatedRoots.indices, paginatedRoots)), id: \.0) { realIndex, path in
                         HStack(spacing: 8) {
                             Image(systemName: "folder")
                                 .font(.caption2)
@@ -142,6 +141,7 @@ struct CodexSectionView: View {
                                     .foregroundStyle(.red)
                             }
                             .buttonStyle(.borderless)
+                            .help("Remove Codex source root")
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -193,8 +193,7 @@ struct CodexSectionView: View {
                         .foregroundStyle(palette.subtitle)
                         .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
                 } else {
-                    ForEach(Array(paginatedPaths.enumerated()), id: \.offset) { offset, path in
-                        let realIndex = startIndex + offset
+                    ForEach(Array(zip(paginatedPaths.indices, paginatedPaths)), id: \.0) { realIndex, path in
                         HStack(spacing: 8) {
                             Image(systemName: "doc")
                                 .font(.caption2)
@@ -213,6 +212,7 @@ struct CodexSectionView: View {
                                     .foregroundStyle(.red)
                             }
                             .buttonStyle(.borderless)
+                            .help("Remove Codex manual path")
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)

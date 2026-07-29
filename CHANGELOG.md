@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- _No new features in this release._
+
+## [v1.0.2] - 2026-07-29
+
+### Added
+
+- **LiquidGlassButtonStyle**：新增 SwiftUI `ButtonStyle` 子类，仅通过 `scaleEffect(0.96)` + `opacity(0.7)` 提供非彩色按压反馈，并显式遵循 Reduce Motion；不进入系统 tint 管线。用于悬浮面板 widget 操作按钮（`LiquidGlassButtonStyle.swift`、`BalanceFloatingPanelView.swift`）。
+- **订阅周期设置（开发者模式）**：计费方案 tab 每个 Provider 卡片新增可折叠的「订阅周期设置」区域（需开启开发者模式）。支持按日/按月粒度切换、快捷预设（按月/按季度/按年自动填充起止日期）、自定义起止日期选择。新增 `periodTotalCost(for:)` 方法按订阅周期折算总成本（按月粒度用 Calendar 月+天/该月天数，按日粒度用 monthlyUSD/30.4375×天数），总览页和菜单栏在开发者模式开启时展示「订阅期总成本」。DatePicker 绑定使用 500ms 去抖防持久化风暴（`BillingPlanCatalog.swift`、`BillingSectionView.swift`、`AppPreferencesModel.swift`、`TotalView.swift`、`MenuBarView.swift`）。
+
+### Changed
+
+- **悬浮面板详细/简略模式重构**：详细模式保留完整 Liquid Glass 信息卡；简略模式改为更轻的独立表面、居中纵向结构和 54pt 圆形指标/密度符号。响应式列数改为按可用内容宽度推导，默认 480×320 下详细模式为 2 列、简略模式为 4 列，放大后最多 4 列（`BalanceFloatingPanelLayout.swift`、`BalanceProviderCardView.swift`、`BalanceMinimalProviderTile.swift`）。
+- **悬浮面板 widget 状态区与动效**：顶部由窗口标题栏式 header 改为状态点、标题、刷新时间和 hover-only 圆形操作；进度条、圆环、数字与按钮反馈均显式遵循 Reduce Motion。卡片无障碍摘要改由现有本地化 key 与格式化器组装，不再直接暴露 Core 的 `shortSummary`（`BalanceFloatingPanelView.swift`、`BalanceProviderCardView.swift`、`BalanceMinimalProviderTile.swift`、`LiquidGlassButtonStyle.swift`）。
+- **设置面板布局优化**：`SettingsSurfaceCard` 主卡圆角 28→18pt、副卡 22→16pt，`SettingsControlTile` padding 12→10pt，`SettingsSummaryCard` 数值字号 22→26pt，提升信息密度和视觉层次（`Components.swift`）。
+- **菜单栏宽度与信息层级重构**：窗口宽度 290→320pt，header 新增月费大字（22pt bold），概览区改为月费大卡 + 3 指标行，余额区改用 `LazyVGrid adaptive(minimum:140)` + `ScrollView` 自适应，底部按钮 1 行 3 按钮布局（`MenuBarView.swift`）。
+- **菜单栏字号与可访问性**：`cardBar` 字号 caption2→caption，移除固定宽度改用 maxWidth/fixedSize 自适应，`minimumScaleFactor` 0.6→0.8，sparkline 高度 44→60pt，图标按钮追加 `accessibilityLabel`（`MenuBarView.swift`）。
+- **概览 Tab 2×2 布局**：summary grid 4 列→2×2，`dataSourceRow` label `frame(width:120)`→`frame(minWidth:100,maxWidth:140)`（`OverviewSectionView.swift`）。
+- **偏好 Tab 主题选择器**：`HStack`→`LazyVGrid adaptive(minimum:80)`，4 主题在窄窗口下可换行（`PreferencesSectionView.swift`）。
+- **余额 Tab 快照折叠**：`providerSnapshotRow` 详情（quotaWindows/valueEntries）折叠到 DisclosureGroup，摘要行始终可见；凭证按钮 `SettingsActionWrap`→`HStack+ScrollView(.horizontal)`（`BalanceSectionView.swift`）。
+- **安全 Tab 信息密度**：`securityDetailRow` 去除 `SettingsControlTile` 包裹，改用普通 VStack+HStack + `settingsInsetSurface`（`SecuritySectionView.swift`）。
+- **开发者 Tab 动画与折叠**：toggle 双重保障过渡动画（`withAnimation` + `.animation`），优化扫描结果 `ScrollView`→`DisclosureGroup`，governanceRow padding 统一 8pt horizontal + 4pt vertical（`DeveloperSectionView.swift`）。
+- **备份 Tab 折叠优化**：概览和完备性卡片始终可见并上移，分层状态和文件列表折叠到 `DisclosureGroup`，页面高度显著降低（`BackupSectionView.swift`）。
+- **其他 Tab 间距微调**：OpenCode/Codex section 间距 18→10pt，Skills 补充 helper text，Billing provider 卡片间距 10→14pt（`OpenCodeSectionView.swift`、`CodexSectionView.swift`、`SkillsSectionView.swift`、`BillingSectionView.swift`）。
+
+### Fixed
+
+- **菜单栏余额卡片文本截断**：`cardBar` 中 `GeometryReader` 进度条贪婪占用 HStack 剩余空间，挤压 `countdown`/`rate`/`待预估` 文本。将消耗速率/待预估从 cardBar 内移至卡片标题行右侧，并给进度条添加 `layoutPriority(-1)` 使其最后取空间。短窗口显示 `约 XX%/h`、长窗口显示 `约 XX%/d`，优先取周期最短的窗口（`MenuBarView.swift`）。
+- **余额浮窗简略模式进度条被压缩为零宽度**：简略卡 64pt 宽度下，标签与百分比最小宽度之和超过 48pt 内容区，`GeometryReader` 进度条被压缩为 0pt。改为标签与百分比独占一行、进度条独占下一行全宽 48pt，并支持仅提供 `remainingRatio` 时的数据回退（`BalanceMinimalProviderTile.swift`、`BalanceFloatingPanelLayoutTests.swift`）。
+- **余额浮窗简略模式改为五格离散进度条**：将连续胶囊进度条替换为 5 个分离的 Capsule 段，保留连续归一化填充（如 67% 显示为 3 满格 + 第 4 格 35% + 1 空格），移除屏幕上的百分比与预估消耗文本，VoiceOver 无障碍摘要保持不变（`BalanceMinimalProviderTile.swift`、`BalanceFloatingPanelLayoutTests.swift`）。
+- **悬浮面板蓝色选中与灰色焦点框**：根因是 `.nonactivatingPanel` 仍通过 `makeKeyAndOrderFront` 成为 key/main window，且 SwiftUI 操作按钮继续参与系统焦点效果。面板改用 `orderFrontRegardless()`，`canBecomeKey`/`canBecomeMain` 均为 `false`，hosting view 关闭 AppKit focus ring；刷新/关闭按钮禁用系统 focus effect 并使用无 tint 的自定义按压反馈（`BalanceFloatingPanelCoordinator.swift`、`BalanceFloatingPanelView.swift`、`LiquidGlassButtonStyle.swift`、`BalanceFloatingPanelWindowTests.swift`）。
+- **悬浮面板关闭按钮不可用**：`BalanceFloatingPanelCoordinator.close()` 通过 `panel?.performClose(nil)` 触发关闭，但 `.borderless` + `.nonactivatingPanel` 的 `NSPanel` 没有 titlebar close button，`performClose` 在此样式组合下行为不可靠，调用链无法可靠到达 `windowShouldClose`。改为直接 `panel?.orderOut(nil)` + 在 `isApplyingVisibilityChange` 守卫下写回 `balanceFloatingPanelEnabled = false`；`windowShouldClose` 保留原逻辑作为外部触发（Accessibility/脚本）的兜底防御（`BalanceFloatingPanelCoordinator.swift`）。
+
 ## [v1.0.1] - 2026-07-16
 
 ### Added
@@ -538,7 +572,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.2...HEAD
+[v1.0.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.1...v1.0.2
 [v1.0.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.0...v1.0.1
 [v1.0.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.9...v1.0.0
 [v0.9.7]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.6...v0.9.7

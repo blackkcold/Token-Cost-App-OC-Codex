@@ -21,6 +21,7 @@ struct BalanceSectionView: View {
     @Binding var ollamaCookieSaved: Bool
 
     @State private var expandedCredentialFor: BalanceProviderKind?
+    @State private var expandedSnapshots: Set<String> = []
     @State private var showLegacyKeychainImportAlert = false
     @State private var legacyKeychainImportMessage: String?
 
@@ -62,6 +63,53 @@ struct BalanceSectionView: View {
                 SettingsControlGrid(minimumWidth: 220) {
                     SettingsControlTile(palette: palette, minHeight: 54) {
                         Toggle("settings.balance.enable".localized, isOn: appPreferencesModel.balanceEnabledBinding)
+                    }
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        SettingsInlineControlRow(
+                            title: "settings.balance.menuBarExtra.enable".localized,
+                            palette: palette
+                        ) {
+                            Toggle("", isOn: appPreferencesModel.balanceMenuBarExtraEnabledBinding)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                                .accessibilityLabel("settings.balance.menuBarExtra.enable".localized)
+                        }
+                    }
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle("settings.balance.floatingPanel.enable".localized, isOn: appPreferencesModel.balanceFloatingPanelEnabledBinding)
+                    }
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        SettingsInlineControlRow(
+                            title: "settings.balance.floatingPanel.alwaysOnTop".localized,
+                            palette: palette
+                        ) {
+                            Toggle("", isOn: appPreferencesModel.balanceFloatingPanelAlwaysOnTopBinding)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                                .accessibilityLabel("settings.balance.floatingPanel.alwaysOnTop".localized)
+                        }
+                    }
+
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        SettingsInlineControlRow(
+                            title: "settings.balance.floatingPanel.displayMode".localized,
+                            palette: palette
+                        ) {
+                            Picker("", selection: appPreferencesModel.balanceFloatingPanelDisplayModeBinding) {
+                                Text("settings.balance.floatingPanel.displayMode.normal".localized)
+                                    .tag(BalanceFloatingPanelDisplayMode.normal)
+                                Text("settings.balance.floatingPanel.displayMode.minimal".localized)
+                                    .tag(BalanceFloatingPanelDisplayMode.minimal)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(maxWidth: 160)
+                        }
                     }
 
                     SettingsControlTile(palette: palette, minHeight: 54) {
@@ -249,7 +297,13 @@ struct BalanceSectionView: View {
     }
 
     private func providerSnapshotRow(_ snapshot: BalanceSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let snapshotID = snapshot.id
+        let hasDetails = (snapshot.quotaWindows != nil && !(snapshot.quotaWindows?.isEmpty ?? true))
+            || (snapshot.valueEntries != nil && !(snapshot.valueEntries?.isEmpty ?? true))
+        let isExpanded = expandedSnapshots.contains(snapshotID)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            // Summary row
             HStack(spacing: 8) {
                 Image(systemName: snapshot.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .font(.caption2)
@@ -263,9 +317,10 @@ struct BalanceSectionView: View {
 
                 if snapshot.isAvailable {
                     if let pct = snapshot.usagePercent {
-                        Text("\(Int(pct * 100))%")
+                        let displayRatio = quotaDisplayRatio(for: pct)
+                        Text(quotaPercentText(forDisplayRatio: displayRatio))
                             .font(.caption.monospacedDigit())
-                            .foregroundStyle(usageColor(pct))
+                            .foregroundStyle(quotaDisplayColor(forDisplayRatio: displayRatio))
                     } else if let remaining = snapshot.remainingCredits {
                         let dc = appPreferencesModel.preferences.displayCurrency
                         let converted = TokenCostCurrencyService.convert(remaining, from: .usd, to: dc)
@@ -273,109 +328,130 @@ struct BalanceSectionView: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.green)
                     }
+
+                    if hasDetails {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                if expandedSnapshots.contains(snapshotID) {
+                                    expandedSnapshots.remove(snapshotID)
+                                } else {
+                                    expandedSnapshots.insert(snapshotID)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.caption2)
+                                .foregroundStyle(palette.accent)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
 
-            if snapshot.isAvailable {
-                if let planType = snapshot.planType {
-                    HStack(spacing: 4) {
-                        Text(verbatim: planType)
-                            .font(.system(size: 9))
-                            .foregroundStyle(palette.subtitle)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(palette.accent.opacity(0.12)))
-                    }
-                    .padding(.leading, 20)
-                }
-
-                if let used = snapshot.usedCredits, let total = snapshot.totalCredits {
-                    HStack(spacing: 4) {
-                        let dc = appPreferencesModel.preferences.displayCurrency
-                        let usedStr = TokenCostCurrencyService.format(TokenCostCurrencyService.convert(used, from: .usd, to: dc), currency: dc)
-                        let totalStr = TokenCostCurrencyService.format(TokenCostCurrencyService.convert(total, from: .usd, to: dc), currency: dc)
-                        Text("\(usedStr) / \(totalStr)")
-                            .font(.caption2)
-                            .foregroundStyle(palette.subtitle)
-                    }
-                    .padding(.leading, 20)
-                }
-
-                if let primaryLabel = snapshot.primaryWindowLabel, let primaryPct = snapshot.primaryWindowUsagePercent {
-                    HStack(spacing: 4) {
-                        Circle().fill(usageColor(primaryPct)).frame(width: 5, height: 5)
-                        Text(verbatim: "\(primaryLabel): \(Int(primaryPct * 100))%")
-                            .font(.system(size: 9))
-                            .foregroundStyle(palette.subtitle)
-
-                        if let resetAt = snapshot.primaryWindowResetAt {
-                            Text("(\(formattedTime(resetAt)))")
-                                .font(.system(size: 8))
-                                .foregroundStyle(palette.subtitle.opacity(0.6))
-                        }
-                    }
-                    .padding(.leading, 20)
-                }
-
-                if let quotaWindows = snapshot.quotaWindows {
-                    let dedupLabels: Set<String> = [
-                        snapshot.primaryWindowLabel,
-                        snapshot.secondaryWindowLabel,
-                        snapshot.tertiaryWindowLabel
-                    ].compactMap { $0 }.reduce(into: Set<String>()) { $0.insert($1) }
-
-                    ForEach(quotaWindows) { window in
-                        if dedupLabels.contains(window.label) { EmptyView() } else {
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(window.usedRatio.map(usageColor) ?? palette.subtitle)
-                                    .frame(width: 5, height: 5)
-                                Text(verbatim: window.label)
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(palette.subtitle)
-                                if let used = window.usedRatio {
-                                    Text("\(Int(used * 100))%")
-                                        .font(.system(size: 9).monospacedDigit())
-                                        .foregroundStyle(usageColor(used))
-                                }
-                                if let resetAt = window.resetAt {
-                                    Text("(\(formattedTime(resetAt)))")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(palette.subtitle.opacity(0.6))
-                                }
-                            }
-                            .padding(.leading, 20)
-                        }
-                    }
-                }
-
-                if let valueEntries = snapshot.valueEntries {
-                    ForEach(valueEntries) { entry in
+            // Expandable details
+            if isExpanded, snapshot.isAvailable {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let planType = snapshot.planType {
                         HStack(spacing: 4) {
-                            Text(verbatim: "\(entry.label):")
+                            Text(verbatim: planType)
+                                .font(.caption)
+                                .foregroundStyle(palette.subtitle)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(RoundedRectangle(cornerRadius: 4).fill(palette.accent.opacity(0.12)))
+                        }
+                    }
+
+                    if let used = snapshot.usedCredits, let total = snapshot.totalCredits {
+                        HStack(spacing: 4) {
+                            let dc = appPreferencesModel.preferences.displayCurrency
+                            let usedStr = TokenCostCurrencyService.format(TokenCostCurrencyService.convert(used, from: .usd, to: dc), currency: dc)
+                            let totalStr = TokenCostCurrencyService.format(TokenCostCurrencyService.convert(total, from: .usd, to: dc), currency: dc)
+                            Text("\(usedStr) / \(totalStr)")
                                 .font(.caption2)
                                 .foregroundStyle(palette.subtitle)
-                            Text(verbatim: "\(entry.currencyCode ?? "") \(String(format: "%.2f", entry.amount))")
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(palette.title)
-                            if let granted = entry.grantedAmount {
-                                Text(verbatim: " (+\(String(format: "%.2f", granted)))")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.green)
+                        }
+                    }
+
+                    if let primaryLabel = snapshot.primaryWindowLabel, let primaryPct = snapshot.primaryWindowUsagePercent {
+                        HStack(spacing: 4) {
+                            let displayRatio = quotaDisplayRatio(for: primaryPct)
+                            Circle().fill(quotaDisplayColor(forDisplayRatio: displayRatio)).frame(width: 5, height: 5)
+                            Text(verbatim: "\(primaryLabel): \(quotaPercentText(forDisplayRatio: displayRatio))")
+                                .font(.caption)
+                                .foregroundStyle(palette.subtitle)
+                            if let resetAt = snapshot.primaryWindowResetAt {
+                                Text("(\(formattedTime(resetAt)))")
+                                    .font(.caption2)
+                                    .foregroundStyle(palette.subtitle.opacity(0.6))
                             }
                         }
-                        .padding(.leading, 20)
+                    }
+
+                    if let quotaWindows = snapshot.quotaWindows {
+                        let dedupLabels: Set<String> = [
+                            snapshot.primaryWindowLabel,
+                            snapshot.secondaryWindowLabel,
+                            snapshot.tertiaryWindowLabel
+                        ].compactMap { $0 }.reduce(into: Set<String>()) { $0.insert($1) }
+
+                        ForEach(quotaWindows) { window in
+                            if dedupLabels.contains(window.label) { EmptyView() } else {
+                                HStack(spacing: 4) {
+                                    let displayRatio = quotaDisplayRatio(for: window)
+                                    Circle()
+                                        .fill(quotaDisplayColor(for: window))
+                                        .frame(width: 5, height: 5)
+                                    Text(verbatim: window.label)
+                                        .font(.caption)
+                                        .foregroundStyle(palette.subtitle)
+                                    if window.usedRatio != nil || window.remainingRatio != nil {
+                                        Text(quotaPercentText(forDisplayRatio: displayRatio))
+                                            .font(.caption.monospacedDigit())
+                                            .foregroundStyle(quotaDisplayColor(forDisplayRatio: displayRatio))
+                                    }
+                                    if let resetAt = window.resetAt {
+                                        Text("(\(formattedTime(resetAt)))")
+                                            .font(.caption2)
+                                            .foregroundStyle(palette.subtitle.opacity(0.6))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if let valueEntries = snapshot.valueEntries {
+                        ForEach(valueEntries) { entry in
+                            HStack(spacing: 4) {
+                                Text(verbatim: "\(entry.label):")
+                                    .font(.caption2)
+                                    .foregroundStyle(palette.subtitle)
+                                Text(verbatim: "\(entry.currencyCode ?? "") \(String(format: "%.2f", entry.amount))")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(palette.title)
+                                if let granted = entry.grantedAmount {
+                                    Text(verbatim: " (+\(String(format: "%.2f", granted)))")
+                                        .font(.caption)
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                        }
                     }
                 }
-            } else if let error = snapshot.errorMessage {
+                .padding(.leading, 24)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            if !snapshot.isAvailable, let error = snapshot.errorMessage {
                 Text(verbatim: error)
                     .font(.caption2)
                     .foregroundStyle(.red)
-                    .padding(.leading, 20)
+                    .padding(.leading, 24)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .animation(.easeInOut(duration: 0.2), value: expandedSnapshots.contains(snapshotID))
         .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
     }
 
@@ -484,7 +560,8 @@ struct BalanceSectionView: View {
                 }
             }
 
-            SettingsActionWrap(minimumWidth: 150, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
                 Button {
                     saveGoCredentials()
                 } label: {
@@ -532,6 +609,8 @@ struct BalanceSectionView: View {
                         .scaleEffect(0.7)
                         .frame(width: 20, height: 20)
                 }
+                }
+                .fixedSize(horizontal: true, vertical: false)
             }
 
             if let importMsg = browserImportMessage {
@@ -597,7 +676,8 @@ struct BalanceSectionView: View {
                 }
             }
 
-            SettingsActionWrap(minimumWidth: 150, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
                 Button {
                     saveOllamaCookie()
                 } label: {
@@ -637,6 +717,8 @@ struct BalanceSectionView: View {
                         .scaleEffect(0.7)
                         .frame(width: 20, height: 20)
                 }
+                }
+                .fixedSize(horizontal: true, vertical: false)
             }
 
             if let importMsg = ollamaBrowserImportMessage {
@@ -658,9 +740,10 @@ struct BalanceSectionView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.green)
                             if let pct = ollamaSnapshot.usagePercent {
-                                Text(String(format: "settings.ollama.status.used".localized, Int(pct * 100)))
+                                let displayRatio = quotaDisplayRatio(for: pct)
+                                Text(String(format: "settings.ollama.status.used".localized, quotaPercentInt(forDisplayRatio: displayRatio)))
                                     .font(.caption2)
-                                    .foregroundStyle(usageColor(pct))
+                                    .foregroundStyle(quotaDisplayColor(forDisplayRatio: displayRatio))
                             } else {
                                 Text("settings.ollama.status.connected".localized)
                                     .font(.caption2)
@@ -671,20 +754,21 @@ struct BalanceSectionView: View {
                         if let windows = ollamaSnapshot.quotaWindows, !windows.isEmpty {
                             ForEach(windows) { window in
                                 HStack(spacing: 4) {
+                                    let displayRatio = quotaDisplayRatio(for: window)
                                     Circle()
-                                        .fill(window.usedRatio.map(usageColor) ?? palette.subtitle)
+                                        .fill(quotaDisplayColor(for: window))
                                         .frame(width: 5, height: 5)
                                     Text(verbatim: window.label)
-                                        .font(.system(size: 9))
+                                        .font(.caption)
                                         .foregroundStyle(palette.subtitle)
-                                    if let used = window.usedRatio {
-                                        Text("\(Int(used * 100))%")
-                                            .font(.system(size: 9).monospacedDigit())
-                                            .foregroundStyle(usageColor(used))
+                                    if window.usedRatio != nil || window.remainingRatio != nil {
+                                        Text(quotaPercentText(forDisplayRatio: displayRatio))
+                                            .font(.caption.monospacedDigit())
+                                            .foregroundStyle(quotaDisplayColor(forDisplayRatio: displayRatio))
                                     }
                                     if let resetAt = window.resetAt {
                                         Text("(\(formattedTime(resetAt)))")
-                                            .font(.system(size: 8))
+                                            .font(.caption2)
                                             .foregroundStyle(palette.subtitle.opacity(0.6))
                                     }
                                 }
@@ -777,13 +861,37 @@ struct BalanceSectionView: View {
 
     // MARK: - Helpers
 
-    private func usageColor(_ pct: Double) -> Color {
-        switch pct {
-        case ..<0.50: return .green
-        case ..<0.80: return .yellow
-        case ..<0.95: return .orange
-        default: return .red
-        }
+    private var balanceDisplayMode: BalanceDisplayMode {
+        appPreferencesModel.preferences.balanceDisplayMode
+    }
+
+    private func quotaDisplayRatio(for window: BalanceQuotaWindow) -> Double {
+        BalanceMenuBarExtraSupport.displayRatio(for: window, displayMode: balanceDisplayMode)
+    }
+
+    private func quotaDisplayRatio(for legacyPercent: Double) -> Double {
+        BalanceMenuBarExtraSupport.displayRatio(for: legacyPercent, displayMode: balanceDisplayMode)
+    }
+
+    private func quotaDisplayColor(forDisplayRatio displayRatio: Double) -> Color {
+        BalanceMenuBarExtraSupport.quotaColor(
+            forDisplayRatio: displayRatio,
+            displayMode: balanceDisplayMode,
+            palette: palette
+        )
+    }
+
+    private func quotaDisplayColor(for window: BalanceQuotaWindow) -> Color {
+        guard window.usedRatio != nil || window.remainingRatio != nil else { return palette.subtitle }
+        return quotaDisplayColor(forDisplayRatio: quotaDisplayRatio(for: window))
+    }
+
+    private func quotaPercentText(forDisplayRatio displayRatio: Double) -> String {
+        "\(quotaPercentInt(forDisplayRatio: displayRatio))%"
+    }
+
+    private func quotaPercentInt(forDisplayRatio displayRatio: Double) -> Int {
+        Int(min(max(displayRatio, 0), 1) * 100)
     }
 
     static func formatRefreshInterval(_ seconds: Int) -> String {

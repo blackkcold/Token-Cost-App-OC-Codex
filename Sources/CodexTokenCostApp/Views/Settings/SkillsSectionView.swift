@@ -14,6 +14,12 @@ struct SkillsSectionView: View {
                 palette: palette
             ) {
                 VStack(alignment: .leading, spacing: 12) {
+                    Text("settings.skills.helperText".localized)
+                        .font(.caption)
+                        .foregroundStyle(palette.subtitle)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 2)
+
                     SettingsControlGrid(minimumWidth: 220) {
                         SettingsControlTile(palette: palette, minHeight: 54) {
                             Toggle("settings.skills.showSourceBadges".localized, isOn: Binding(

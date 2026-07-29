@@ -111,13 +111,17 @@ resolve_latest_release_tag() {
 
 RELEASE_TAG="$(resolve_release_tag)"
 RELEASE_VERSION_NUMBER="${RELEASE_TAG#v}"
-RELEASE_STAMP="$(date +%Y%m%d-%H%M%S)-$$"
+BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+stripped="${BUILD_TIMESTAMP//[-:TZ]/}"
+RELEASE_STAMP="${stripped:0:8}-${stripped:8:6}-$$"
 LOCAL_RELEASE_DIR="$RELEASE_BASE_DIR/${RELEASE_TAG}-${RELEASE_STAMP}"
 OFFICIAL_RELEASE_DIR="$RELEASE_BASE_DIR/$RELEASE_TAG"
 BUILD_CONFIGURATION="debug"
 RELEASE_DIR="$LOCAL_RELEASE_DIR"
 APP_ARCH="$(uname -m)"
 APP_ZIP_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.zip"
+APP_DMG_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.dmg"
+APP_VOLUME_NAME="Token Cost App - OC Codex"
 
 case "$MODE" in
   release)
@@ -174,6 +178,29 @@ stage_bundle() {
   if [[ -d "$RESOURCES_SOURCE" ]]; then
     ditto "$RESOURCES_SOURCE" "$APP_RESOURCES"
   fi
+
+  # Validate that all runtime resources expected by ProviderLogoMark and the
+  # app are present inside Contents/Resources before codesigning.  The shell
+  # script copies Resources/ into Contents/Resources, so ProviderLogoMark
+  # loads SVGs via Bundle.main.  Bundle.module is deliberately unused — the
+  # SPM resource bundle at the app wrapper root would break code signing.
+  local missing=0
+  for svg in opencode_go opencode_zen codex deepseek ollama; do
+    if [[ ! -f "$APP_RESOURCES/ProviderLogos/${svg}.svg" ]]; then
+      echo "ERROR: missing $APP_RESOURCES/ProviderLogos/${svg}.svg" >&2
+      missing=1
+    fi
+  done
+  for lproj in en.lproj zh-Hans.lproj; do
+    if [[ ! -d "$APP_RESOURCES/$lproj" ]]; then
+      echo "ERROR: missing $APP_RESOURCES/$lproj" >&2
+      missing=1
+    fi
+  done
+  if [[ $missing -ne 0 ]]; then
+    exit 1
+  fi
+
   printf 'APPL????' >"$APP_CONTENTS/PkgInfo"
 
   cat >"$INFO_PLIST" <<PLIST
@@ -222,6 +249,20 @@ package_release_zip() {
   )
 }
 
+package_release_dmg() {
+  local dmg_path="$RELEASE_DIR/$APP_DMG_NAME"
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  ditto "$APP_BUNDLE" "$temp_dir/$APP_DISPLAY_NAME.app"
+  ln -s /Applications "$temp_dir/Applications"
+  rm -f "$dmg_path"
+  hdiutil create -volname "$APP_VOLUME_NAME" \
+    -srcfolder "$temp_dir" \
+    -ov -format UDZO \
+    "$dmg_path"
+  rm -rf "$temp_dir"
+}
+
 update_latest() {
   rm -rf "$RELEASE_BASE_DIR/latest"
   mkdir -p "$RELEASE_BASE_DIR/latest"
@@ -230,6 +271,23 @@ update_latest() {
   if [[ "$MODE" == "release" ]] && [[ -f "$RELEASE_DIR/$APP_ZIP_NAME" ]]; then
     cp "$RELEASE_DIR/$APP_ZIP_NAME" "$RELEASE_BASE_DIR/latest/$APP_ZIP_NAME"
   fi
+  if [[ "$MODE" == "release" ]] && [[ -f "$RELEASE_DIR/$APP_DMG_NAME" ]]; then
+    cp "$RELEASE_DIR/$APP_DMG_NAME" "$RELEASE_BASE_DIR/latest/$APP_DMG_NAME"
+  fi
+}
+
+write_build_info() {
+  local info_file="$RELEASE_BASE_DIR/latest/BUILD_INFO.txt"
+  cat >"$info_file" <<INFO
+# Build Info — Token Cost App — OC Codex
+# This file is written only for non-release (development) builds.
+# Release builds use the official versioned directory structure instead.
+
+Version:     $RELEASE_TAG
+Mode:        $MODE
+Arch:        $APP_ARCH
+Built:       $BUILD_TIMESTAMP
+INFO
 }
 
 update_versions_json() {
@@ -267,6 +325,10 @@ kill_running
 stage_bundle
 update_latest
 
+if [[ "$MODE" != "release" ]]; then
+  write_build_info
+fi
+
 case "$MODE" in
   run)
     launch_bundle
@@ -275,6 +337,7 @@ case "$MODE" in
     ;;
   release)
     package_release_zip
+    package_release_dmg
     update_latest
     update_versions_json
     ;;

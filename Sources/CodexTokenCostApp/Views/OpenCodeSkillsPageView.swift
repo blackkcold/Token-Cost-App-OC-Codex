@@ -117,7 +117,7 @@ struct OpenCodeSkillsPageView: View {
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(.secondary)
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).help("Clear search")
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
@@ -156,7 +156,7 @@ struct OpenCodeSkillsPageView: View {
         Button(action: action) {
             HStack(spacing: 2) {
                 Text(verbatim: label).font(.caption2)
-                if isMenu { Image(systemName: "chevron.down").font(.system(size: 7)) }
+                if isMenu { Image(systemName: "chevron.down").font(.caption2) }
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(Capsule().fill(isActive ? palette.accent.opacity(0.2) : .secondary.opacity(0.08)))
@@ -222,11 +222,11 @@ struct OpenCodeSkillsPageView: View {
                 Spacer()
                 HStack(spacing: 3) {
                     if skill.isSymlink {
-                        Image(systemName: "link").font(.system(size: 8)).foregroundStyle(.secondary)
+                        Image(systemName: "link").font(.caption2).foregroundStyle(.secondary)
                     }
                     if let extraFields = skill.manifest.extraFields, !extraFields.isEmpty {
                         ForEach(Array(extraFields.keys.prefix(2)), id: \.self) { key in
-                            Text(verbatim: key).font(.system(size: 7))
+                            Text(verbatim: key).font(.caption2)
                                 .padding(.horizontal, 4).padding(.vertical, 1)
                                 .background(Capsule().fill(.secondary.opacity(0.1)))
                                 .foregroundStyle(.secondary)
@@ -242,7 +242,7 @@ struct OpenCodeSkillsPageView: View {
 
     private func sourceChip(_ kind: OpenCodeSkillSourceKind) -> some View {
         Text(verbatim: kind.shortLabel)
-            .font(.system(size: 7))
+            .font(.caption2)
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(Capsule().fill(kind.color.opacity(0.15)))
             .foregroundStyle(kind.color)

@@ -8,6 +8,7 @@ struct MenuBarView: View {
     @ObservedObject var codexModel: CodexSessionModel
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     @ObservedObject var balanceManager: BalanceManager
+    let balanceFloatingPanelCoordinator: BalanceFloatingPanelCoordinator
     let palette: TokenCostPalette
     @Environment(\.openWindow) private var openWindow
 
@@ -39,68 +40,59 @@ struct MenuBarView: View {
             }
 
             Divider()
+            Button {
+                balanceFloatingPanelCoordinator.toggleFromMenuBar()
+            } label: {
+                Label(AppLocalization.text("menu.balanceFloatingPanel.title"), systemImage: "rectangle.on.rectangle")
+                    .frame(maxWidth: .infinity)
+            }
+            .settingsGlassButtonStyle(prominent: appPreferencesModel.preferences.balanceFloatingPanelEnabled)
+            .controlSize(.small)
+            .help(
+                appPreferencesModel.preferences.balanceFloatingPanelEnabled
+                ? AppLocalization.text("menu.balanceFloatingPanel.hide")
+                : AppLocalization.text("menu.balanceFloatingPanel.show")
+            )
+            .accessibilityLabel(
+                appPreferencesModel.preferences.balanceFloatingPanelEnabled
+                ? AppLocalization.text("menu.balanceFloatingPanel.hide")
+                : AppLocalization.text("menu.balanceFloatingPanel.show")
+            )
+
+            Divider()
             HStack(spacing: 8) {
                 Button {
                     activateMainWindow()
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "macwindow")
-                            .font(.system(size: 13, weight: .medium))
-                        Text(AppLocalization.text("menu.openMainWindow"))
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(palette.accent.opacity(0.15))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(palette.accent.opacity(0.3), lineWidth: 0.5)
-                    )
-                    .foregroundStyle(palette.accent)
+                    Label(AppLocalization.text("menu.openMainWindow"), systemImage: "macwindow")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .settingsGlassButtonStyle(prominent: true)
+                .controlSize(.small)
 
                 Button {
                     openCodeModel.rescanSources()
                     codexModel.refresh()
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 13, weight: .medium))
-                        Text(AppLocalization.text("menu.refreshAll"))
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 7)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.green.opacity(0.15))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Color.green.opacity(0.3), lineWidth: 0.5)
-                    )
-                    .foregroundStyle(Color.green)
+                    Label(AppLocalization.text("menu.refreshAll"), systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .settingsGlassButtonStyle(prominent: false)
+                .controlSize(.small)
                 .disabled(openCodeModel.isBootstrapping || openCodeModel.isRefreshing || codexModel.isBootstrapping || codexModel.isRefreshing)
-                .opacity(openCodeModel.isBootstrapping || openCodeModel.isRefreshing || codexModel.isBootstrapping || codexModel.isRefreshing ? 0.5 : 1.0)
+
+                Button {
+                    WindowOpeningSupport.openWindow(id: "settings", openWindow: openWindow)
+                } label: {
+                    Label(AppLocalization.text("menu.openSettings"), systemImage: "gearshape")
+                        .frame(maxWidth: .infinity)
+                }
+                .settingsGlassButtonStyle(prominent: false)
+                .controlSize(.small)
             }
             Divider()
             HStack {
                 Spacer()
-                Button {
-                    WindowOpeningSupport.openWindow(id: "settings", openWindow: openWindow)
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 13))
-                }
-                .buttonStyle(.plain)
-                .help(AppLocalization.text("menu.openSettings"))
-
                 Button {
                     NSApplication.shared.terminate(nil)
                 } label: {
@@ -109,9 +101,10 @@ struct MenuBarView: View {
                 }
                 .buttonStyle(.plain)
                 .help(AppLocalization.text("menu.quit"))
+                .accessibilityLabel(AppLocalization.text("menu.quit"))
             }
         }
-        .frame(width: 290)
+        .frame(width: 340)
         .padding(12)
     }
 
@@ -136,9 +129,18 @@ struct MenuBarView: View {
         return appPreferencesModel.preferences.openCodeOverviewCost(payload: payload)
     }
 
-    private var combinedCost: Double? {
+    private var reportingCostBreakdown: ReportingCostBreakdown? {
         guard let payload = openCodePayload else { return nil }
-        return appPreferencesModel.preferences.combinedMonthlyCost(payload: payload)
+        return appPreferencesModel.reportingCostBreakdown(for: payload)
+    }
+
+    private var combinedCost: Double? {
+        reportingCostBreakdown?.totalCost
+    }
+
+    private var totalCostBasisLabel: String? {
+        guard combinedCost != nil else { return nil }
+        return appPreferencesModel.reportingRangeBasisLabel
     }
 
     private var combinedInputTokens: Double? {
@@ -205,7 +207,8 @@ struct MenuBarView: View {
                     label: AppLocalization.text("overview.summary.totalCost"),
                     value: cost.map { TokenCostFormatters.currency($0, displayCurrency: appPreferencesModel.preferences.displayCurrency) },
                     fallback: AppLocalization.text("common.unavailable"),
-                    tint: palette.accent
+                    tint: palette.accent,
+                    subtitle: totalCostBasisLabel
                 )
                 miniMetricCard(
                     icon: "text.word.spacing",
@@ -237,23 +240,32 @@ struct MenuBarView: View {
         label: String,
         value: String?,
         fallback: String,
-        tint: Color
+        tint: Color,
+        subtitle: String? = nil
     ) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 9))
+                .font(.caption)
                 .foregroundStyle(tint)
                 .frame(width: 12)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(label)
-                    .font(.system(size: 9))
+                    .font(.caption)
                     .foregroundStyle(palette.subtitle)
                     .lineLimit(1)
                 Text(value ?? fallback)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(value != nil ? palette.title : palette.subtitle)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundStyle(palette.accent)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -292,7 +304,7 @@ struct MenuBarView: View {
             }
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
-            .frame(height: 44)
+            .frame(height: 60)
         }
     }
 
@@ -329,10 +341,11 @@ struct MenuBarView: View {
                 .foregroundStyle(balanceManager.isRefreshing ? palette.subtitle : palette.accent)
                 .disabled(balanceManager.isRefreshing)
                 .help(AppLocalization.text("menu.refreshBalance"))
+                .accessibilityLabel(AppLocalization.text("menu.refreshBalance"))
             }
 
             Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 6) {
-                ForEach(Array(stride(from: 0, to: sortedSnapshots.count, by: 2).enumerated()), id: \.offset) { _, startIndex in
+                ForEach(Array(stride(from: 0, to: sortedSnapshots.count, by: 2)), id: \.self) { startIndex in
                     GridRow {
                         balanceCard(sortedSnapshots[startIndex])
                         if startIndex + 1 < sortedSnapshots.count {
@@ -354,9 +367,20 @@ struct MenuBarView: View {
                     .fill(snapshot.isAvailable ? gradientColor(for: snapshot.gradient) : Color.gray.opacity(0.5))
                     .frame(width: 5, height: 5)
                 Text(snapshot.provider.displayName)
-                    .font(.caption2.weight(.semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(palette.title)
                     .lineLimit(1)
+                Spacer(minLength: 4)
+                if let rateLabel = consumptionRateLabel(for: snapshot) {
+                    Text(rateLabel.text)
+                        .font(.caption2)
+                        .foregroundStyle(rateLabel.isPending
+                                        ? palette.subtitle.opacity(0.4)
+                                        : palette.accent.opacity(0.75))
+                        .fixedSize(horizontal: true, vertical: false)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
 
             if snapshot.isAvailable {
@@ -366,25 +390,25 @@ struct MenuBarView: View {
                             label: w.label,
                             pct: displayRatio(for: w),
                             resetAt: w.resetAt,
-                            windowSeconds: w.windowSeconds,
-                            consumptionRate: w.consumptionRate
+                            windowSeconds: w.windowSeconds
                         )
                     }
                 } else if let entries = snapshot.valueEntries, !entries.isEmpty {
                     ForEach(entries) { entry in
-                        HStack(spacing: 3) {
-                            if let code = entry.currencyCode, !code.isEmpty {
-                                Text(code)
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(gradientColor(for: .low))
-                            }
-                            Text(String(format: "%.2f", entry.amount))
-                                .font(.system(size: 10, weight: .medium))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(BalanceMenuBarExtraSupport.amountText(for: entry))
+                                .font(.caption.weight(.medium))
                                 .foregroundStyle(palette.title)
                                 .lineLimit(1)
+                            if let burnRateText = BalanceMenuBarExtraSupport.burnRateText(for: entry) {
+                                Text(burnRateText)
+                                    .font(.caption2)
+                                    .foregroundStyle(palette.accent.opacity(0.8))
+                                    .lineLimit(1)
+                            }
                             if let granted = entry.grantedAmount {
                                 Text(AppLocalization.format("balance.value.grantedShort", String(format: "%.0f", granted)))
-                                    .font(.system(size: 8))
+                                    .font(.caption2)
                                     .foregroundStyle(palette.subtitle)
                                     .lineLimit(1)
                             }
@@ -400,11 +424,11 @@ struct MenuBarView: View {
                     }
                 } else if let cost = snapshot.totalCostUSD {
                     Text(AppLocalization.format("balance.cost.total", String(format: "%.2f", cost)))
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(palette.title)
                     if let avg = snapshot.avgCostPerDayUSD {
                         Text(AppLocalization.format("balance.cost.dailyAverage", String(format: "%.2f", avg)))
-                            .font(.system(size: 8))
+                            .font(.caption2)
                             .foregroundStyle(palette.subtitle)
                     }
                 } else if let pct = snapshot.usagePercent {
@@ -412,7 +436,7 @@ struct MenuBarView: View {
                 }
             } else {
                 Text(snapshot.errorMessage ?? AppLocalization.text("common.unavailable"))
-                    .font(.system(size: 9))
+                    .font(.caption)
                     .foregroundStyle(palette.subtitle)
                     .lineLimit(2)
             }
@@ -433,8 +457,7 @@ struct MenuBarView: View {
         label: String?,
         pct: Double,
         resetAt: Date? = nil,
-        windowSeconds: Int? = nil,
-        consumptionRate: ConsumptionRate? = nil
+        windowSeconds: Int? = nil
     ) -> some View {
         let isShortWindow: Bool = {
             guard let ws = windowSeconds else { return false }
@@ -450,86 +473,78 @@ struct MenuBarView: View {
             if hours > 0 { return "\(hours)h\(minutes)m" }
             return "\(minutes)m"
         }()
-        let rateText: String? = {
-            guard isShortWindow,
-                  let consumptionRate,
-                  consumptionRate.confidence > 0 else { return nil }
-            return AppLocalization.format("balance.rate.perHour", consumptionRate.perHour)
-        }()
-        let showPending = isShortWindow && (consumptionRate == nil || consumptionRate?.confidence == 0)
-
         return HStack(spacing: 2) {
             if let label {
                 Text(label)
-                    .font(.system(size: 8))
+                    .font(.caption)
                     .foregroundStyle(palette.subtitle)
-                    .frame(width: 24, alignment: .leading)
-                    .minimumScaleFactor(0.6)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .minimumScaleFactor(0.9)
                     .lineLimit(1)
+                    .truncationMode(.tail)
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                         .fill(palette.trackBackground)
-                        .frame(height: 4)
+                        .frame(height: 5)
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                         .fill(cardBarColor(for: pct))
-                        .frame(width: geo.size.width * CGFloat(min(pct, 1.0)), height: 4)
+                        .frame(width: geo.size.width * CGFloat(min(pct, 1.0)), height: 5)
                 }
             }
-            .frame(height: 4)
+            .frame(height: 5)
+            .layoutPriority(-1)
             Text(pct >= 0.995 ? AppLocalization.text("balance.rate.fullShort") : "\(Int(pct * 100))")
-                .font(.system(size: 8))
+                .font(.caption)
                 .foregroundStyle(palette.subtitle)
-                .frame(width: 16, alignment: .trailing)
-                .minimumScaleFactor(0.6)
+                .fixedSize(horizontal: true, vertical: false)
+                .minimumScaleFactor(0.9)
+                .lineLimit(1)
             if let countdownText {
                 Text(countdownText)
-                    .font(.system(size: 7, weight: .medium))
+                    .font(.caption)
                     .foregroundStyle(palette.subtitle.opacity(0.6))
-                    .minimumScaleFactor(0.6)
-            }
-            if let rateText {
-                Text(rateText)
-                    .font(.system(size: 7, weight: .medium))
-                    .foregroundStyle(palette.accent.opacity(0.75))
-                    .minimumScaleFactor(0.6)
+                    .minimumScaleFactor(0.9)
                     .lineLimit(1)
-            } else if showPending {
-                Text(AppLocalization.text("balance.rate.pending"))
-                    .font(.system(size: 7))
-                    .foregroundStyle(palette.subtitle.opacity(0.4))
-                    .minimumScaleFactor(0.6)
+                    .truncationMode(.tail)
             }
         }
+    }
+
+    private func consumptionRateLabel(for snapshot: BalanceSnapshot) -> (text: String, isPending: Bool)? {
+        guard let windows = snapshot.quotaWindows, !windows.isEmpty else { return nil }
+
+        let shortest = windows.min {
+            ($0.windowSeconds ?? Int.max) < ($1.windowSeconds ?? Int.max)
+        }
+        guard let window = shortest else { return nil }
+
+        if let rate = window.consumptionRate, rate.confidence > 0 {
+            let isShort = (window.windowSeconds ?? Int.max) < 86400
+            let text = isShort
+                ? AppLocalization.format("balance.rate.perHour", rate.perHour)
+                : AppLocalization.format("balance.rate.perDay", rate.perDay)
+            return (text, false)
+        }
+
+        return (AppLocalization.text("balance.rate.pending"), true)
     }
 
     private func cardBarColor(for pct: Double) -> Color {
-        if appPreferencesModel.preferences.balanceDisplayMode == .remaining {
-            if pct > 0.5 { return gradientColor(for: .low) }
-            if pct > 0.2 { return gradientColor(for: .moderate) }
-            if pct > 0.05 { return gradientColor(for: .high) }
-            return gradientColor(for: .critical)
-        }
-        if pct < 0.5 { return gradientColor(for: .low) }
-        if pct < 0.8 { return gradientColor(for: .moderate) }
-        if pct < 0.95 { return gradientColor(for: .high) }
-        return gradientColor(for: .critical)
+        BalanceMenuBarExtraSupport.quotaColor(
+            forDisplayRatio: pct,
+            displayMode: appPreferencesModel.preferences.balanceDisplayMode,
+            palette: palette
+        )
     }
 
     private func displayRatio(for window: BalanceQuotaWindow) -> Double {
-        let mode = appPreferencesModel.preferences.balanceDisplayMode
-        switch mode {
-        case .used: return window.usedRatio ?? 0
-        case .remaining: return window.remainingRatio ?? (1.0 - (window.usedRatio ?? 0))
-        }
+        BalanceMenuBarExtraSupport.displayRatio(for: window, displayMode: appPreferencesModel.preferences.balanceDisplayMode)
     }
 
     private func displayRatio(for pct: Double) -> Double {
-        switch appPreferencesModel.preferences.balanceDisplayMode {
-        case .used: return pct
-        case .remaining: return 1.0 - pct
-        }
+        BalanceMenuBarExtraSupport.displayRatio(for: pct, displayMode: appPreferencesModel.preferences.balanceDisplayMode)
     }
 
     private func statusIndicator(
@@ -552,6 +567,11 @@ struct MenuBarView: View {
             Text(CodexAppPaths.appDisplayName)
                 .font(.headline)
                 .foregroundStyle(palette.title)
+            if let cost = combinedCost {
+                Text(TokenCostFormatters.currency(cost, displayCurrency: appPreferencesModel.preferences.displayCurrency))
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(palette.accent)
+            }
             HStack(spacing: 12) {
                 statusIndicator(
                     label: "OpenCode",

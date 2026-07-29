@@ -62,7 +62,7 @@ AI coding tools charge by token — but most developers have no idea what they'r
 
 #### Download
 
-Download the `.zip` from [GitHub Releases](../../releases), unzip, and run the `.app`.
+Download the `.zip` or `.dmg` from [GitHub Releases](../../releases). For `.dmg`, open it and drag the app to `/Applications`. For `.zip`, unzip and run the `.app`.
 
 #### Build from Source
 
@@ -181,7 +181,7 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 
 #### 下载安装
 
-从 [GitHub Releases](../../releases) 页面下载对应版本 `.zip`，解压后运行 `.app` 文件。
+从 [GitHub Releases](../../releases) 页面下载对应版本 `.zip` 或 `.dmg`。`.dmg` 用户可双击打开后拖拽 app 到 `/Applications` 完成安装；`.zip` 解压后直接运行 `.app` 文件。
 
 #### 从源码构建
 
