@@ -16,6 +16,8 @@ jobs:
       - name: Package release bundle
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
+          UPDATE_MANIFEST_PRIVATE_KEY_PEM: ${{ secrets.UPDATE_MANIFEST_PRIVATE_KEY_PEM }}
+          UPDATE_MANIFEST_PUBLIC_KEY_B64: ${{ vars.UPDATE_MANIFEST_PUBLIC_KEY_B64 }}
         run: bash script/build_and_run_codex.sh release
 
       - name: Resolve release assets
@@ -24,6 +26,7 @@ jobs:
           shopt -s nullglob
           zips=(release/${{ github.ref_name }}/Token-Cost-App-OC-Codex-${{ github.ref_name }}-macOS-*.zip)
           dmgs=(release/${{ github.ref_name }}/Token-Cost-App-OC-Codex-${{ github.ref_name }}-macOS-*.dmg)
+          manifests=(release/${{ github.ref_name }}/Token-Cost-App-OC-Codex-${{ github.ref_name }}-macOS-*.update-manifest.json)
           if [[ ${#zips[@]} -ne 1 ]]; then
             echo "Expected exactly one release zip, found ${#zips[@]}" >&2
             printf '%s\n' "${zips[@]}" >&2
@@ -34,9 +37,15 @@ jobs:
             printf '%s\n' "${dmgs[@]}" >&2
             exit 1
           fi
+          if [[ ${#manifests[@]} -ne 1 ]]; then
+            echo "Expected exactly one update manifest, found ${#manifests[@]}" >&2
+            printf '%s\n' "${manifests[@]}" >&2
+            exit 1
+          fi
 
           echo "zip_path=${zips[0]}" >> "$GITHUB_OUTPUT"
           echo "dmg_path=${dmgs[0]}" >> "$GITHUB_OUTPUT"
+          echo "manifest_path=${manifests[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -45,3 +54,4 @@ jobs:
           files: |
             ${{ steps.release_assets.outputs.zip_path }}
             ${{ steps.release_assets.outputs.dmg_path }}
+            ${{ steps.release_assets.outputs.manifest_path }}

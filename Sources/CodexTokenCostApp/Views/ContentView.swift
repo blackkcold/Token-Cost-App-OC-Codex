@@ -90,7 +90,11 @@ struct ContentView: View {
                     updateChecker.checkForUpdate()
                     if appPreferencesModel.preferences.balanceEnabled {
                         let mode = appPreferencesModel.preferences.credentialSourceMode
-                        let bootstrapResult = await CredentialBootstrapService.shared.bootstrap(mode: mode)
+                        let providers = Set(appPreferencesModel.effectiveBalanceConfiguration.enabledBalanceProviders)
+                        let bootstrapResult = await CredentialBootstrapService.shared.bootstrap(
+                            mode: mode,
+                            enabledProviders: providers
+                        )
                         if case .failed(let error) = bootstrapResult {
                             credentialBootstrapErrorMessage = error
                             showCredentialBootstrapError = true
@@ -236,25 +240,25 @@ struct ContentView: View {
             }
 
         case .downloading(let progress):
-            Button {} label: {
-                Text(AppLocalization.text("update.label"))
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(palette.accent)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(palette.accent.opacity(0.06))
-                                Capsule()
-                                    .fill(palette.accent.opacity(0.2))
-                                    .frame(width: max(CGFloat(0), geo.size.width * progress))
-                            }
+            Text(AppLocalization.text("update.label"))
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(palette.accent)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(palette.accent.opacity(0.06))
+                            Capsule()
+                                .fill(palette.accent.opacity(0.2))
+                                .frame(width: max(CGFloat(0), geo.size.width * progress))
                         }
                     }
-                    .overlay(Capsule().stroke(palette.accent.opacity(0.2)))
-            }
-            .disabled(true)
-            .help(AppLocalization.format("update.downloading", Int(progress * 100)))
+                }
+                .overlay(Capsule().stroke(palette.accent.opacity(0.2)))
+                .accessibilityElement()
+                .accessibilityLabel(Text(AppLocalization.text("update.label")))
+                .accessibilityValue(Text(AppLocalization.format("update.downloading", Int(progress * 100))))
+                .help(AppLocalization.format("update.downloading", Int(progress * 100)))
 
         case .downloadComplete:
             Button {

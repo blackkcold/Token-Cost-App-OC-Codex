@@ -53,10 +53,11 @@ struct TotalView: View {
     }
 
     private var totalTrendPoints: [TokenTrendChartPoint] {
-        let allDates = combinedDailyTokens.keys.sorted()
+        let combined = combinedDailyTokens
+        let allDates = combined.keys.sorted()
         return allDates.compactMap { dateString -> TokenTrendChartPoint? in
             guard let date = Self.trendDateFormatter.date(from: dateString),
-                  let tokens = combinedDailyTokens[dateString] else { return nil }
+                  let tokens = combined[dateString] else { return nil }
             let openCodeVal = openCodeDailyActualTokens[dateString] ?? 0
             let codexVal = codexDailyTokens[dateString] ?? 0
             return TokenTrendChartPoint(
@@ -76,7 +77,7 @@ struct TotalView: View {
                     ),
                     TokenTrendTooltipLine(
                         color: .orange,
-                        title: "合计",
+                        title: AppLocalization.text("common.total"),
                         value: TokenCostFormatters.tokens(tokens)
                     )
                 ]
@@ -87,13 +88,13 @@ struct TotalView: View {
     private var dailyTrendCard: some View {
         let visiblePoints = Array(totalTrendPoints.suffix(totalTrendDayRange))
         return TokenSectionCard(
-            title: "每日用量趋势",
-            subtitle: "近 \(totalTrendDayRange) 日 · OpenCode + Codex 合计",
+            title: AppLocalization.text("overview.trend.title"),
+            subtitle: AppLocalization.format("overview.trend.subtitle", totalTrendDayRange),
             trailing: AnyView(TokenTrendRangePicker(selection: $totalTrendDayRange)),
             palette: palette
         ) {
             if visiblePoints.isEmpty {
-                Text("暂无数据")
+                Text(AppLocalization.text("common.noData"))
                     .foregroundStyle(palette.subtitle)
                     .frame(maxWidth: .infinity, minHeight: 200, alignment: .leading)
             } else {
@@ -110,8 +111,8 @@ struct TotalView: View {
 
     private var tokenHeatmapCard: some View {
         TokenSectionCard(
-            title: "每日用量热力图",
-            subtitle: "过去 52 周 · OpenCode + Codex 合计",
+            title: AppLocalization.text("overview.heatmap.title"),
+            subtitle: AppLocalization.text("overview.heatmap.subtitle"),
             trailing: nil,
             palette: palette
         ) {

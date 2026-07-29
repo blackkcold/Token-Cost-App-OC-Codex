@@ -39,7 +39,7 @@ enum CodexHelperRunner {
     static func loadPayload(settings: TokenCostSettings, timeout: TimeInterval = 60) throws -> CodexDashboardPayload {
         let process = Process()
         process.executableURL = CodexAppPaths.helperBinaryURL
-        process.arguments = buildArguments(for: settings)
+        process.arguments = try buildArguments(for: settings)
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -72,15 +72,16 @@ enum CodexHelperRunner {
                 process.terminate()
             }
         }
-        defer { timeoutItem.cancel() }
+        defer {
+            timeoutItem.cancel()
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+        }
 
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
 
         try process.run()
         process.waitUntilExit()
-
-        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
 
         let finalStdout = stdoutBuffer.read()
         let finalStderr = stderrBuffer.read()
@@ -99,16 +100,24 @@ enum CodexHelperRunner {
         }
     }
 
-    private static func buildArguments(for settings: TokenCostSettings) -> [String] {
+    private static func buildArguments(for settings: TokenCostSettings) throws -> [String] {
         var arguments: [String] = []
         for root in settings.effectiveSourceRoots {
-            arguments.append(contentsOf: ["--source-root", root])
+            let canonical = TokenCostPathUtilities.canonicalURL(from: root)
+            guard TokenCostPathUtilities.isSafeScanRoot(canonical) else {
+                throw CodexHelperRunnerError.invalidOutput("Refusing unsafe Codex source root.")
+            }
+            arguments.append(contentsOf: ["--source-root", canonical.path])
         }
         for path in settings.effectiveManualSourcePaths {
-            arguments.append(contentsOf: ["--manual-source-path", path])
+            let canonical = TokenCostPathUtilities.canonicalURL(from: path)
+            guard TokenCostPathUtilities.isSafeScanRoot(canonical) else {
+                throw CodexHelperRunnerError.invalidOutput("Refusing unsafe Codex source path.")
+            }
+            arguments.append(contentsOf: ["--manual-source-path", canonical.path])
         }
-        arguments.append(contentsOf: ["--max-depth", "\(settings.maxScanDepth)"])
-        arguments.append(contentsOf: ["--max-candidates", "\(settings.maxScanCandidates)"])
+        arguments.append(contentsOf: ["--max-depth", "\(min(max(settings.maxScanDepth, 1), 12))"])
+        arguments.append(contentsOf: ["--max-candidates", "\(min(max(settings.maxScanCandidates, 1), 1000))"])
         return arguments
     }
 }

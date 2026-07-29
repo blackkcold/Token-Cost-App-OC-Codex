@@ -46,6 +46,7 @@ final class CodexSessionModel: ObservableObject {
         self.settingsLoadWarningMessage = loadedSettings.errorMessage
         self.lastErrorMessage = loadedSettings.errorMessage
         self.statusState = loadedSettings.errorMessage == nil ? .waitingInitialization : .settingsLoadFallback
+        normalizeSettings()
         try? CodexAppPaths.ensureRuntimeDirectories()
     }
 

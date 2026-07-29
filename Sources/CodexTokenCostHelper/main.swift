@@ -44,12 +44,20 @@ enum CodexHelperMain {
                 guard let value = iterator.next(), !value.isEmpty else {
                     throw CodexSessionCollectorError.invalidArgument("Missing value for --source-root.")
                 }
-                sourceRoots.append(URL(fileURLWithPath: NSString(string: value).expandingTildeInPath))
+                let url = TokenCostPathUtilities.canonicalURL(from: value)
+                guard TokenCostPathUtilities.isSafeScanRoot(url) else {
+                    throw CodexSessionCollectorError.invalidArgument("Unsafe value for --source-root.")
+                }
+                sourceRoots.append(url)
             case "--manual-source-path":
                 guard let value = iterator.next(), !value.isEmpty else {
                     throw CodexSessionCollectorError.invalidArgument("Missing value for --manual-source-path.")
                 }
-                manualSourcePaths.append(URL(fileURLWithPath: NSString(string: value).expandingTildeInPath))
+                let url = TokenCostPathUtilities.canonicalURL(from: value)
+                guard TokenCostPathUtilities.isSafeScanRoot(url) else {
+                    throw CodexSessionCollectorError.invalidArgument("Unsafe value for --manual-source-path.")
+                }
+                manualSourcePaths.append(url)
             case "--max-depth":
                 guard let value = iterator.next(), let parsed = Int(value) else {
                     throw CodexSessionCollectorError.invalidArgument("Missing or invalid value for --max-depth.")
@@ -63,6 +71,13 @@ enum CodexHelperMain {
             default:
                 throw CodexSessionCollectorError.invalidArgument("Unsupported helper argument: \(argument)")
             }
+        }
+
+        guard (1...12).contains(maxDepth) else {
+            throw CodexSessionCollectorError.invalidArgument("--max-depth must be between 1 and 12.")
+        }
+        guard (1...1000).contains(maxCandidates) else {
+            throw CodexSessionCollectorError.invalidArgument("--max-candidates must be between 1 and 1000.")
         }
 
         return ParsedArguments(

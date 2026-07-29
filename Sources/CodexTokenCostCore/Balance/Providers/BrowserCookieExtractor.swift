@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import SQLite3
 import CCryptoBridge
 
@@ -69,30 +70,67 @@ public enum BrowserKind: CaseIterable {
 
 public enum BrowserCookieExtractor {
 
+    public struct GoCredentialCandidate: Sendable {
+        public let workspaceID: String?
+        public let cookie: String
+        public let source: String
+    }
+
+    public struct OllamaCookieCandidate: Sendable {
+        public let cookie: String
+        public let source: String
+    }
+
     public static func extractCredentials() -> (workspaceID: String?, cookie: String?) {
+        guard let candidate = credentialCandidates().first else {
+            return (nil, nil)
+        }
+        return (candidate.workspaceID, candidate.cookie)
+    }
+
+    public static func credentialCandidates() -> [GoCredentialCandidate] {
+        var results: [GoCredentialCandidate] = []
+        var seen = Set<String>()
         for browser in BrowserKind.allCases {
+            guard let encryptionKey = fetchEncryptionKey(service: browser.keychainService) else {
+                continue
+            }
             for profileDir in browser.profileDirs {
                 let cookiesURL = browser.cookiesURL(profileDir: profileDir)
                 let historyURL = browser.historyURL(profileDir: profileDir)
 
                 guard FileManager.default.fileExists(atPath: cookiesURL.path) else { continue }
 
-                guard let encryptionKey = fetchEncryptionKey(service: browser.keychainService),
-                      let cookie = decryptCookie(dbURL: cookiesURL, key: encryptionKey),
+                guard let cookie = decryptCookie(dbURL: cookiesURL, key: encryptionKey),
                       !cookie.isEmpty
                 else { continue }
 
                 let workspaceID = extractWorkspaceID(historyURL: historyURL)
-                return (workspaceID, cookie)
+                let key = "\(workspaceID ?? "")|\(cookie)"
+                guard seen.insert(key).inserted else { continue }
+                results.append(GoCredentialCandidate(
+                    workspaceID: workspaceID,
+                    cookie: cookie,
+                    source: "\(browser.displayName)/\(profileDir)"
+                ))
             }
         }
-        return (nil, nil)
+        return results
     }
 
     // MARK: - Ollama cookie extraction
 
     public static func extractOllamaCookie() -> String? {
+        ollamaCookieCandidates().first?.cookie
+    }
+
+    public static func ollamaCookieCandidates() -> [OllamaCookieCandidate] {
+        var results: [OllamaCookieCandidate] = []
+        var seen = Set<String>()
         for browser in BrowserKind.allCases {
+            guard let encryptionKey = fetchEncryptionKey(service: browser.keychainService) else {
+                continue
+            }
             for profileDir in browser.profileDirs {
                 let baseURL = browser.appSupportURL.appendingPathComponent(profileDir)
                 let dbCandidates: [URL] = [
@@ -101,14 +139,17 @@ public enum BrowserCookieExtractor {
                 ]
                 for dbURL in dbCandidates {
                     guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
-                    guard let encryptionKey = fetchEncryptionKey(service: browser.keychainService),
-                          let header = decryptOllamaCookie(dbURL: dbURL, key: encryptionKey)
+                    guard let header = decryptOllamaCookie(dbURL: dbURL, key: encryptionKey)
                     else { continue }
-                    return header
+                    guard seen.insert(header).inserted else { continue }
+                    results.append(OllamaCookieCandidate(
+                        cookie: header,
+                        source: "\(browser.displayName)/\(profileDir)"
+                    ))
                 }
             }
         }
-        return nil
+        return results
     }
 
     private static func decryptOllamaCookie(dbURL: URL, key: Data) -> String? {
@@ -196,32 +237,18 @@ public enum BrowserCookieExtractor {
     // MARK: - Keychain
 
     private static func fetchEncryptionKey(service: String) -> Data? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = ["find-generic-password", "-s", service, "-w"]
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-
-        let timeout = DispatchWorkItem {
-            if process.isRunning { process.terminate() }
-        }
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 10, execute: timeout)
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            timeout.cancel()
-        } catch {
-            timeout.cancel()
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let passwordData = item as? Data else {
             return nil
         }
-
-        guard process.terminationStatus == 0 else { return nil }
-
-        let passwordData = outPipe.fileHandleForReading.readDataToEndOfFile()
         guard let password = String(data: passwordData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !password.isEmpty

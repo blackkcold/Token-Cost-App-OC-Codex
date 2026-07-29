@@ -166,7 +166,7 @@ struct TokenSectionCard<Content: View>: View {
             content
         }
         .padding(16)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(palette.cardFill)

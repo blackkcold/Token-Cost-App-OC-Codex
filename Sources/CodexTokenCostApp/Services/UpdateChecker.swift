@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import CodexTokenCostCore
 
 struct GitHubRelease: Codable {
@@ -32,6 +33,27 @@ struct UpdateCheckCache: Codable {
     var lastSeenVersion: String
 }
 
+struct UpdateManifest: Codable, Equatable {
+    let version: String
+    let bundleIdentifier: String
+    let architecture: String
+    let assetName: String
+    let assetSize: Int64
+    let sha256: String
+    let signature: String
+
+    var canonicalData: Data {
+        Data(
+            "\(version)\n\(bundleIdentifier)\n\(architecture)\n\(assetName)\n\(assetSize)\n\(sha256.lowercased())\n".utf8
+        )
+    }
+}
+
+struct VerifiedUpdate: Equatable {
+    let manifest: UpdateManifest
+    let assetURL: URL
+}
+
 enum UpdateError: LocalizedError {
     case downloadFailed
     case downloadVerificationFailed
@@ -39,6 +61,9 @@ enum UpdateError: LocalizedError {
     case noReleaseAsset
     case releaseFetchFailed(statusCode: Int)
     case rateLimited
+    case manifestMissing
+    case manifestInvalid
+    case updateTooLarge
 
     var errorDescription: String? {
         switch self {
@@ -54,6 +79,12 @@ enum UpdateError: LocalizedError {
             return "GitHub API returned HTTP \(code)"
         case .rateLimited:
             return "GitHub API rate limit exceeded — try again later"
+        case .manifestMissing:
+            return "This release does not provide a signed update manifest"
+        case .manifestInvalid:
+            return "The update manifest signature or metadata is invalid"
+        case .updateTooLarge:
+            return "The update exceeds the allowed download size"
         }
     }
 }
@@ -62,6 +93,9 @@ enum UpdateChecker {
     private static let repoOwner = "blackkcold"
     private static let repoName = "Token-Cost-App-OC-Codex"
     private static let checkInterval: TimeInterval = 86_400
+    private static let maximumManifestBytes = 64 * 1024
+    private static let maximumUpdateBytes: Int64 = 512 * 1024 * 1024
+    private static let downloadWriteChunkBytes = 64 * 1024
 
     // MARK: - Version
 
@@ -79,6 +113,28 @@ enum UpdateChecker {
     static var updatesDirectory: URL {
         CodexAppPaths.runtimeRoot
             .appendingPathComponent("updates", isDirectory: true)
+    }
+
+    static var stagingDirectory: URL {
+        updatesDirectory.appendingPathComponent("staging", isDirectory: true)
+    }
+
+    static var bundledManifestPublicKey: Data? {
+        guard let encoded = Bundle.main.object(forInfoDictionaryKey: "UpdateManifestPublicKey") as? String,
+              !encoded.isEmpty else {
+            return nil
+        }
+        return Data(base64Encoded: encoded)
+    }
+
+    static var currentArchitecture: String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
     }
 
     // MARK: - Cache
@@ -147,87 +203,135 @@ enum UpdateChecker {
         semverCompare(latestVersion, currentVersion) == .orderedDescending
     }
 
+    // MARK: - Signed manifest
+
+    static func prepareVerifiedUpdate(
+        from release: GitHubRelease,
+        publicKey: Data? = bundledManifestPublicKey,
+        session: URLSession = URLSession(configuration: .ephemeral)
+    ) async throws -> VerifiedUpdate {
+        guard let manifestAsset = findManifestAsset(in: release),
+              let manifestURL = URL(string: manifestAsset.browserDownloadUrl) else {
+            throw UpdateError.manifestMissing
+        }
+
+        var request = URLRequest(url: manifestURL)
+        request.timeoutInterval = 15
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200,
+              data.count <= maximumManifestBytes else {
+            throw UpdateError.manifestInvalid
+        }
+
+        let manifest = try JSONDecoder().decode(UpdateManifest.self, from: data)
+        guard let publicKey,
+              verify(manifest: manifest, publicKey: publicKey),
+              manifest.version == release.tagName,
+              manifest.bundleIdentifier == "com.yanghaoran.CodexTokenCost",
+              manifest.architecture == currentArchitecture,
+              manifest.assetSize > 0,
+              manifest.assetSize <= maximumUpdateBytes,
+              let asset = release.assets.first(where: { $0.name == manifest.assetName }),
+              Int64(asset.size) == manifest.assetSize,
+              let assetURL = URL(string: asset.browserDownloadUrl) else {
+            throw UpdateError.manifestInvalid
+        }
+
+        return VerifiedUpdate(manifest: manifest, assetURL: assetURL)
+    }
+
+    static func verify(manifest: UpdateManifest, publicKey: Data) -> Bool {
+        guard let signature = Data(base64Encoded: manifest.signature),
+              let key = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKey) else {
+            return false
+        }
+        return key.isValidSignature(signature, for: manifest.canonicalData)
+    }
+
     // MARK: - Download
 
     /// Downloads a release asset zip with progress callbacks on the calling actor.
     /// The `onProgress` closure receives values in [0, 1].
     static func downloadUpdate(
-        from url: URL,
+        _ verifiedUpdate: VerifiedUpdate,
         onProgress: @Sendable (Double) -> Void
     ) async throws -> URL {
-        let destinationURL = updatesDirectory
-            .appendingPathComponent("latest.zip")
-
-        try FileManager.default.createDirectory(at: updatesDirectory, withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: destinationURL)
+        let destinationURL = stagingDirectory.appendingPathComponent("latest.zip")
+        try resetStagingDirectory()
+        FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
+        let output = try FileHandle(forWritingTo: destinationURL)
+        var shouldKeepStaging = false
+        defer {
+            try? output.close()
+            if !shouldKeepStaging {
+                try? FileManager.default.removeItem(at: stagingDirectory)
+            }
+        }
 
         let session = URLSession(configuration: .ephemeral)
-        let (asyncBytes, response) = try await session.bytes(from: url)
+        var request = URLRequest(url: verifiedUpdate.assetURL)
+        request.timeoutInterval = 60
+        let (asyncBytes, response) = try await session.bytes(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
             throw UpdateError.downloadFailed
         }
 
-        let expectedLength = max(0, httpResponse.expectedContentLength)
-        var buffer = Data()
-        buffer.reserveCapacity(max(Int(expectedLength), 1_048_576))
-        var lastProgressReport = 0
-
-        do {
-            for try await byte in asyncBytes {
-                buffer.append(byte)
-
-                if expectedLength > 0, buffer.count - lastProgressReport >= 262_144 {
-                    lastProgressReport = buffer.count
-                    let progress = min(1.0, Double(buffer.count) / Double(expectedLength))
-                    onProgress(progress)
-                }
-            }
-        } catch {
-            throw error
+        let expectedLength = verifiedUpdate.manifest.assetSize
+        if httpResponse.expectedContentLength > 0,
+           httpResponse.expectedContentLength != expectedLength {
+            throw UpdateError.downloadVerificationFailed
         }
 
-        try buffer.write(to: destinationURL, options: .atomic)
+        var buffer = Data()
+        buffer.reserveCapacity(downloadWriteChunkBytes)
+        var receivedBytes: Int64 = 0
+        var hasher = SHA256()
+
+        for try await byte in asyncBytes {
+            buffer.append(byte)
+            receivedBytes += 1
+            guard receivedBytes <= expectedLength,
+                  receivedBytes <= maximumUpdateBytes else {
+                throw UpdateError.updateTooLarge
+            }
+            if buffer.count >= downloadWriteChunkBytes {
+                hasher.update(data: buffer)
+                try output.write(contentsOf: buffer)
+                buffer.removeAll(keepingCapacity: true)
+                onProgress(min(1, Double(receivedBytes) / Double(expectedLength)))
+            }
+        }
+        if !buffer.isEmpty {
+            hasher.update(data: buffer)
+            try output.write(contentsOf: buffer)
+        }
+        try output.synchronize()
         onProgress(1.0)
 
-        // Verify: file exists and has non-zero size
-        guard FileManager.default.fileExists(atPath: destinationURL.path) else {
-            throw UpdateError.downloadVerificationFailed
-        }
-
-        let attributes = try FileManager.default.attributesOfItem(atPath: destinationURL.path)
-        let fileSize = attributes[.size] as? Int64 ?? 0
-        guard fileSize > 0 else {
-            throw UpdateError.downloadVerificationFailed
-        }
-
-        // Cross-check against Content-Length if available
-        if expectedLength > 0, abs(fileSize - expectedLength) > 1_024 {
+        let digest = Data(hasher.finalize()).map { String(format: "%02x", $0) }.joined()
+        guard receivedBytes == expectedLength,
+              digest == verifiedUpdate.manifest.sha256.lowercased() else {
             throw UpdateError.downloadVerificationFailed
         }
 
         #if DEBUG
-        print("[UpdateChecker] Download verified: \(fileSize) bytes")
+        print("[UpdateChecker] Download verified: \(receivedBytes) bytes")
         #endif
 
-        // Unzip
         try unzipUpdate(at: destinationURL)
-
+        shouldKeepStaging = true
         return destinationURL
     }
 
     // MARK: - Unzip
 
     static func unzipUpdate(at zipURL: URL) throws {
-        // Remove any previously extracted .app
-        if let existingApp = downloadedAppURL() {
-            try? FileManager.default.removeItem(at: existingApp)
-        }
-
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-x", "-k", zipURL.path, updatesDirectory.path]
+        process.arguments = ["-x", "-k", zipURL.path, stagingDirectory.path]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
@@ -253,7 +357,7 @@ enum UpdateChecker {
     private static func verifyCodeSign(at appURL: URL) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        process.arguments = ["--verify", "--verbose=1", appURL.path]
+        process.arguments = ["--verify", "--deep", "--strict", "--verbose=1", appURL.path]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -269,13 +373,18 @@ enum UpdateChecker {
 
     static func downloadedAppURL() -> URL? {
         guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: updatesDirectory,
+            at: stagingDirectory,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         ) else {
             return nil
         }
-        return contents.first { $0.pathExtension == "app" }
+        let apps = contents.filter { $0.pathExtension == "app" }
+        guard apps.count == 1,
+              TokenCostPathUtilities.isDescendant(apps[0], of: stagingDirectory) else {
+            return nil
+        }
+        return apps[0]
     }
 
     // MARK: - Helper: Find download asset
@@ -288,6 +397,21 @@ enum UpdateChecker {
         } ?? release.assets.first { asset in
             asset.name.hasSuffix(".zip") && !asset.name.hasPrefix("Source")
         }
+    }
+
+    static func findManifestAsset(in release: GitHubRelease) -> GitHubAsset? {
+        release.assets.first { $0.name.hasSuffix(".update-manifest.json") }
+    }
+
+    static func resetStagingDirectory() throws {
+        if FileManager.default.fileExists(atPath: stagingDirectory.path) {
+            try FileManager.default.removeItem(at: stagingDirectory)
+        }
+        try FileManager.default.createDirectory(
+            at: stagingDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
     }
 
     // MARK: - Install (原子替换 + 重启)
@@ -325,11 +449,11 @@ enum UpdateChecker {
         try? FileManager.default.removeItem(at: oldURL)
     }
 
-    /// 启动 detached shell 进程：sleep 1 秒后 open 新 app，再由调用方 terminate。
+    /// 启动独立 open 进程，再由调用方 terminate。
     static func scheduleRelaunch(at appURL: URL) throws {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "sleep 1; open \"\(appURL.path)\""]
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", appURL.path]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice

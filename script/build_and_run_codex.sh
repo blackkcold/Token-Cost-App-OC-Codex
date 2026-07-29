@@ -121,7 +121,9 @@ RELEASE_DIR="$LOCAL_RELEASE_DIR"
 APP_ARCH="$(uname -m)"
 APP_ZIP_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.zip"
 APP_DMG_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.dmg"
+UPDATE_MANIFEST_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.update-manifest.json"
 APP_VOLUME_NAME="Token Cost App - OC Codex"
+UPDATE_MANIFEST_PUBLIC_KEY_B64="${UPDATE_MANIFEST_PUBLIC_KEY_B64:-}"
 
 case "$MODE" in
   release)
@@ -232,6 +234,8 @@ stage_bundle() {
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>UpdateManifestPublicKey</key>
+  <string>$UPDATE_MANIFEST_PUBLIC_KEY_B64</string>
 </dict>
 </plist>
 PLIST
@@ -247,6 +251,44 @@ package_release_zip() {
     cd "$RELEASE_DIR"
     ditto -c -k --sequesterRsrc --keepParent "$APP_DISPLAY_NAME.app" "$APP_ZIP_NAME"
   )
+}
+
+write_update_manifest() {
+  local zip_path="$RELEASE_DIR/$APP_ZIP_NAME"
+  local manifest_path="$RELEASE_DIR/$UPDATE_MANIFEST_NAME"
+  local asset_size sha256 signature
+
+  if [[ -z "${UPDATE_MANIFEST_PRIVATE_KEY_PEM:-}" ]] || [[ -z "$UPDATE_MANIFEST_PUBLIC_KEY_B64" ]]; then
+    echo "release mode requires UPDATE_MANIFEST_PRIVATE_KEY_PEM and UPDATE_MANIFEST_PUBLIC_KEY_B64" >&2
+    exit 4
+  fi
+
+  asset_size="$(stat -f '%z' "$zip_path")"
+  sha256="$(shasum -a 256 "$zip_path" | cut -d ' ' -f 1)"
+  signature="$(
+    printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
+      "$RELEASE_TAG" "$BUNDLE_ID" "$APP_ARCH" "$APP_ZIP_NAME" "$asset_size" "$sha256" \
+      | openssl pkeyutl -sign -rawin -inkey <(printf '%s' "$UPDATE_MANIFEST_PRIVATE_KEY_PEM") \
+      | openssl base64 -A
+  )"
+
+  python3 - "$manifest_path" "$RELEASE_TAG" "$BUNDLE_ID" "$APP_ARCH" "$APP_ZIP_NAME" "$asset_size" "$sha256" "$signature" <<'PY'
+import json
+import sys
+
+path, version, bundle_id, architecture, asset_name, asset_size, sha256, signature = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as output:
+    json.dump({
+        "version": version,
+        "bundleIdentifier": bundle_id,
+        "architecture": architecture,
+        "assetName": asset_name,
+        "assetSize": int(asset_size),
+        "sha256": sha256,
+        "signature": signature,
+    }, output, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    output.write("\n")
+PY
 }
 
 package_release_dmg() {
@@ -337,6 +379,7 @@ case "$MODE" in
     ;;
   release)
     package_release_zip
+    write_update_manifest
     package_release_dmg
     update_latest
     update_versions_json

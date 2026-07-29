@@ -210,7 +210,7 @@ struct CodexPageView: View {
     private var dailyTrendCard: some View {
         TokenSectionCard(
             title: AppLocalization.text("codex.trend.title"),
-            subtitle: "\(AppLocalization.text("codex.trend.subtitle")) · 近 \(trendDayRange) 日",
+            subtitle: "\(AppLocalization.text("codex.trend.subtitle")) · \(AppLocalization.format("trend.range.days", trendDayRange))",
             trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange)),
             palette: palette
         ) {

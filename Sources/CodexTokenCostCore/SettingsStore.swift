@@ -41,48 +41,52 @@ public final class SettingsStore {
     }
 
     public func save(_ settings: TokenCostSettings) throws {
-        try backupExistingSettingsIfNeeded()
+        try SettingsBackupRotation.backupIfPresent(
+            fileStore: fileStore,
+            relativePath: settingsRelativePath,
+            backupDirectory: "config/backups/settings"
+        )
         try fileStore.writeCodable(settings, to: settingsRelativePath)
     }
+}
 
-    private func backupExistingSettingsIfNeeded() throws {
-        let currentURL = try fileStore.resolve(settingsRelativePath)
-        guard FileManager.default.fileExists(atPath: currentURL.path) else {
-            return
-        }
+enum SettingsBackupRotation {
+    static func backupIfPresent(
+        fileStore: SafeFileStore,
+        relativePath: String,
+        backupDirectory: String,
+        keep: Int = 10
+    ) throws {
+        let currentURL = try fileStore.resolve(relativePath)
+        guard FileManager.default.fileExists(atPath: currentURL.path) else { return }
 
-        let backupDirectory = try fileStore.resolve("config/backups/settings")
-        try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
-
-        let baseName = URL(fileURLWithPath: settingsRelativePath)
-            .deletingPathExtension()
-            .lastPathComponent
-        let backupURL = backupDirectory.appendingPathComponent("\(baseName)-\(timestamp()).json")
+        let directory = try fileStore.resolve(backupDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let baseName = URL(fileURLWithPath: relativePath).deletingPathExtension().lastPathComponent
+        let backupURL = directory.appendingPathComponent("\(baseName)-\(timestamp()).json")
         try? FileManager.default.removeItem(at: backupURL)
         try FileManager.default.copyItem(at: currentURL, to: backupURL)
-        rotateBackups(in: backupDirectory, keep: 10)
+        rotate(in: directory, keep: keep)
     }
 
-    private func rotateBackups(in directory: URL, keep: Int) {
+    private static func rotate(in directory: URL, keep: Int) {
         guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.creationDateKey],
+            at: directory,
+            includingPropertiesForKeys: [.creationDateKey],
             options: [.skipsHiddenFiles]
         ) else { return }
         let sorted = urls.sorted { lhs, rhs in
-            let lhDate = (try? lhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            let rhDate = (try? rhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            return lhDate > rhDate
+            let lhsDate = (try? lhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            let rhsDate = (try? rhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            return lhsDate > rhsDate
         }
-        guard sorted.count > keep else { return }
-        for url in sorted.dropFirst(keep) {
+        for url in sorted.dropFirst(max(keep, 0)) {
             try? FileManager.default.removeItem(at: url)
         }
     }
 
-    private func timestamp() -> String {
-        let formatter = ISO8601DateFormatter()
-        let raw = formatter.string(from: Date())
-        return raw
+    private static func timestamp() -> String {
+        ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
             .replacingOccurrences(of: "/", with: "-")
     }

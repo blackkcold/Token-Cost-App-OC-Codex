@@ -219,20 +219,20 @@ struct DeveloperSectionView: View {
     private var ollamaUsageTrackingSection: some View {
         if appPreferencesModel.preferences.developerMode.isEnabled {
             SettingsSurfaceCard(
-                title: "Ollama Cloud 用量追踪",
-                subtitle: "实验性功能：通过 Keychain 存储的 cookie 查询 ollama.com/settings 用量",
+                title: AppLocalization.text("settings.developerMode.ollama.title"),
+                subtitle: AppLocalization.text("settings.developerMode.ollama.subtitle"),
                 role: .secondary,
                 palette: palette
             ) {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle(
-                        "启用 Ollama 用量追踪",
+                        AppLocalization.text("settings.developerMode.ollama.toggle"),
                         isOn: appPreferencesModel.developerModeToggleBinding(for: \.ollamaUsageTrackingEnabled)
                     )
                     .font(.subheadline)
                     .foregroundStyle(palette.title)
 
-                    Text("启用后在余额监控设置中可见 Ollama Cloud 行，并支持从浏览器自动导入 cookie。")
+                    Text(AppLocalization.text("settings.developerMode.ollama.body"))
                         .font(.caption)
                         .foregroundStyle(palette.subtitle)
                         .fixedSize(horizontal: false, vertical: true)

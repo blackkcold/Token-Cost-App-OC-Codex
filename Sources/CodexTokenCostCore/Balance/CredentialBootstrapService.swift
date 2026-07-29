@@ -32,10 +32,10 @@ public enum CredentialBootstrapResult: Sendable {
 /// Session-scoped credential bootstrap service.
 ///
 /// On app launch, `bootstrap(mode:)` is called. In `.autoBrowser` mode,
-/// it attempts to decrypt browser cookies up to 3 times (1s delay between
-/// rounds). On success, credentials are cached in memory for the entire
-/// session and persisted to local encrypted storage. Previously-saved local
-/// values are never overwritten by browser-extracted values automatically.
+/// it validates the encrypted local cache first, then checks browser/profile
+/// candidates in deterministic order until a valid credential is found. On
+/// success, credentials are cached in memory for the entire session and
+/// persisted to local encrypted storage.
 ///
 /// In `.keychainOnly` mode (decoded compatibly as local-only), credentials
 /// are read from local encrypted storage without any browser decryption.
@@ -46,9 +46,6 @@ public final class CredentialBootstrapService: @unchecked Sendable {
     public static let shared = CredentialBootstrapService()
 
     private static let logger = Logger(subsystem: "com.yanghaoran.CodexTokenCost", category: "CredentialBootstrap")
-    private static let maxRetries = 3
-    private static let retryDelayNanoseconds: UInt64 = 1_000_000_000
-
     private let lock = NSLock()
     private var cachedGoCookie: String?
     private var cachedGoWorkspaceID: String?
@@ -65,7 +62,12 @@ public final class CredentialBootstrapService: @unchecked Sendable {
     /// - Parameter mode: The credential source mode.
     /// - Returns: The result of the bootstrap attempt.
     @discardableResult
-    public func bootstrap(mode: CredentialSourceMode) async -> CredentialBootstrapResult {
+    public func bootstrap(
+        mode: CredentialSourceMode,
+        enabledProviders: Set<BalanceProviderKind> = [.opencodeGo, .ollama],
+        validator: any CredentialCandidateValidating = LiveCredentialCandidateValidator(),
+        candidateProvider: any BrowserCredentialCandidateProviding = LiveBrowserCredentialCandidateProvider()
+    ) async -> CredentialBootstrapResult {
         let shouldProceed: Bool = lock.withLock {
             if cachePopulated { return false }
             if bootstrapInProgress { return false }
@@ -86,7 +88,11 @@ public final class CredentialBootstrapService: @unchecked Sendable {
         case .keychainOnly:
             return bootstrapFromLocalStore()
         case .autoBrowser:
-            return await bootstrapFromBrowser()
+            return await bootstrapFromBrowser(
+                enabledProviders: enabledProviders,
+                validator: validator,
+                candidateProvider: candidateProvider
+            )
         }
     }
 
@@ -185,105 +191,194 @@ public final class CredentialBootstrapService: @unchecked Sendable {
 
     // MARK: - Private: Browser bootstrap
 
-    private func bootstrapFromBrowser() async -> CredentialBootstrapResult {
-        var lastError: String?
-
-        for attempt in 1...Self.maxRetries {
-            Self.logger.info("Browser bootstrap attempt \(attempt)/\(Self.maxRetries)")
-
-            async let goResult = Task.detached(priority: .userInitiated) {
-                BrowserCookieExtractor.extractCredentials()
-            }.value
-
-            async let ollamaResult = Task.detached(priority: .userInitiated) {
-                BrowserCookieExtractor.extractOllamaCookie()
-            }.value
-
-            let (browserGoCookie, browserGoWorkspaceID) = await goResult
-            let browserOllamaCookie = await ollamaResult
-
-            let goSuccess = browserGoCookie?.isEmpty == false
-            let ollamaSuccess = browserOllamaCookie?.isEmpty == false
-
-            if goSuccess || ollamaSuccess {
-                let local = LocalCredentialService.shared
-
-                // Resolve each field: existing local nonempty value wins;
-                // browser fills only missing slots.
-                let resolvedGoCookie: String? = {
-                    if let localVal = local.getAuthCookie(), !localVal.isEmpty {
-                        return localVal
-                    }
-                    return browserGoCookie
-                }()
-                let resolvedGoWorkspaceID: String? = {
-                    if let localVal = local.getWorkspaceID(), !localVal.isEmpty {
-                        return localVal
-                    }
-                    return browserGoWorkspaceID
-                }()
-                let resolvedOllamaCookie: String? = {
-                    if let localVal = local.getOllamaCookie(), !localVal.isEmpty {
-                        return localVal
-                    }
-                    return browserOllamaCookie
-                }()
-
-                lock.withLock {
-                    cachedGoCookie = resolvedGoCookie
-                    cachedGoWorkspaceID = resolvedGoWorkspaceID
-                    cachedOllamaCookie = resolvedOllamaCookie
-                    cachePopulated = true
-                }
-
-                // Persist browser values only when local storage is empty
-                // for that field — never overwrite an existing local value.
-                if goSuccess {
-                    if local.getAuthCookie() == nil, let cookie = browserGoCookie, !cookie.isEmpty {
-                        local.saveAuthCookie(cookie)
-                    }
-                    if local.getWorkspaceID() == nil, let wid = browserGoWorkspaceID, !wid.isEmpty {
-                        local.saveWorkspaceID(wid)
-                    }
-                    Self.logger.info("Browser bootstrap: Go credentials cached and persisted to local storage")
-                }
-
-                if ollamaSuccess {
-                    if local.getOllamaCookie() == nil, let cookie = browserOllamaCookie, !cookie.isEmpty {
-                        local.saveOllamaCookie(cookie)
-                    }
-                    Self.logger.info("Browser bootstrap: Ollama cookie cached and persisted to local storage")
-                }
-
-                return .extracted
-            }
-
-            lastError = "浏览器中未找到有效凭证 (尝试 \(attempt)/\(Self.maxRetries))"
-            Self.logger.warning("Browser bootstrap attempt \(attempt) failed: no credentials found")
-
-            if attempt < Self.maxRetries {
-                try? await Task.sleep(nanoseconds: Self.retryDelayNanoseconds)
-            }
-        }
-
-        // All retries exhausted — try local storage as last resort
+    private func bootstrapFromBrowser(
+        enabledProviders: Set<BalanceProviderKind>,
+        validator: any CredentialCandidateValidating,
+        candidateProvider: any BrowserCredentialCandidateProviding
+    ) async -> CredentialBootstrapResult {
         let local = LocalCredentialService.shared
-        let goCookie = local.getAuthCookie()
-        let ollamaCookie = local.getOllamaCookie()
+        let localWorkspaceID = normalized(local.getWorkspaceID())
+        let localGoCookie = normalized(local.getAuthCookie())
+        let localOllamaCookie = normalized(local.getOllamaCookie())
 
-        if goCookie != nil || ollamaCookie != nil {
-            lock.withLock {
-                cachedGoCookie = goCookie
-                cachedGoWorkspaceID = local.getWorkspaceID()
-                cachedOllamaCookie = ollamaCookie
-                cachePopulated = true
-            }
-            Self.logger.info("Browser bootstrap failed after \(Self.maxRetries) retries, but local storage had credentials")
-            return .localStore
+        let localGoCandidate: ResolvedGoCandidate? = {
+            guard enabledProviders.contains(.opencodeGo),
+                  let localWorkspaceID,
+                  let localGoCookie else { return nil }
+            return ResolvedGoCandidate(
+                workspaceID: localWorkspaceID,
+                cookie: localGoCookie,
+                source: "encrypted-cache",
+                isLocal: true
+            )
+        }()
+        let localOllamaCandidate: ResolvedOllamaCandidate? = {
+            guard enabledProviders.contains(.ollama), let localOllamaCookie else { return nil }
+            return ResolvedOllamaCandidate(
+                cookie: localOllamaCookie,
+                source: "encrypted-cache",
+                isLocal: true
+            )
+        }()
+
+        async let localGoValidation: CredentialCandidateValidation? = {
+            guard let localGoCandidate else { return nil }
+            return await validator.validateGo(
+                workspaceID: localGoCandidate.workspaceID,
+                cookie: localGoCandidate.cookie
+            )
+        }()
+        async let localOllamaValidation: CredentialCandidateValidation? = {
+            guard let localOllamaCandidate else { return nil }
+            return await validator.validateOllama(cookie: localOllamaCandidate.cookie)
+        }()
+
+        var selectedGo: ResolvedGoCandidate?
+        var selectedOllama: ResolvedOllamaCandidate?
+        var importedFromBrowser = false
+        var validationUnavailable = false
+        let goLocalStatus = await localGoValidation
+        let ollamaLocalStatus = await localOllamaValidation
+
+        switch goLocalStatus {
+        case .valid:
+            selectedGo = localGoCandidate
+            Self.logger.info("Go credential validated from encrypted cache")
+        case .unavailable:
+            selectedGo = localGoCandidate
+            validationUnavailable = true
+            Self.logger.warning("Go credential validation unavailable; encrypted cache preserved")
+        case .invalid, nil:
+            break
         }
 
-        // Total failure: leave cache empty so a future bootstrap can retry.
-        Self.logger.error("Browser bootstrap failed after \(Self.maxRetries) retries")
-        return .failed(error: lastError ?? "浏览器凭证解密失败")
+        switch ollamaLocalStatus {
+        case .valid:
+            selectedOllama = localOllamaCandidate
+            Self.logger.info("Ollama credential validated from encrypted cache")
+        case .unavailable:
+            selectedOllama = localOllamaCandidate
+            validationUnavailable = true
+            Self.logger.warning("Ollama credential validation unavailable; encrypted cache preserved")
+        case .invalid, nil:
+            break
+        }
+
+        async let browserGoResolution: CredentialCandidateResolver.Resolution<ResolvedGoCandidate>? = {
+            guard enabledProviders.contains(.opencodeGo),
+                  goLocalStatus != .valid,
+                  goLocalStatus != .unavailable else { return nil }
+            let candidates = await Task.detached(priority: .userInitiated) {
+                candidateProvider.goCandidates()
+            }.value.compactMap { candidate -> ResolvedGoCandidate? in
+                guard let workspaceID = normalized(candidate.workspaceID) ?? localWorkspaceID,
+                      let cookie = normalized(candidate.cookie) else {
+                    return nil
+                }
+                return ResolvedGoCandidate(
+                    workspaceID: workspaceID,
+                    cookie: cookie,
+                    source: candidate.source,
+                    isLocal: false
+                )
+            }
+            return await CredentialCandidateResolver.firstValid(candidates) { candidate in
+                await validator.validateGo(workspaceID: candidate.workspaceID, cookie: candidate.cookie)
+            }
+        }()
+
+        async let browserOllamaResolution: CredentialCandidateResolver.Resolution<ResolvedOllamaCandidate>? = {
+            guard enabledProviders.contains(.ollama),
+                  ollamaLocalStatus != .valid,
+                  ollamaLocalStatus != .unavailable else { return nil }
+            let candidates = await Task.detached(priority: .userInitiated) {
+                candidateProvider.ollamaCandidates()
+            }.value.compactMap { candidate -> ResolvedOllamaCandidate? in
+                guard let cookie = normalized(candidate.cookie) else { return nil }
+                return ResolvedOllamaCandidate(cookie: cookie, source: candidate.source, isLocal: false)
+            }
+            return await CredentialCandidateResolver.firstValid(candidates) { candidate in
+                await validator.validateOllama(cookie: candidate.cookie)
+            }
+        }()
+
+        let resolvedGo = await browserGoResolution
+        let resolvedOllama = await browserOllamaResolution
+
+        switch resolvedGo {
+        case .valid(let candidate):
+            selectedGo = candidate
+            if !candidate.isLocal {
+                local.saveGoCredentials(workspaceID: candidate.workspaceID, cookie: candidate.cookie)
+                importedFromBrowser = true
+            }
+            Self.logger.info("Go credential validated from \(candidate.source, privacy: .public)")
+        case .unavailable:
+            validationUnavailable = true
+            Self.logger.warning("Go browser candidate validation unavailable")
+        case .exhausted:
+            if goLocalStatus == .invalid {
+                local.saveGoCredentials(workspaceID: localWorkspaceID, cookie: nil)
+            }
+            Self.logger.notice("No valid Go browser credential found")
+        case nil:
+            break
+        }
+
+        switch resolvedOllama {
+        case .valid(let candidate):
+            selectedOllama = candidate
+            if !candidate.isLocal {
+                local.saveOllamaCookie(candidate.cookie)
+                importedFromBrowser = true
+            }
+            Self.logger.info("Ollama credential validated from \(candidate.source, privacy: .public)")
+        case .unavailable:
+            validationUnavailable = true
+            Self.logger.warning("Ollama browser candidate validation unavailable")
+        case .exhausted:
+            if ollamaLocalStatus == .invalid {
+                local.saveOllamaCookie("")
+            }
+            Self.logger.notice("No valid Ollama browser credential found")
+        case nil:
+            break
+        }
+
+        lock.withLock {
+            cachedGoCookie = selectedGo?.cookie
+            cachedGoWorkspaceID = selectedGo?.workspaceID
+            cachedOllamaCookie = selectedOllama?.cookie
+            cachePopulated = true
+        }
+
+        if importedFromBrowser { return .extracted }
+        if selectedGo != nil || selectedOllama != nil { return .localStore }
+        if enabledProviders.isDisjoint(with: [.opencodeGo, .ollama]) { return .localStore }
+        if validationUnavailable {
+            return .failed(error: "凭证验证服务暂时不可用，已保留本地缓存")
+        }
+        return .failed(error: "未找到有效的浏览器 Cookie")
     }
+
+    private func normalized(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
+private struct ResolvedGoCandidate: Sendable {
+    let workspaceID: String
+    let cookie: String
+    let source: String
+    let isLocal: Bool
+}
+
+private struct ResolvedOllamaCandidate: Sendable {
+    let cookie: String
+    let source: String
+    let isLocal: Bool
 }

@@ -400,6 +400,38 @@
 
 "unit.perMonth" = "/mo";
 
+"trend.range.7days" = "7 days";
+"trend.range.30days" = "30 days";
+"trend.range.days" = "Last %d days";
+"overview.trend.title" = "Daily usage trend";
+"overview.trend.subtitle" = "Last %d days · OpenCode + Codex total";
+"overview.heatmap.title" = "Daily usage heatmap";
+"overview.heatmap.subtitle" = "Past 52 weeks · OpenCode + Codex total";
+"balance.expandCollapse" = "Expand or collapse balance details";
+"skills.action.clearSearch" = "Clear search";
+"skills.action.backToOverview" = "Back to skills overview";
+"settings.developerMode.ollama.title" = "Ollama Cloud usage tracking";
+"settings.developerMode.ollama.subtitle" = "Experimental: validates encrypted or browser Cookie candidates before querying ollama.com/settings";
+"settings.developerMode.ollama.toggle" = "Enable Ollama usage tracking";
+"settings.developerMode.ollama.body" = "When enabled, Ollama Cloud appears in balance settings and uses validated encrypted caching with browser/profile fallback.";
+"developerMode.doc.ollamaDesc" = "Uses a validated encrypted Cookie cache with browser/profile fallback to query Ollama Cloud usage over HTTPS without displaying Keychain authorization UI.";
+"pricing.header.reference" = "This is a built-in read-only reference. Actual prices may change; use a custom monthly cost in Settings when needed.";
+"pricing.header.total" = "Total cost = enabled fixed subscriptions + API estimates for unsubscribed usage; with all subscriptions disabled, all cost is estimated from API prices.";
+"pricing.column.tier" = "Tier";
+"pricing.column.cost" = "Cost";
+"pricing.column.note" = "Notes";
+"pricing.mimo.title" = "MiMo Credits usage";
+"pricing.mimo.model" = "Model";
+"pricing.mimo.cacheHit" = "Cache hit";
+"pricing.mimo.cacheMiss" = "Cache miss (input)";
+"pricing.mimo.output" = "Output";
+"pricing.mimo.note" = "MiMo plans are Credit bundles, not unlimited requests. Multi-step agent tools consume credits based on model, context length, tool calls, and cache hits. The 00:00–08:00 Beijing-time multiplier is 0.8x.";
+"pricing.total.title" = "App total-cost basis";
+"pricing.total.cost" = "Cost";
+"pricing.total.openCodeInput" = "Actual input (OpenCode)";
+"pricing.total.codexInput" = "Actual input (Codex)";
+"pricing.total.cacheRate" = "Cache hit rate";
+
 "overview.openCode.apiPlan" = "API";
 
 "settings.billing.title" = "Billing Plans";

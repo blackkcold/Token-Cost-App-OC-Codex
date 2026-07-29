@@ -390,49 +390,11 @@ public final class AppPreferencesStore {
     }
 
     public func save(_ preferences: AppPreferences) throws {
-        try backupExistingPreferencesIfNeeded()
+        try SettingsBackupRotation.backupIfPresent(
+            fileStore: fileStore,
+            relativePath: preferencesRelativePath,
+            backupDirectory: "config/backups/app-preferences"
+        )
         try fileStore.writeCodable(preferences, to: preferencesRelativePath)
-    }
-
-    private func backupExistingPreferencesIfNeeded() throws {
-        let currentURL = try fileStore.resolve(preferencesRelativePath)
-        guard FileManager.default.fileExists(atPath: currentURL.path) else {
-            return
-        }
-
-        let backupDirectory = try fileStore.resolve("config/backups/app-preferences")
-        try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
-
-        let baseName = URL(fileURLWithPath: preferencesRelativePath)
-            .deletingPathExtension()
-            .lastPathComponent
-        let backupURL = backupDirectory.appendingPathComponent("\(baseName)-\(timestamp()).json")
-        try? FileManager.default.removeItem(at: backupURL)
-        try FileManager.default.copyItem(at: currentURL, to: backupURL)
-        rotateBackups(in: backupDirectory, keep: 10)
-    }
-
-    private func rotateBackups(in directory: URL, keep: Int) {
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.creationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        let sorted = urls.sorted { lhs, rhs in
-            let lhDate = (try? lhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            let rhDate = (try? rhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
-            return lhDate > rhDate
-        }
-        guard sorted.count > keep else { return }
-        for url in sorted.dropFirst(keep) {
-            try? FileManager.default.removeItem(at: url)
-        }
-    }
-
-    private func timestamp() -> String {
-        let formatter = ISO8601DateFormatter()
-        let raw = formatter.string(from: Date())
-        return raw
-            .replacingOccurrences(of: ":", with: "-")
-            .replacingOccurrences(of: "/", with: "-")
     }
 }

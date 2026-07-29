@@ -260,7 +260,7 @@ struct DetailView: View {
         let points = Array(analytics.trendPoints.suffix(trendDayRange)).map(openCodeTrendPoint)
         return TokenSectionCard(
             title: AppLocalization.text("detail.trend.title"),
-            subtitle: "\(AppLocalization.text("detail.trend.subtitle")) · 近 \(trendDayRange) 日",
+            subtitle: "\(AppLocalization.text("detail.trend.subtitle")) · \(AppLocalization.format("trend.range.days", trendDayRange))",
             trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange)),
             palette: palette
         ) {
@@ -995,7 +995,7 @@ struct DetailStackSeries: Identifiable {
 }
 
 private struct DistributionCardHeightKey: PreferenceKey {
-    nonisolated(unsafe) static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
     }
