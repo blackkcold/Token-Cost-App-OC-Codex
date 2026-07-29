@@ -4743,7 +4743,7 @@ private final class SleepingMockChecker: BalanceChecker, @unchecked Sendable {
     }
 
     func fetch(authToken: String) async throws -> BalanceSnapshot {
-        try? await Task.sleep(nanoseconds: sleepNanos)
+        try await Task.sleep(nanoseconds: sleepNanos)
         return BalanceSnapshot(provider: providerKind, fetchedAt: Date(), isAvailable: true)
     }
 }

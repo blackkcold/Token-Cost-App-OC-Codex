@@ -114,7 +114,6 @@ public final class BalanceManager: ObservableObject {
             var didTimeout = false
             var completed = 0
             for await outcome in group {
-                if didTimeout { continue }
                 switch outcome {
                 case .snapshot(let snapshot):
                     if snapshot.isAvailable { succeeded = true }
@@ -126,7 +125,7 @@ public final class BalanceManager: ObservableObject {
                     didTimeout = true
                     group.cancelAll()
                 }
-                if completed >= providerCount && !didTimeout {
+                if completed >= providerCount {
                     group.cancelAll()
                 }
             }
