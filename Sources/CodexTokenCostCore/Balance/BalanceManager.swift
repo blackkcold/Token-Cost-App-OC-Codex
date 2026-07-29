@@ -78,7 +78,7 @@ public final class BalanceManager: ObservableObject {
         ) { group in
             group.addTask {
                 try? await Task.sleep(nanoseconds: timeoutNanos)
-                return ProviderOutcome.timeout
+                return Task.isCancelled ? ProviderOutcome.cancelled : ProviderOutcome.timeout
             }
 
             for checker in currentCheckers {
