@@ -13,39 +13,6 @@
 
 A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
 
-> **Latest**: [v1.0.3](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.3) — Credential bootstrap refactor, Ed25519 signed update manifest, BalanceManager timeout sentinel race fix
-
-### What's New in v1.0.3
-
-- **Credential bootstrap refactor** — `CredentialBootstrapService` now validates the encrypted local cache first, then checks browser/profile candidates in deterministic order until a valid credential is found. Browser keychain reads use `Security.framework` with `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`, never triggering system authorization prompts.
-- **Ed25519 signed update manifest** — `UpdateChecker` now requires a signed `.update-manifest.json` for auto-install; verifies version, Bundle ID, architecture, file name, size, SHA-256, and Ed25519 signature before streaming the download to a restricted staging directory (max 512MB). CI injects signing keys via secrets and uploads the manifest as a Release asset.
-- **Timeout sentinel race fix** — `BalanceManager` cancelled sentinel no longer generates a phantom `.unavailable` snapshot that overwrites real provider results; `SleepingMockChecker` `try?` bug fixed so timeout tests no longer false-green.
-- **Localization + docs** — 32 new bilingual keys (trend/heatmap/skills/Ollama/pricing), SECURITY.md and README updated to reflect the new credential bootstrap and signed manifest flows.
-
-### What's New in v1.0.2
-
-- **LiquidGlassButtonStyle** — New SwiftUI `ButtonStyle` subclass providing non-colored press feedback via `scaleEffect(0.96)` + `opacity(0.7)`, explicitly respecting Reduce Motion.
-- **Compact balance panel 5-cell progress bar** — Changed compact progress bar to 5 discrete Capsule segments preserving continuous normalized fill (e.g. 67% renders 3 full cells + 35% 4th cell + 1 empty cell).
-- **Subscription period settings (developer mode)** — Per-provider collapsible "subscription period settings" area in the billing tab; supports daily/monthly granularity, quick presets, custom date range, and `periodTotalCost(for:)` method.
-- **Settings panel layout optimization** — `SettingsSurfaceCard` corner radius 28→18pt, `SettingsControlTile` padding 12→10pt, `SettingsSummaryCard` number font 22→26pt for improved information density.
-- **Menu bar width and hierarchy refactor** — Window width 290→320pt, header adds large monthly cost (22pt bold), balance area uses `LazyVGrid adaptive(minimum:140)` + `ScrollView`.
-- **Bug fixes** — Menu bar balance card text truncation, compact panel progress bar collapsing to zero width, floating panel blue selection and gray focus ring, floating panel close button unreliable.
-
-### What's New in v1.0.1
-
-- **Ollama Cloud cache read estimation** — Auto-enables estimated cache reads for `deepseek-v4-flash` / `deepseek-v4-pro` models under `ollama-cloud` provider, using `estimatedCacheRead = input × (rate / (1−rate))`. Cache section card title switches to "Cache (estimated)" variant with independent `mint` trend line. Estimates don't affect billing.
-- **Balance refresh performance** — Sentinel refactored to sentinel + counting mode, no longer forced 45s wait. `AuthTokenProvider.token(for:)` wrapped in `Task.detached`. Merged `@Published` assignments reduce SwiftUI redraws from 7 to 6 per cycle.
-- **Window scene simplification** — Main scene changed from `WindowGroup(id: "main")` to `Window(id: "main")` — system guarantees single window instance. `WindowOpeningSupport` simplified to single `openWindow(id:openWindow:)` function.
-- **Menu bar UI improvements** — Balance title row now has `arrow.clockwise` refresh button with spinner. Settings/quit buttons changed to icon form.
-- **Bug fixes** — Ollama Cloud cache hit rate always 0%, balance refresh forced 45s minimum, ForEach ID non-unique crash risk, window singleton guard missing, Dock icon sync race condition.
-
-### What's New in v1.0.0
-
-- **Credential storage upgrade** — Migrated from macOS Keychain to local AES-256-GCM encrypted storage (`LocalEncryptedCredentialStore`), eliminating Keychain permission prompts during development builds.
-- **Auto credential bootstrap** — When balance monitoring is enabled, validates the app's encrypted cache first, then tries browser/profile Cookie candidates in order without displaying Keychain authorization UI.
-- **Legacy Keychain import** — Settings now offers a one-click "Import legacy Keychain" button to migrate existing credentials to local encrypted storage.
-- **Performance** — `DetailView` analytics computation moved off the main thread via async `Task.detached`, with loading placeholder states for large payloads.
-
 ### Why Token Cost App?
 
 AI coding tools charge by token — but most developers have no idea what they're actually spending. This app gives you:
@@ -147,39 +114,6 @@ MIT License — see [LICENSE](LICENSE)
 ## 中文
 
 一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
-
-> **最新版本**: [v1.0.3](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.3) — 凭证引导重构、Ed25519 签名 update manifest、BalanceManager timeout sentinel 竞态修复
-
-### v1.0.3 更新
-
-- **凭证引导重构** — `CredentialBootstrapService` 改为先验证本地加密缓存，失败后按浏览器/Profile 顺序逐个验证候选 Cookie。浏览器 Keychain 读取改用 `Security.framework` + `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，无法静默读取时直接跳过，不触发系统授权弹窗。
-- **Ed25519 签名 update manifest** — `UpdateChecker` 自动安装要求 Release 提供 Ed25519 签名 manifest；先验证版本、Bundle ID、架构、文件名、长度和 SHA-256，再以流式方式下载到权限受限 staging 目录（最大 512MB），任何失败清理临时产物。CI 通过 secrets 注入签名密钥并将 manifest 作为 Release asset 上传。
-- **Timeout sentinel 竞态修复** — `BalanceManager` 取消哨兵不再生成虚假 `.unavailable` 快照覆盖真实 provider 结果；`SleepingMockChecker` `try?` bug 修复，超时测试不再假绿。
-- **本地化 + 文档** — 新增 32 个中英双语本地化 key（趋势/热力图/Skills/Ollama/计费），SECURITY.md 和 README 同步更新凭证引导与签名 manifest 流程说明。
-
-### v1.0.2 更新
-
-- **LiquidGlassButtonStyle** — 新增 SwiftUI `ButtonStyle` 子类，仅通过 `scaleEffect(0.96)` + `opacity(0.7)` 提供非彩色按压反馈，显式遵循 Reduce Motion。
-- **余额浮窗简略模式五格进度条** — 简略模式进度条改为 5 个分离的 Capsule 段，保留连续归一化填充（如 67% 显示为 3 满格 + 第 4 格 35% + 1 空格）。
-- **订阅周期设置（开发者模式）** — 计费方案 tab 每个 Provider 卡片新增可折叠「订阅周期设置」区域，支持按日/按月粒度切换、快捷预设、自定义起止日期，新增 `periodTotalCost(for:)` 按订阅周期折算总成本。
-- **设置面板布局优化** — `SettingsSurfaceCard` 圆角 28→18pt、`SettingsControlTile` padding 12→10pt、`SettingsSummaryCard` 数值字号 22→26pt，提升信息密度。
-- **菜单栏宽度与信息层级重构** — 窗口宽度 290→320pt，header 新增月费大字（22pt bold），余额区改用 `LazyVGrid adaptive(minimum:140)` + `ScrollView`。
-- **Bug 修复** — 菜栏余额卡片文本截断、简略模式进度条被压缩为零宽度、悬浮面板蓝色选中与灰色焦点框、悬浮面板关闭按钮不可用。
-
-### v1.0.1 更新
-
-- **Ollama Cloud 缓存读估算** — 对 `ollama-cloud` Provider 下 `deepseek-v4-flash` / `deepseek-v4-pro` 模型自动启用缓存读缺失估算，使用 `estimatedCacheRead = input × (rate / (1−rate))` 公式。缓存区卡片标题切换为"缓存（含估算）"变体，趋势图 tooltip 追加独立 `mint` 色估算行。估算值不影响计费口径。
-- **余额刷新性能优化** — 超时哨兵改为 sentinel + 计数模式，不再强制等待 45s。`AuthTokenProvider.token(for:)` 包装在 `Task.detached` 中。合并 `@Published` 赋值，每个刷新周期 SwiftUI 重绘从 7 次减少到 6 次。
-- **Window 场景简化** — 主场景从 `WindowGroup(id: "main")` 改为 `Window(id: "main")`，由系统保证单窗口实例。`WindowOpeningSupport` 简化为单一 `openWindow(id:openWindow:)` 函数。
-- **菜单栏 UI 改进** — 余额标题行右侧新增 `arrow.clockwise` 刷新按钮，刷新中显示 spinner。设置/退出按钮改为图标形式。
-- **Bug 修复** — Ollama Cloud 缓存命中率始终为 0、余额刷新强制 45s 最短时间、ForEach ID 非唯一崩溃风险、窗口单例守卫缺失、Dock 图标同步竞态。
-
-### v1.0.0 更新
-
-- **凭证存储升级** — 从 macOS Keychain 全面迁移至本地 AES-256-GCM 加密存储，消除开发构建时的 Keychain 授权弹窗。
-- **自动凭证引导** — 启用余额监控后先验证 App 本地加密缓存；失效或缺失时再按浏览器/Profile 顺序验证候选 Cookie，全程不弹出 Keychain 授权窗口。
-- **旧 Keychain 导入** — 设置页新增一键「导入旧 Keychain」按钮，将已有凭证迁移到本地加密存储。
-- **性能优化** — 详情页 analytics 计算移至后台线程异步执行，大数据 payload 不再卡主线程。
 
 ### 为什么需要它？
 
