@@ -43,8 +43,8 @@ public final class BalanceManager: ObservableObject {
     /// Maximum time the overall refresh may take before returning partial results.
     private static let refreshTimeout: UInt64 = 45_000_000_000  // 45s
 
-    /// Distinct outcomes for each provider task: timeout, cancellation, and success/failure
-    /// are represented independently so the for-await loop never conflates them.
+    /// Status each provider task reports back so the collector can distinguish
+    /// real snapshots from cancellation/timeout signals.
     private enum ProviderOutcome: Sendable {
         case snapshot(BalanceSnapshot)
         case cancelled
@@ -77,12 +77,8 @@ public final class BalanceManager: ObservableObject {
             returning: ([BalanceSnapshot], Bool, Bool).self
         ) { group in
             group.addTask {
-                do {
-                    try await Task.sleep(nanoseconds: timeoutNanos)
-                    return ProviderOutcome.timeout
-                } catch {
-                    return ProviderOutcome.cancelled
-                }
+                try? await Task.sleep(nanoseconds: timeoutNanos)
+                return ProviderOutcome.timeout
             }
 
             for checker in currentCheckers {
@@ -112,23 +108,34 @@ public final class BalanceManager: ObservableObject {
             var snapshots: [BalanceSnapshot] = []
             var succeeded = false
             var didTimeout = false
-            var completed = 0
+            var providerResultsCollected = 0
+
             for await outcome in group {
                 switch outcome {
                 case .snapshot(let snapshot):
                     if snapshot.isAvailable { succeeded = true }
                     snapshots.append(snapshot)
-                    completed += 1
+                    providerResultsCollected += 1
                 case .cancelled:
-                    completed += 1
+                    providerResultsCollected += 1
                 case .timeout:
                     didTimeout = true
                     group.cancelAll()
                 }
-                if completed >= providerCount {
+                if providerResultsCollected >= providerCount {
                     group.cancelAll()
+                    break
                 }
             }
+
+            if didTimeout {
+                for await outcome in group {
+                    guard case .snapshot(let snapshot) = outcome else { continue }
+                    if snapshot.isAvailable { succeeded = true }
+                    snapshots.append(snapshot)
+                }
+            }
+
             return (snapshots, succeeded, didTimeout)
         }
 
