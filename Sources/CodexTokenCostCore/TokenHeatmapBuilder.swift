@@ -92,7 +92,6 @@ public enum TokenHeatmapBuilder {
     private static var calendar: Calendar {
         var cal = Calendar(identifier: .gregorian)
         cal.locale = Locale(identifier: "en_US_POSIX")
-        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
         cal.firstWeekday = 2 // Monday
         return cal
     }
@@ -101,7 +100,6 @@ public enum TokenHeatmapBuilder {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(secondsFromGMT: 0)
         return f
     }()
 }

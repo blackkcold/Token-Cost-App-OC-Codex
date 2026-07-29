@@ -30,6 +30,7 @@ final class TokenCostModel: ObservableObject {
     private let settingsStore: SettingsStore
     private let snapshotStore: SnapshotStore
     private var didBootstrap = false
+    private var pendingSaveTask: Task<Void, Never>?
 
     init() {
         self.settingsStore = SettingsStore(runtimeRoot: CodexAppPaths.runtimeRoot)
@@ -130,12 +131,28 @@ final class TokenCostModel: ObservableObject {
                         return
                     }
                     self.payloadsBySourceID[sourceID] = payload
-                    try? self.snapshotStore.saveLatest(payload, sourceID: sourceID, retention: snapshotRetention)
                     if self.selectedSourceID == sourceID {
                         self.statusState = .refreshedSource(sourceName)
                     }
                     self.lastErrorMessage = nil
                     self.isRefreshing = false
+
+                    let previousTask = self.pendingSaveTask
+                    let capturePayload = payload
+                    let captureSourceID = sourceID
+                    let captureRetention = snapshotRetention
+                    let runtimeRoot = CodexAppPaths.runtimeRoot
+                    self.pendingSaveTask = Task.detached(priority: .background) {
+                        await previousTask?.value
+                        let store = SnapshotStore(runtimeRoot: runtimeRoot)
+                        do {
+                            try store.saveLatest(capturePayload, sourceID: captureSourceID, retention: captureRetention)
+                        } catch {
+                            #if DEBUG
+                            print("[TokenCostModel] snapshot save failed: \(error.localizedDescription)")
+                            #endif
+                        }
+                    }
                 }
             } catch {
                 let message = error.localizedDescription

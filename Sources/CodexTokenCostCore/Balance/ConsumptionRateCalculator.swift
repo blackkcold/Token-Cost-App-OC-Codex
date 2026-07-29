@@ -7,6 +7,7 @@ enum ConsumptionRateCalculator {
     private static let minSampleInterval: TimeInterval = 600
     private static let minEffectiveSpanSeconds: TimeInterval = 300
     private static let maxPerHour = 200.0
+    private static let maxTotalKeys = 500
 
     private struct History: Codable {
         var samplesByKey: [String: [WindowSample]] = [:]
@@ -39,7 +40,7 @@ enum ConsumptionRateCalculator {
         }
     }
 
-    static func store(_ snapshots: [BalanceSnapshot]) {
+    static func store(_ snapshots: [BalanceSnapshot], activeProviderKinds: Set<BalanceProviderKind>? = nil) {
         var history = loadHistory()
 
         for snapshot in snapshots where snapshot.isAvailable {
@@ -73,8 +74,31 @@ enum ConsumptionRateCalculator {
             }
         }
 
+        pruneStaleKeys(in: &history, activeProviderKinds: activeProviderKinds)
+        pruneGlobalKeyCount(in: &history)
         saveHistory(history)
         BalanceLog.calculator.debug("Stored samples for \(history.samplesByKey.count, privacy: .public) windows")
+    }
+
+    private static func pruneStaleKeys(in history: inout History, activeProviderKinds: Set<BalanceProviderKind>?) {
+        guard let active = activeProviderKinds else { return }
+        let activePrefixes = active.map { $0.rawValue + "|" }
+        history.samplesByKey = history.samplesByKey.filter { key, _ in
+            activePrefixes.contains { key.hasPrefix($0) }
+        }
+    }
+
+    private static func pruneGlobalKeyCount(in history: inout History) {
+        guard history.samplesByKey.count > maxTotalKeys else { return }
+        let ranked = history.samplesByKey.map { key, samples in
+            (key: key, newest: samples.last?.timestamp.timeIntervalSince1970 ?? 0)
+        }.sorted { $0.newest > $1.newest }
+        let keep = Set(ranked.prefix(maxTotalKeys).map(\.key))
+        let dropped = history.samplesByKey.count - keep.count
+        history.samplesByKey = history.samplesByKey.filter { keep.contains($0.key) }
+        if dropped > 0 {
+            BalanceLog.calculator.notice("Pruned \(dropped, privacy: .public) stale history keys (total capped at \(maxTotalKeys, privacy: .public))")
+        }
     }
 
     static func compute(current snapshots: [BalanceSnapshot]) -> [BalanceSnapshot] {

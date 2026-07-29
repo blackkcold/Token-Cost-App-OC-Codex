@@ -63,6 +63,14 @@ struct TokenCostPalette {
             backgroundWashBottom = Color(red: 0.91, green: 0.39, blue: 0.88).opacity(0.08)
             cardStroke = Color(red: 0.62, green: 0.37, blue: 0.96).opacity(0.14)
             chipBackground = Color(red: 0.62, green: 0.37, blue: 0.96).opacity(0.14)
+        case .system:
+            accent = Color(red: 0.18, green: 0.52, blue: 0.98)
+            accentSecondary = Color(red: 0.16, green: 0.78, blue: 0.88)
+            accentSoft = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.10)
+            backgroundWashTop = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.11)
+            backgroundWashBottom = Color(red: 0.16, green: 0.78, blue: 0.88).opacity(0.08)
+            cardStroke = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.14)
+            chipBackground = Color(red: 0.18, green: 0.52, blue: 0.98).opacity(0.14)
         }
 
         backgroundBase = Color(nsColor: .windowBackgroundColor)
@@ -74,8 +82,8 @@ struct TokenCostPalette {
         surfaceStroke = cardStroke.opacity(0.64)
         surfaceInnerStroke = cardStroke.opacity(0.38)
         surfaceAccessibleStroke = Color.primary.opacity(0.18)
-        cardShadow = Color.black.opacity(0.07)
-        surfaceShadow = Color.black.opacity(0.05)
+        cardShadow = Color.primary.opacity(0.04)
+        surfaceShadow = Color.primary.opacity(0.03)
         trackBackground = Color.primary.opacity(0.06)
         title = Color.primary
         subtitle = Color.secondary

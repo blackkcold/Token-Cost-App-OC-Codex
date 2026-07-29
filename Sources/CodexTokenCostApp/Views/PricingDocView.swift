@@ -8,7 +8,7 @@ struct PricingDocView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
                     headerNote
 
                     ForEach(BillingProvider.allCases) { provider in
@@ -18,7 +18,7 @@ struct PricingDocView: View {
                     mimoCreditsCard
                     totalCostExplanation
                 }
-                .padding(20)
+                .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle(Text(verbatim: "\u{1F4C4} \(AppLocalization.text("settings.billing.pricingDoc"))"))
@@ -39,7 +39,7 @@ struct PricingDocView: View {
     // MARK: - Header
 
     private var headerNote: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("本文档为 App 内置只读参考。实际价格可能变更，设置页提供「自定义 USD 月费」作为兜底。")
                 .font(.callout)
                 .foregroundStyle(palette.subtitle)
@@ -47,7 +47,7 @@ struct PricingDocView: View {
                 .font(.caption)
                 .foregroundStyle(palette.subtitle)
         }
-        .padding(12)
+        .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -60,7 +60,7 @@ struct PricingDocView: View {
     private func providerPricingCard(_ provider: BillingProvider) -> some View {
         let presets = BillingPlanCatalog.presets(for: provider)
 
-        return VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(provider.displayName)
                     .font(.headline.weight(.semibold))
@@ -86,7 +86,7 @@ struct PricingDocView: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .padding(12)
+        .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(palette.cardFill)
@@ -101,21 +101,21 @@ struct PricingDocView: View {
                 .foregroundStyle(palette.title)
                 .frame(minWidth: 90, maxWidth: 150, alignment: .leading)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.vertical, 6)
 
             Text("费用")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(palette.title)
                 .frame(minWidth: 70, maxWidth: 110, alignment: .leading)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.vertical, 6)
 
             Text("说明")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(palette.title)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.vertical, 6)
         }
         .background(palette.cardFill)
     }
@@ -127,28 +127,28 @@ struct PricingDocView: View {
                 .foregroundStyle(palette.title)
                 .frame(minWidth: 90, maxWidth: 150, alignment: .leading)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
 
             Text(preset.displayPrice)
                 .font(.caption)
                 .foregroundStyle(palette.accent)
                 .frame(minWidth: 70, maxWidth: 110, alignment: .leading)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
 
             Text(preset.usageNote)
                 .font(.caption)
                 .foregroundStyle(palette.subtitle)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
         }
     }
 
     // MARK: - MiMo Credits Card
 
     private var mimoCreditsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("MiMo Credits 消耗规则")
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(palette.accent)
@@ -156,13 +156,13 @@ struct PricingDocView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     Text("模型").font(.caption.weight(.semibold)).foregroundStyle(palette.title)
-                        .frame(minWidth: 80, maxWidth: 130, alignment: .leading).padding(8)
+                        .frame(minWidth: 80, maxWidth: 130, alignment: .leading).padding(.vertical, 6).padding(.horizontal, 8)
                     Text("缓存命中").font(.caption.weight(.semibold)).foregroundStyle(palette.title)
-                        .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(8)
+                        .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(.vertical, 6).padding(.horizontal, 8)
                     Text("缓存未命中（输入）").font(.caption.weight(.semibold)).foregroundStyle(palette.title)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6).padding(.horizontal, 8)
                     Text("输出").font(.caption.weight(.semibold)).foregroundStyle(palette.title)
-                        .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(8)
+                        .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(.vertical, 6).padding(.horizontal, 8)
                 }
                 .background(palette.cardFill)
 
@@ -183,7 +183,7 @@ struct PricingDocView: View {
                 .foregroundStyle(palette.subtitle)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12)
+        .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(palette.cardFill)
@@ -193,25 +193,25 @@ struct PricingDocView: View {
     private func mimoCreditRow(model: String, hit: String, miss: String, output: String) -> some View {
         HStack(spacing: 0) {
             Text(model).font(.caption).foregroundStyle(palette.title)
-                .frame(minWidth: 80, maxWidth: 130, alignment: .leading).padding(8)
+                .frame(minWidth: 80, maxWidth: 130, alignment: .leading).padding(.vertical, 4).padding(.horizontal, 8)
             Text(hit).font(.caption).foregroundStyle(palette.subtitle)
-                .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(8)
+                .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(.vertical, 4).padding(.horizontal, 8)
             Text(miss).font(.caption).foregroundStyle(palette.subtitle)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4).padding(.horizontal, 8)
             Text(output).font(.caption).foregroundStyle(palette.subtitle)
-                .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(8)
+                .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(.vertical, 4).padding(.horizontal, 8)
         }
     }
 
     // MARK: - Total Cost Explanation
 
     private var totalCostExplanation: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("App 总计费口径")
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(palette.accent)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 formulaLine("费用", "input × inputPrice + output × outputPrice + reasoning × reasoningPrice")
                 formulaLine("", "+ cacheRead × cacheReadPrice + cacheWrite × cacheWritePrice")
                 Divider().opacity(0.3)
@@ -219,13 +219,13 @@ struct PricingDocView: View {
                 formulaLine("实际输入 (Codex)", "max(inputTokens - cachedInputTokens, 0)")
                 formulaLine("缓存命中率", "cacheRead / (actualTokens + cacheRead)")
             }
-            .padding(10)
+            .padding(8)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(palette.cardFill)
             )
         }
-        .padding(12)
+        .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(palette.cardFill)

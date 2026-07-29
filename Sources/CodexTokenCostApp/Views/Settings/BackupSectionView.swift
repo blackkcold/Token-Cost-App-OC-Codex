@@ -14,12 +14,12 @@ struct BackupSectionView: View {
         VStack(alignment: .leading, spacing: 18) {
             configFileGroupCards
             deprecatedToggle
-            unmanagedBakSection
-            externalBackupSection
-            layeredStatusSection
-            backupFileListSection
             backupOverviewSection
             completenessSection
+            layeredStatusDisclosureGroup
+            backupFileListDisclosureGroup
+            unmanagedBakSection
+            externalBackupSection
         }
         .onAppear {
             appPreferencesModel.refreshBackupState()
@@ -254,6 +254,7 @@ struct BackupSectionView: View {
                     .foregroundStyle(appPreferencesModel.selectedBakFiles.contains(bak.id) ? palette.accent : palette.subtitle)
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("Select backup file \(bak.fileName)")
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: bak.fileName)
@@ -262,7 +263,7 @@ struct BackupSectionView: View {
                     .lineLimit(1)
                 if let date = bak.displayDate {
                     Text(formattedDate(date))
-                        .font(.system(size: 9))
+                        .font(.caption)
                         .foregroundStyle(palette.subtitle)
                 }
             }
@@ -426,7 +427,7 @@ struct BackupSectionView: View {
                 }
 
                 Text("settings.backup.layeredSensitive".localized)
-                    .font(.system(size: 9))
+                    .font(.caption)
                     .foregroundStyle(palette.subtitle.opacity(0.6))
             }
         }
@@ -499,17 +500,10 @@ struct BackupSectionView: View {
         }
     }
 
-    // MARK: - 分层备份状态
-
     @ViewBuilder
-    private var layeredStatusSection: some View {
+    private var layeredStatusDisclosureGroup: some View {
         if !appPreferencesModel.backupLayerResults.isEmpty {
-            SettingsSurfaceCard(
-                title: "settings.backup.layeredStatus".localized,
-                subtitle: AppLocalization.format("settings.backup.layeredFileCount", appPreferencesModel.backupLayerResults.reduce(0) { $0 + $1.fileCount }),
-                role: .secondary,
-                palette: palette
-            ) {
+            DisclosureGroup {
                 VStack(spacing: 4) {
                     ForEach(appPreferencesModel.backupLayerResults) { layer in
                         HStack(spacing: 8) {
@@ -529,25 +523,19 @@ struct BackupSectionView: View {
                         .background(RoundedRectangle(cornerRadius: 4).fill(.secondary.opacity(0.04)))
                     }
                 }
+                .padding(.top, 4)
+            } label: {
+                Text(AppLocalization.format("settings.backup.layeredFileCount", appPreferencesModel.backupLayerResults.reduce(0) { $0 + $1.fileCount }))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.title)
             }
         }
     }
 
-    // MARK: - 备份文件列表
-
-    private var backupFileListSection: some View {
-        SettingsSurfaceCard(
-            title: "settings.backup.fileListTitle".localized,
-            subtitle: "settings.backup.fileListSubtitle".localized,
-            role: .secondary,
-            palette: palette
-        ) {
-            if appPreferencesModel.backupRecords.isEmpty {
-                Text("settings.backup.noBackups".localized)
-                    .font(.caption)
-                    .foregroundStyle(palette.subtitle)
-                    .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-            } else {
+    @ViewBuilder
+    private var backupFileListDisclosureGroup: some View {
+        if !appPreferencesModel.backupRecords.isEmpty {
+            DisclosureGroup {
                 VStack(spacing: 6) {
                     ForEach(appPreferencesModel.backupRecords.prefix(10)) { record in
                         HStack(spacing: 8) {
@@ -572,12 +560,18 @@ struct BackupSectionView: View {
                                     .foregroundStyle(.red)
                             }
                             .buttonStyle(.borderless)
+                            .help("Delete backup record")
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
                     }
                 }
+                .padding(.top, 4)
+            } label: {
+                Text("settings.backup.fileListTitle".localized)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.title)
             }
         }
     }

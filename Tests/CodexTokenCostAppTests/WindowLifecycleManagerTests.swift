@@ -69,6 +69,104 @@ final class WindowLifecycleManagerTests: XCTestCase {
         XCTAssertFalse(manager.isMainWindow(window))
     }
 
+    // MARK: - Managed Window Predicate Tests
+
+    func testIsManagedWindowMatchesMainIdentifier() {
+        let manager = WindowLifecycleManager.withDefaultPolicies()
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: .closable,
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("main")
+        XCTAssertTrue(manager.isManagedWindow(window))
+    }
+
+    func testIsManagedWindowMatchesSettingsIdentifier() {
+        let manager = WindowLifecycleManager.withDefaultPolicies()
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: .closable,
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("settings")
+        XCTAssertTrue(manager.isManagedWindow(window))
+    }
+
+    func testIsManagedWindowMatchesPricingDocIdentifier() {
+        let manager = WindowLifecycleManager.withDefaultPolicies()
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: .closable,
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("pricing-doc")
+        XCTAssertTrue(manager.isManagedWindow(window))
+    }
+
+    func testIsManagedWindowMatchesDevDocIdentifier() {
+        let manager = WindowLifecycleManager.withDefaultPolicies()
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: .closable,
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("dev-doc")
+        XCTAssertTrue(manager.isManagedWindow(window))
+    }
+
+    func testIsManagedWindowRejectsNilIdentifier() {
+        let manager = WindowLifecycleManager.withDefaultPolicies()
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: .closable,
+            backing: .buffered,
+            defer: false
+        )
+        XCTAssertFalse(manager.isManagedWindow(window))
+    }
+
+    func testIsManagedWindowRejectsTransientIdentifier() {
+        let manager = WindowLifecycleManager.withDefaultPolicies()
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: .closable,
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("MenuBarExtra_window")
+        XCTAssertFalse(manager.isManagedWindow(window))
+    }
+
+    // MARK: - Transient Window State Isolation
+
+    func testTransientWindowOpenDoesNotAffectShouldShowDockIcon() {
+        let manager = WindowLifecycleManager(
+            setPolicy: { _ in }, getPolicy: { .regular }, retryCount: 0
+        )
+        XCTAssertFalse(manager.shouldShowDockIcon)
+
+        manager.windowDidOpen(identifier: "MenuBarExtra_window")
+        XCTAssertFalse(manager.shouldShowDockIcon,
+                       "Transient window open should not show dock")
+    }
+
+    func testTransientWindowCloseDoesNotAffectShouldShowDockIcon() {
+        let manager = WindowLifecycleManager(
+            setPolicy: { _ in }, getPolicy: { .regular }, retryCount: 0
+        )
+        manager.windowDidOpen(identifier: "main")
+        XCTAssertTrue(manager.shouldShowDockIcon)
+
+        manager.windowWillClose(identifier: "MenuBarExtra_window")
+        XCTAssertTrue(manager.shouldShowDockIcon,
+                      "Transient window close should not hide dock")
+    }
+
     // MARK: - Retry Tests
 
     func testRetriesWhenPolicyNotApplied() {

@@ -5,6 +5,7 @@ public enum TokenCostThemeChoice: String, Codable, CaseIterable, Sendable {
     case forest
     case sunset
     case violet
+    case system
 
     public var displayName: String {
         switch self {
@@ -12,6 +13,7 @@ public enum TokenCostThemeChoice: String, Codable, CaseIterable, Sendable {
         case .forest: return AppLocalization.text("theme.forest.displayName")
         case .sunset: return AppLocalization.text("theme.sunset.displayName")
         case .violet: return AppLocalization.text("theme.violet.displayName")
+        case .system: return AppLocalization.text("theme.system.displayName")
         }
     }
 
@@ -21,6 +23,7 @@ public enum TokenCostThemeChoice: String, Codable, CaseIterable, Sendable {
         case .forest: return AppLocalization.text("theme.forest.summary")
         case .sunset: return AppLocalization.text("theme.sunset.summary")
         case .violet: return AppLocalization.text("theme.violet.summary")
+        case .system: return AppLocalization.text("theme.system.summary")
         }
     }
 }

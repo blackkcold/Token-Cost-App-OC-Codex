@@ -277,7 +277,7 @@ struct SettingsView: View {
                     settingsDetailStack
                 }
             }
-            .padding(20)
+            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -298,7 +298,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var settingsDetailStack: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 12) {
             if !warningMessages.isEmpty {
                 settingsWarningBanner
             }
@@ -316,7 +316,7 @@ struct SettingsView: View {
             palette: palette
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(warningMessages.enumerated()), id: \.offset) { _, item in
+                ForEach(warningMessages, id: \.title) { item in
                     HStack(alignment: .top, spacing: 10) {
                         Text(item.title)
                             .font(.caption.weight(.semibold))

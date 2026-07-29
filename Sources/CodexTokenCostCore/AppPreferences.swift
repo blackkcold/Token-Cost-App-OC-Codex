@@ -43,6 +43,25 @@ public struct SkillsPanelPreferences: Codable, Equatable, Sendable {
     }
 }
 
+public enum ReportingRangeMode: String, Codable, CaseIterable, Sendable {
+    case allAvailable
+    case currentMonth
+    case last30Days
+    case custom
+
+    public var id: String { rawValue }
+}
+
+public struct ReportingRangeCustomBounds: Codable, Equatable, Sendable {
+    public var start: Date?
+    public var end: Date?
+
+    public init(start: Date? = nil, end: Date? = nil) {
+        self.start = start
+        self.end = end
+    }
+}
+
 public struct AppPreferences: Codable, Equatable, Sendable {
     public var language: AppDisplayLanguage
     public var billingSelectionsByProvider: [String: BillingPlanSelection]
@@ -63,7 +82,14 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var balanceDisplayMode: BalanceDisplayMode
     public var balanceCustomOrder: [BalanceProviderKind]
     public var balanceOrderLocked: Bool
+    public var balanceMenuBarExtraEnabled: Bool
+    public var balanceFloatingPanelEnabled: Bool
+    public var balanceFloatingPanelAlwaysOnTop: Bool
+    public var balanceFloatingPanelDisplayMode: BalanceFloatingPanelDisplayMode
     public var credentialSourceMode: CredentialSourceMode
+    public var periodTotalCostEnabled: Bool
+    public var reportingRangeMode: ReportingRangeMode
+    public var reportingRangeCustomBounds: ReportingRangeCustomBounds
 
     public init(
         language: AppDisplayLanguage = .zhHans,
@@ -85,7 +111,14 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         balanceDisplayMode: BalanceDisplayMode = .used,
         balanceCustomOrder: [BalanceProviderKind] = [],
         balanceOrderLocked: Bool = true,
-        credentialSourceMode: CredentialSourceMode = .autoBrowser
+        balanceMenuBarExtraEnabled: Bool = false,
+        balanceFloatingPanelEnabled: Bool = false,
+        balanceFloatingPanelAlwaysOnTop: Bool = true,
+        balanceFloatingPanelDisplayMode: BalanceFloatingPanelDisplayMode = .normal,
+        credentialSourceMode: CredentialSourceMode = .autoBrowser,
+        periodTotalCostEnabled: Bool = false,
+        reportingRangeMode: ReportingRangeMode = .allAvailable,
+        reportingRangeCustomBounds: ReportingRangeCustomBounds = ReportingRangeCustomBounds()
     ) {
         self.language = language
         self.billingSelectionsByProvider = billingSelectionsByProvider
@@ -106,7 +139,14 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.balanceDisplayMode = balanceDisplayMode
         self.balanceCustomOrder = balanceCustomOrder
         self.balanceOrderLocked = balanceOrderLocked
+        self.balanceMenuBarExtraEnabled = balanceMenuBarExtraEnabled
+        self.balanceFloatingPanelEnabled = balanceFloatingPanelEnabled
+        self.balanceFloatingPanelAlwaysOnTop = balanceFloatingPanelAlwaysOnTop
+        self.balanceFloatingPanelDisplayMode = balanceFloatingPanelDisplayMode
         self.credentialSourceMode = credentialSourceMode
+        self.periodTotalCostEnabled = periodTotalCostEnabled
+        self.reportingRangeMode = reportingRangeMode
+        self.reportingRangeCustomBounds = reportingRangeCustomBounds
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -130,7 +170,14 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case balanceDisplayMode = "balance_display_mode"
         case balanceCustomOrder = "balance_custom_order"
         case balanceOrderLocked = "balance_order_locked"
+        case balanceMenuBarExtraEnabled = "balance_menu_bar_extra_enabled"
+        case balanceFloatingPanelEnabled = "balance_floating_panel_enabled"
+        case balanceFloatingPanelAlwaysOnTop = "balance_floating_panel_always_on_top"
+        case balanceFloatingPanelDisplayMode = "balance_floating_panel_display_mode"
         case credentialSourceMode = "credential_source_mode"
+        case periodTotalCostEnabled = "period_total_cost_enabled"
+        case reportingRangeMode = "reporting_range_mode"
+        case reportingRangeCustomBounds = "reporting_range_custom_bounds"
     }
 
     private enum DecodingKeys: String, CodingKey {
@@ -154,7 +201,14 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case balanceDisplayMode
         case balanceCustomOrder
         case balanceOrderLocked
+        case balanceMenuBarExtraEnabled
+        case balanceFloatingPanelEnabled
+        case balanceFloatingPanelAlwaysOnTop
+        case balanceFloatingPanelDisplayMode
         case credentialSourceMode
+        case periodTotalCostEnabled
+        case reportingRangeMode
+        case reportingRangeCustomBounds
     }
 
     public init(from decoder: Decoder) throws {
@@ -230,9 +284,30 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.balanceOrderLocked = try container.decodeIfPresent(Bool.self, forKey: .balanceOrderLocked)
             ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .balanceOrderLocked)
             ?? true
+        self.balanceMenuBarExtraEnabled = try container.decodeIfPresent(Bool.self, forKey: .balanceMenuBarExtraEnabled)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .balanceMenuBarExtraEnabled)
+            ?? false
+        self.balanceFloatingPanelEnabled = try container.decodeIfPresent(Bool.self, forKey: .balanceFloatingPanelEnabled)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .balanceFloatingPanelEnabled)
+            ?? false
+        self.balanceFloatingPanelAlwaysOnTop = try container.decodeIfPresent(Bool.self, forKey: .balanceFloatingPanelAlwaysOnTop)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .balanceFloatingPanelAlwaysOnTop)
+            ?? true
+        self.balanceFloatingPanelDisplayMode = try container.decodeIfPresent(BalanceFloatingPanelDisplayMode.self, forKey: .balanceFloatingPanelDisplayMode)
+            ?? legacyContainer?.decodeIfPresent(BalanceFloatingPanelDisplayMode.self, forKey: .balanceFloatingPanelDisplayMode)
+            ?? .normal
         self.credentialSourceMode = try container.decodeIfPresent(CredentialSourceMode.self, forKey: .credentialSourceMode)
             ?? legacyContainer?.decodeIfPresent(CredentialSourceMode.self, forKey: .credentialSourceMode)
             ?? .autoBrowser
+        self.periodTotalCostEnabled = try container.decodeIfPresent(Bool.self, forKey: .periodTotalCostEnabled)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .periodTotalCostEnabled)
+            ?? false
+        self.reportingRangeMode = try container.decodeIfPresent(ReportingRangeMode.self, forKey: .reportingRangeMode)
+            ?? legacyContainer?.decodeIfPresent(ReportingRangeMode.self, forKey: .reportingRangeMode)
+            ?? .allAvailable
+        self.reportingRangeCustomBounds = try container.decodeIfPresent(ReportingRangeCustomBounds.self, forKey: .reportingRangeCustomBounds)
+            ?? legacyContainer?.decodeIfPresent(ReportingRangeCustomBounds.self, forKey: .reportingRangeCustomBounds)
+            ?? ReportingRangeCustomBounds()
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -256,7 +331,14 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(balanceDisplayMode, forKey: .balanceDisplayMode)
         try container.encode(balanceCustomOrder, forKey: .balanceCustomOrder)
         try container.encode(balanceOrderLocked, forKey: .balanceOrderLocked)
+        try container.encode(balanceMenuBarExtraEnabled, forKey: .balanceMenuBarExtraEnabled)
+        try container.encode(balanceFloatingPanelEnabled, forKey: .balanceFloatingPanelEnabled)
+        try container.encode(balanceFloatingPanelAlwaysOnTop, forKey: .balanceFloatingPanelAlwaysOnTop)
+        try container.encode(balanceFloatingPanelDisplayMode, forKey: .balanceFloatingPanelDisplayMode)
         try container.encode(credentialSourceMode, forKey: .credentialSourceMode)
+        try container.encode(periodTotalCostEnabled, forKey: .periodTotalCostEnabled)
+        try container.encode(reportingRangeMode, forKey: .reportingRangeMode)
+        try container.encode(reportingRangeCustomBounds, forKey: .reportingRangeCustomBounds)
     }
 
     /// Returns a copy of preferences with the given balanceConfig applied.

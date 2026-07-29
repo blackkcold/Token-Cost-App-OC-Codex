@@ -35,6 +35,279 @@ final class AppPreferencesModelTests: XCTestCase {
         )
     }
 
+    func testBalanceMenuBarExtraAndAlwaysOnTopBindingsPersistImmediately() {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("app_preferences_model_balance_flags_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let model = AppPreferencesModel(runtimeRoot: tempDir)
+        model.balanceMenuBarExtraEnabledBinding.wrappedValue = true
+        model.balanceFloatingPanelAlwaysOnTopBinding.wrappedValue = false
+
+        let reloaded = AppPreferencesModel(runtimeRoot: tempDir)
+        XCTAssertTrue(reloaded.preferences.balanceMenuBarExtraEnabled)
+        XCTAssertFalse(reloaded.preferences.balanceFloatingPanelAlwaysOnTop)
+    }
+
+    func testBalanceFloatingPanelDisplayModeBindingPersistsRoundTrip() {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("app_preferences_model_balance_display_mode_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let model = AppPreferencesModel(runtimeRoot: tempDir)
+        model.balanceFloatingPanelDisplayModeBinding.wrappedValue = .minimal
+
+        let minimalReloaded = AppPreferencesModel(runtimeRoot: tempDir)
+        XCTAssertEqual(minimalReloaded.preferences.balanceFloatingPanelDisplayMode, .minimal)
+
+        minimalReloaded.balanceFloatingPanelDisplayModeBinding.wrappedValue = .normal
+
+        let normalReloaded = AppPreferencesModel(runtimeRoot: tempDir)
+        XCTAssertEqual(normalReloaded.preferences.balanceFloatingPanelDisplayMode, .normal)
+    }
+
+    func testBalanceMenuBarExtraEnabledBindingSameValueIsNoOp() {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("app_preferences_model_menu_bar_guard_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let backupDir = tempDir.appendingPathComponent("config/backups/app-preferences")
+
+        let model = AppPreferencesModel(runtimeRoot: tempDir)
+        model.balanceMenuBarExtraEnabledBinding.wrappedValue = true
+        let backupCountAfterFirstWrite = backupFileCount(in: backupDir)
+
+        model.balanceMenuBarExtraEnabledBinding.wrappedValue = true
+        XCTAssertEqual(backupFileCount(in: backupDir), backupCountAfterFirstWrite,
+                       "Same-value setter must be a no-op: no new backup created")
+
+        model.balanceMenuBarExtraEnabledBinding.wrappedValue = false
+        XCTAssertEqual(backupFileCount(in: backupDir), backupCountAfterFirstWrite + 1,
+                       "Real value change must trigger exactly one backup")
+
+        let reloaded = AppPreferencesModel(runtimeRoot: tempDir)
+        XCTAssertFalse(reloaded.preferences.balanceMenuBarExtraEnabled)
+    }
+
+    private func backupFileCount(in directory: URL) -> Int {
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+        return urls.filter { $0.pathExtension == "json" }.count
+    }
+
+    func testCustomSubscriptionCycleBindingPreservesOrInitializesPerProvider() {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("app_preferences_model_custom_cycle_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let model = AppPreferencesModel(runtimeRoot: tempDir)
+        let preservedStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let preservedEnd = Date(timeIntervalSince1970: 1_700_086_400)
+
+        model.updatePreferences { prefs in
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    mode: .preset,
+                    presetID: BillingPlanCatalog.defaultSubscriptionSelection(for: .opencode).presetID,
+                    isSubscribed: true,
+                    periodGranularity: .month,
+                    periodStart: preservedStart,
+                    periodEnd: preservedEnd,
+                    periodPreset: .monthly,
+                    hasPeriodTracking: true
+                ),
+                for: .opencode
+            )
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    mode: .preset,
+                    presetID: BillingPlanCatalog.defaultSubscriptionSelection(for: .codex).presetID,
+                    isSubscribed: true
+                ),
+                for: .codex
+            )
+        }
+
+        model.periodPresetBinding(for: .opencode).wrappedValue = nil
+        model.periodPresetBinding(for: .codex).wrappedValue = nil
+
+        let opencode = model.preferences.billingSelection(for: .opencode)
+        let codex = model.preferences.billingSelection(for: .codex)
+
+        XCTAssertEqual(opencode.periodStart, preservedStart)
+        XCTAssertEqual(opencode.periodEnd, preservedEnd)
+        XCTAssertNil(opencode.periodPreset)
+        XCTAssertTrue(opencode.hasPeriodTracking)
+
+        XCTAssertNotNil(codex.periodStart)
+        XCTAssertNotNil(codex.periodEnd)
+        XCTAssertLessThanOrEqual(codex.periodStart!, codex.periodEnd!)
+        XCTAssertNil(codex.periodPreset)
+        XCTAssertTrue(codex.hasPeriodTracking)
+    }
+
+    func testCustomSubscriptionCycleManualEditsClampAndStayPerProvider() {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("app_preferences_model_custom_cycle_clamp_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let model = AppPreferencesModel(runtimeRoot: tempDir)
+        let opencodeStart = Date(timeIntervalSince1970: 1_700_000_000)
+        let opencodeEnd = Date(timeIntervalSince1970: 1_700_086_400)
+        let codexStart = Date(timeIntervalSince1970: 1_600_000_000)
+        let codexEnd = Date(timeIntervalSince1970: 1_600_086_400)
+
+        model.updatePreferences { prefs in
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    mode: .preset,
+                    presetID: BillingPlanCatalog.defaultSubscriptionSelection(for: .opencode).presetID,
+                    isSubscribed: true,
+                    periodGranularity: .month,
+                    periodStart: opencodeStart,
+                    periodEnd: opencodeEnd,
+                    periodPreset: .monthly,
+                    hasPeriodTracking: true
+                ),
+                for: .opencode
+            )
+            prefs.setBillingSelection(
+                BillingPlanSelection(
+                    mode: .preset,
+                    presetID: BillingPlanCatalog.defaultSubscriptionSelection(for: .codex).presetID,
+                    isSubscribed: true,
+                    periodGranularity: .month,
+                    periodStart: codexStart,
+                    periodEnd: codexEnd,
+                    periodPreset: .monthly,
+                    hasPeriodTracking: true
+                ),
+                for: .codex
+            )
+        }
+
+        model.periodPresetBinding(for: .opencode).wrappedValue = nil
+
+        let laterStart = opencodeEnd.addingTimeInterval(86_400)
+        model.periodStartBinding(for: .opencode).wrappedValue = laterStart
+
+        let afterStartEdit = model.preferences.billingSelection(for: .opencode)
+        XCTAssertEqual(afterStartEdit.periodStart, laterStart)
+        XCTAssertEqual(afterStartEdit.periodEnd, laterStart)
+        XCTAssertNil(afterStartEdit.periodPreset)
+
+        XCTAssertEqual(model.preferences.billingSelection(for: .codex).periodStart, codexStart)
+        XCTAssertEqual(model.preferences.billingSelection(for: .codex).periodEnd, codexEnd)
+
+        let earlierEnd = laterStart.addingTimeInterval(-172_800)
+        model.periodEndBinding(for: .opencode).wrappedValue = earlierEnd
+
+        let afterEndEdit = model.preferences.billingSelection(for: .opencode)
+        XCTAssertEqual(afterEndEdit.periodStart, earlierEnd)
+        XCTAssertEqual(afterEndEdit.periodEnd, earlierEnd)
+        XCTAssertNil(afterEndEdit.periodPreset)
+
+        XCTAssertEqual(model.preferences.billingSelection(for: .codex).periodStart, codexStart)
+        XCTAssertEqual(model.preferences.billingSelection(for: .codex).periodEnd, codexEnd)
+    }
+
+    func testReportingRangeDateRangeMatchesCoreResolverForAllModes() {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("app_preferences_model_reporting_range_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let model = AppPreferencesModel(runtimeRoot: tempDir)
+        var payload = DashboardPayload.empty()
+        payload.rawData = [
+            DashboardPayload.RawRow(
+                date: "2026-06-30",
+                model: "m1",
+                provider: "opencode",
+                input: 1,
+                output: 1,
+                reasoning: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                cacheWriteMissingCount: 0,
+                cacheWriteReportedCount: 0,
+                total: 2,
+                cost: 0.1,
+                msgCount: 1
+            ),
+            DashboardPayload.RawRow(
+                date: "2026-07-05",
+                model: "m2",
+                provider: "codex",
+                input: 2,
+                output: 2,
+                reasoning: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                cacheWriteMissingCount: 0,
+                cacheWriteReportedCount: 0,
+                total: 4,
+                cost: 0.2,
+                msgCount: 1
+            ),
+            DashboardPayload.RawRow(
+                date: "2026-07-18",
+                model: "m3",
+                provider: "deepseek",
+                input: 3,
+                output: 3,
+                reasoning: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                cacheWriteMissingCount: 0,
+                cacheWriteReportedCount: 0,
+                total: 6,
+                cost: 0.3,
+                msgCount: 1
+            )
+        ]
+
+        let customBounds = ReportingRangeCustomBounds(
+            start: Date(timeIntervalSince1970: 1_700_000_000),
+            end: Date(timeIntervalSince1970: 1_700_691_200)
+        )
+
+        let cases: [(ReportingRangeMode, ReportingRangeCustomBounds)] = [
+            (.allAvailable, ReportingRangeCustomBounds()),
+            (.currentMonth, ReportingRangeCustomBounds()),
+            (.last30Days, ReportingRangeCustomBounds()),
+            (.custom, customBounds)
+        ]
+
+        let calendar = Calendar.autoupdatingCurrent
+
+        for (mode, bounds) in cases {
+            model.updatePreferences { prefs in
+                prefs.reportingRangeMode = mode
+                prefs.reportingRangeCustomBounds = bounds
+            }
+
+            let appRange = model.reportingRangeDateRange(for: payload)
+            let coreRange = AppPreferences.resolveReportingRange(mode: mode, customBounds: bounds, payload: payload)
+
+            guard let appRange else {
+                XCTFail("app range nil for \(mode)")
+                continue
+            }
+
+            guard let coreRange else {
+                XCTFail("core range nil for \(mode)")
+                continue
+            }
+
+            XCTAssertEqual(calendar.startOfDay(for: appRange.start), calendar.startOfDay(for: coreRange.start), "start mismatch for \(mode)")
+            XCTAssertEqual(calendar.startOfDay(for: appRange.end), calendar.startOfDay(for: coreRange.end), "end mismatch for \(mode)")
+            XCTAssertLessThanOrEqual(appRange.start, appRange.end)
+            XCTAssertLessThanOrEqual(coreRange.start, coreRange.end)
+        }
+    }
+
     // MARK: - Ollama overlay tests
 
     func testEffectiveConfigExcludesOllamaWhenGateOff() {

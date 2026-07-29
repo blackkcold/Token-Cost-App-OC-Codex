@@ -111,6 +111,7 @@ struct TokenMetricCard: View {
                 .lineLimit(2)
         }
         .padding(cardPadding)
+        .accessibilityElement(children: .combine)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -165,6 +166,7 @@ struct TokenSectionCard<Content: View>: View {
             content
         }
         .padding(16)
+        .accessibilityElement(children: .combine)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(palette.cardFill)
@@ -298,7 +300,7 @@ struct SettingsControlTile<Content: View>: View {
     init(
         title: String? = nil,
         palette: TokenCostPalette,
-        minHeight: CGFloat = 58,
+        minHeight: CGFloat = 48,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -319,7 +321,7 @@ struct SettingsControlTile<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .controlSize(.small)
-        .padding(12)
+        .padding(10)
         .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
         .settingsInsetSurface(
             in: RoundedRectangle(cornerRadius: 16, style: .continuous),
@@ -430,10 +432,10 @@ struct SettingsSurfaceCard<Content: View>: View {
 
     var body: some View {
         let isPrimary = role == .primary
-        let cornerRadius: CGFloat = isPrimary ? 28 : 22
+        let cornerRadius: CGFloat = isPrimary ? 18 : 16
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let contentPadding: CGFloat = isPrimary ? 20 : 16
-        let shadow = role == .warning ? Color.black.opacity(0.08) : palette.surfaceShadow
+        let shadow = role == .warning ? palette.surfaceShadow : palette.surfaceShadow
         let stroke = role == .warning ? Color.orange.opacity(0.22) : palette.surfaceStroke
         let glassTint: Color? = role == .warning ? Color.orange.opacity(0.14) : nil
 
@@ -593,7 +595,7 @@ struct SettingsSummaryCard: View {
             }
 
             Text(value)
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .font(.system(size: 26, weight: .semibold, design: .rounded))
                 .foregroundStyle(palette.title)
                 .lineLimit(2)
                 .minimumScaleFactor(0.76)
@@ -605,6 +607,7 @@ struct SettingsSummaryCard: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
+        .accessibilityElement(children: .combine)
         .frame(maxWidth: .infinity, minHeight: 124, alignment: .leading)
         .settingsInsetSurface(
             in: RoundedRectangle(cornerRadius: 20, style: .continuous),

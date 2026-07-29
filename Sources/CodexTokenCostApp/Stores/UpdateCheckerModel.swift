@@ -34,44 +34,25 @@ final class UpdateCheckerModel: ObservableObject {
                 if UpdateChecker.isUpdateAvailable(latestVersion: cache.lastSeenVersion) {
                     latestVersion = cache.lastSeenVersion
                     state = .updateAvailable(version: cache.lastSeenVersion)
+                } else {
+                    state = .upToDate(version: UpdateChecker.currentVersion)
                 }
                 return
             }
         }
-
-        checkTask?.cancel()
-        checkTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                guard let release = try await UpdateChecker.checkLatestRelease() else { return }
-                let cache = UpdateCheckCache(
-                    lastCheckDate: Date(),
-                    lastSeenVersion: release.tagName
-                )
-                UpdateChecker.saveCache(cache)
-
-                if UpdateChecker.isUpdateAvailable(latestVersion: release.tagName) {
-                    self.latestVersion = release.tagName
-                    self.releasePageURL = URL(string: release.htmlUrl)
-                    if let zipAsset = UpdateChecker.findZipAsset(in: release) {
-                        self.releaseAssetURL = URL(string: zipAsset.browserDownloadUrl)
-                    }
-                    self.state = .updateAvailable(version: release.tagName)
-                }
-            } catch {
-                #if DEBUG
-                print("[UpdateCheckerModel] Auto-check failed: \(error.localizedDescription)")
-                #endif
-            }
-        }
+    
+        performReleaseFetch(silent: true)
     }
 
     // MARK: - Download
 
     func manualCheck() {
-        checkTask?.cancel()
         state = .checking
-
+        performReleaseFetch(silent: false)
+    }
+    
+    private func performReleaseFetch(silent: Bool) {
+        checkTask?.cancel()
         checkTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -79,13 +60,13 @@ final class UpdateCheckerModel: ObservableObject {
                     self.state = .upToDate(version: UpdateChecker.currentVersion)
                     return
                 }
-
+    
                 let cache = UpdateCheckCache(
                     lastCheckDate: Date(),
                     lastSeenVersion: release.tagName
                 )
                 UpdateChecker.saveCache(cache)
-
+    
                 if UpdateChecker.isUpdateAvailable(latestVersion: release.tagName) {
                     self.latestVersion = release.tagName
                     self.releasePageURL = URL(string: release.htmlUrl)
@@ -98,9 +79,13 @@ final class UpdateCheckerModel: ObservableObject {
                 }
             } catch {
                 #if DEBUG
-                print("[UpdateCheckerModel] Manual check failed: \(error.localizedDescription)")
+                print("[UpdateCheckerModel] \(silent ? "Auto" : "Manual") check failed: \(error.localizedDescription)")
                 #endif
-                self.state = .upToDate(version: UpdateChecker.currentVersion)
+                if silent {
+                    self.state = .upToDate(version: UpdateChecker.currentVersion)
+                } else {
+                    self.state = .error(message: error.localizedDescription)
+                }
             }
         }
     }
@@ -139,16 +124,35 @@ final class UpdateCheckerModel: ObservableObject {
 
     // MARK: - Install
 
-    func openDownloadedApp() {
-        guard let appURL = UpdateChecker.downloadedAppURL() else {
+    func installUpdate() {
+        guard let newAppURL = UpdateChecker.downloadedAppURL() else {
             state = .error(message: AppLocalization.text("update.error.appNotFound"))
             return
         }
+        let currentAppURL = Bundle.main.bundleURL
 
         #if DEBUG
-        print("[UpdateCheckerModel] Opening downloaded app: \(appURL.path)")
+        print("[UpdateCheckerModel] Replacing \(currentAppURL.path) with \(newAppURL.path)")
         #endif
-        NSWorkspace.shared.open(appURL)
+
+        do {
+            let replacedURL = try UpdateChecker.replaceAppBundle(
+                currentAppURL: currentAppURL,
+                newAppURL: newAppURL
+            )
+            persistBeforeRelaunch()
+            try UpdateChecker.scheduleRelaunch(at: replacedURL)
+            NSApp.terminate(nil)
+        } catch {
+            #if DEBUG
+            print("[UpdateCheckerModel] Install failed: \(error.localizedDescription)")
+            #endif
+            state = .error(message: AppLocalization.text("update.error.installFailed"))
+        }
+    }
+
+    private func persistBeforeRelaunch() {
+        NotificationCenter.default.post(name: .appWillRelaunchForUpdate, object: nil)
     }
 
     // MARK: - Force download (Developer Mode §2.5)
@@ -186,4 +190,8 @@ final class UpdateCheckerModel: ObservableObject {
         guard let url = releasePageURL else { return }
         NSWorkspace.shared.open(url)
     }
+}
+
+extension Notification.Name {
+    static let appWillRelaunchForUpdate = Notification.Name("appWillRelaunchForUpdate")
 }

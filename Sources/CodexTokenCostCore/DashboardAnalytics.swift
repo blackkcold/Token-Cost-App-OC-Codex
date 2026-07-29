@@ -208,6 +208,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
         var dateKeys: Set<String> = []
         var totalTokensFromRows: Double = 0
         var totalActualTokens: Double = 0
+        var totalInputTokens: Double = 0
         var totalMessages: Int = 0
         var totalCacheSavedCost: Double = 0
 
@@ -220,6 +221,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
             dateKeys.insert(row.date)
             totalTokensFromRows += row.total
             totalActualTokens += actualTokens
+            totalInputTokens += row.input
             totalMessages += row.msgCount
 
             dailyActual[row.date, default: 0] += actualTokens
@@ -312,7 +314,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
         let totalEstimatedCacheRead = dailyEstimatedCacheRead.values.reduce(0, +)
         let displayedCacheRead = cacheReadTokens + totalEstimatedCacheRead
         let totalCacheTokens = displayedCacheRead + cacheWriteTokens
-        let cacheHitRate = (totalActualTokens + displayedCacheRead) > 0 ? displayedCacheRead / (totalActualTokens + displayedCacheRead) : 0
+        let cacheHitRate = (totalInputTokens + displayedCacheRead) > 0 ? displayedCacheRead / (totalInputTokens + displayedCacheRead) : 0
 
         self.overview = Overview(
             totalTokens: totalTokensFromRows,
@@ -347,8 +349,8 @@ public struct TokenCostDashboardAnalytics: Sendable {
                     let denom = accumulator.input + accumulator.cacheRead + accumulator.estimatedCacheRead
                     cacheRate = denom > 0 ? displayedCacheRead / denom : 0
                 } else {
-                    let totalCache = accumulator.actualTokens + accumulator.cacheRead
-                    cacheRate = totalCache > 0 ? accumulator.cacheRead / totalCache : 0
+                    let denom = accumulator.input + accumulator.cacheRead
+                    cacheRate = denom > 0 ? accumulator.cacheRead / denom : 0
                 }
                 return ProviderCacheRow(
                     key: key,
@@ -819,7 +821,6 @@ public struct TokenCostDashboardAnalytics: Sendable {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter
     }()
 

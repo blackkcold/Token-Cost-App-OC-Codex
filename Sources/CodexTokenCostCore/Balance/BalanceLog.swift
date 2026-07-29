@@ -11,5 +11,6 @@ import OSLog
 enum BalanceLog {
     static let general = Logger(subsystem: "com.token-cost-app.oc-codex", category: "balance")
     static let calculator = Logger(subsystem: "com.token-cost-app.oc-codex", category: "balance.calculator")
+    static let amountCalculator = Logger(subsystem: "com.token-cost-app.oc-codex", category: "balance.amount-calculator")
     static let provider = Logger(subsystem: "com.token-cost-app.oc-codex", category: "balance.provider")
 }

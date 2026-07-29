@@ -22,17 +22,26 @@ jobs:
         id: release_assets
         run: |
           shopt -s nullglob
-          files=(release/${{ github.ref_name }}/Token-Cost-App-OC-Codex-${{ github.ref_name }}-macOS-*.zip)
-          if [[ ${#files[@]} -ne 1 ]]; then
-            echo "Expected exactly one release zip, found ${#files[@]}" >&2
-            printf '%s\n' "${files[@]}" >&2
+          zips=(release/${{ github.ref_name }}/Token-Cost-App-OC-Codex-${{ github.ref_name }}-macOS-*.zip)
+          dmgs=(release/${{ github.ref_name }}/Token-Cost-App-OC-Codex-${{ github.ref_name }}-macOS-*.dmg)
+          if [[ ${#zips[@]} -ne 1 ]]; then
+            echo "Expected exactly one release zip, found ${#zips[@]}" >&2
+            printf '%s\n' "${zips[@]}" >&2
+            exit 1
+          fi
+          if [[ ${#dmgs[@]} -ne 1 ]]; then
+            echo "Expected exactly one release dmg, found ${#dmgs[@]}" >&2
+            printf '%s\n' "${dmgs[@]}" >&2
             exit 1
           fi
 
-          echo "zip_path=${files[0]}" >> "$GITHUB_OUTPUT"
+          echo "zip_path=${zips[0]}" >> "$GITHUB_OUTPUT"
+          echo "dmg_path=${dmgs[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: ${{ steps.release_assets.outputs.zip_path }}
+          files: |
+            ${{ steps.release_assets.outputs.zip_path }}
+            ${{ steps.release_assets.outputs.dmg_path }}

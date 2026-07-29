@@ -14,9 +14,25 @@ public final class BalanceManager: ObservableObject {
     private var consecutiveFailures: Int = 0
     private var checkers: [BalanceChecker] = []
 
+    /// Set by refresh(): true when the timeout sentinel fired.
+    var lastRefreshDidTimeout: Bool = false
+
     public init(configuration: BalanceConfiguration = BalanceConfiguration()) {
         self.configuration = configuration
         rebuildCheckers()
+    }
+
+    /// Test-only: inject mock checkers with optional reduced timeout.
+    init(checkers: [BalanceChecker], configuration: BalanceConfiguration = BalanceConfiguration(), timeoutNanos: UInt64? = nil) {
+        self.configuration = configuration
+        self.checkers = checkers
+        self._testTimeoutNanos = timeoutNanos
+    }
+
+    private var _testTimeoutNanos: UInt64?
+
+    private var effectiveTimeoutNanos: UInt64 {
+        _testTimeoutNanos ?? Self.refreshTimeout
     }
 
     /// Hot-update configuration at runtime (e.g. user toggles DeepSeek).
@@ -26,6 +42,14 @@ public final class BalanceManager: ObservableObject {
 
     /// Maximum time the overall refresh may take before returning partial results.
     private static let refreshTimeout: UInt64 = 45_000_000_000  // 45s
+
+    /// Distinct outcomes for each provider task: timeout, cancellation, and success/failure
+    /// are represented independently so the for-await loop never conflates them.
+    private enum ProviderOutcome: Sendable {
+        case snapshot(BalanceSnapshot)
+        case cancelled
+        case timeout
+    }
 
     public func refresh(force: Bool = false) async {
         guard !isRefreshing else { return }
@@ -45,17 +69,20 @@ public final class BalanceManager: ObservableObject {
 
         let now = Date()
         let currentCheckers = checkers
-
-        // Sentinel + counter: cancel group when all providers done (no 45s wait)
-        // or on timeout. nil = sentinel/cancelled, never a fake snapshot.
         let providerCount = currentCheckers.count
-        let (results, anySucceeded, timedOut): ([BalanceSnapshot], Bool, Bool) = await withTaskGroup(
-            of: BalanceSnapshot?.self,
+        let timeoutNanos = effectiveTimeoutNanos
+
+        let (rawSnapshots, anySucceeded, timedOut): ([BalanceSnapshot], Bool, Bool) = await withTaskGroup(
+            of: ProviderOutcome.self,
             returning: ([BalanceSnapshot], Bool, Bool).self
         ) { group in
             group.addTask {
-                try? await Task.sleep(nanoseconds: Self.refreshTimeout)
-                return nil
+                do {
+                    try await Task.sleep(nanoseconds: timeoutNanos)
+                    return ProviderOutcome.timeout
+                } catch {
+                    return ProviderOutcome.cancelled
+                }
             }
 
             for checker in currentCheckers {
@@ -64,17 +91,20 @@ public final class BalanceManager: ObservableObject {
                         AuthTokenProvider.token(for: checker.providerKind)
                     }.value
                     guard let token = token else {
-                        return BalanceSnapshot.unavailable(
+                        return .snapshot(BalanceSnapshot.unavailable(
                             checker.providerKind,
                             reason: AppLocalization.text("balance.error.noAuthToken")
-                        )
+                        ))
                     }
                     do {
-                        return try await checker.fetch(authToken: token)
+                        return .snapshot(try await checker.fetch(authToken: token))
                     } catch is CancellationError {
-                        return nil
+                        return .cancelled
                     } catch {
-                        return BalanceSnapshot.unavailable(checker.providerKind, reason: error.localizedDescription)
+                        return .snapshot(BalanceSnapshot.unavailable(
+                            checker.providerKind,
+                            reason: error.localizedDescription
+                        ))
                     }
                 }
             }
@@ -82,34 +112,44 @@ public final class BalanceManager: ObservableObject {
             var snapshots: [BalanceSnapshot] = []
             var succeeded = false
             var didTimeout = false
-            var nilCount = 0
-            for await result in group {
-                if let snapshot = result {
+            var completed = 0
+            for await outcome in group {
+                if didTimeout { continue }
+                switch outcome {
+                case .snapshot(let snapshot):
                     if snapshot.isAvailable { succeeded = true }
-                    upsertSnapshot(snapshot, updateRefreshTime: false)
                     snapshots.append(snapshot)
-                } else {
-                    nilCount += 1
-                    if nilCount == 1 {
-                        didTimeout = true
-                        group.cancelAll()
-                    }
+                    completed += 1
+                case .cancelled:
+                    completed += 1
+                case .timeout:
+                    didTimeout = true
+                    group.cancelAll()
                 }
-                if snapshots.count >= providerCount {
+                if completed >= providerCount && !didTimeout {
                     group.cancelAll()
                 }
             }
             return (snapshots, succeeded, didTimeout)
         }
 
-        let sorted = results.sorted { $0.provider.sortOrder < $1.provider.sortOrder }
-        let computed = ConsumptionRateCalculator.compute(current: sorted)
-        ConsumptionRateCalculator.store(computed)
-        snapshots = computed
+        let (amountEnriched, computed, _): ([BalanceSnapshot], [BalanceSnapshot], Set<BalanceProviderKind>) = await Task.detached {
+            let sorted = rawSnapshots.sorted { $0.provider.sortOrder < $1.provider.sortOrder }
+            let kindSet = Set(currentCheckers.map(\.providerKind))
+            let c = ConsumptionRateCalculator.compute(current: sorted)
+            ConsumptionRateCalculator.store(c, activeProviderKinds: kindSet)
+            let ae = AmountConsumptionRateCalculator.compute(current: c)
+            AmountConsumptionRateCalculator.store(ae, activeProviderKinds: kindSet)
+            return (ae, c, kindSet)
+        }.value
+
+        lastRefreshDidTimeout = timedOut
+
+        snapshots = amountEnriched
         lastRefreshTime = now
 
         if timedOut {
-            BalanceLog.general.notice("Balance refresh timed out after 45s, collected \(results.count, privacy: .public)/\(currentCheckers.count, privacy: .public) providers")
+            BalanceLog.general.notice("Balance refresh timed out after 45s, collected \(rawSnapshots.count, privacy: .public)/\(providerCount, privacy: .public) providers")
         }
 
         if let goSnapshot = computed.first(where: { $0.provider == .opencodeGo }),
@@ -155,8 +195,7 @@ public final class BalanceManager: ObservableObject {
 
     /// Upserts a single provider snapshot.
     /// When `updateRefreshTime` is false, `lastRefreshTime` is left untouched —
-    /// used during streaming partial updates in `refresh()` to avoid polluting
-    /// the backoff anchor before all providers have reported.
+    /// useful when injecting snapshots without affecting backoff.
     public func upsertSnapshot(_ snapshot: BalanceSnapshot, updateRefreshTime: Bool) {
         snapshots.removeAll { $0.provider == snapshot.provider }
         snapshots.append(snapshot)

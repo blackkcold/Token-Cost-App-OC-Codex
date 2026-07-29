@@ -76,18 +76,24 @@ struct SecuritySectionView: View {
     }
 
     private func securityDetailRow(icon: String, text: String) -> some View {
-        SettingsControlTile(palette: palette, minHeight: 60) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.caption2)
-                    .foregroundStyle(palette.accentSecondary)
-                    .frame(width: 16)
-                Text(verbatim: text)
-                    .font(.caption2)
-                    .foregroundStyle(palette.subtitle)
-                    .lineLimit(3)
-            }
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption2)
+                .foregroundStyle(palette.accentSecondary)
+                .frame(width: 16)
+            Text(verbatim: text)
+                .font(.caption)
+                .foregroundStyle(palette.subtitle)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsInsetSurface(
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous),
+            palette: palette
+        )
     }
 
     private var sourceLocationsSummary: String {

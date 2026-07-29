@@ -43,6 +43,7 @@ struct BalanceOverviewCard: View {
                                 .font(.caption.weight(.semibold))
                         }
                         .buttonStyle(.borderless)
+                        .help("Expand or collapse balance details")
                     }
                 ),
                 palette: palette
@@ -99,6 +100,10 @@ struct BalanceOverviewCard: View {
         }
     }
 
+    private var displayMode: BalanceDisplayMode {
+        appPreferencesModel.preferences.balanceDisplayMode
+    }
+
     private func balanceRow(_ snapshot: BalanceSnapshot) -> some View {
         let hasQuotaWindows = snapshot.quotaWindows != nil && !(snapshot.quotaWindows?.isEmpty ?? true)
         let hasLegacyWindows = snapshot.primaryWindowUsagePercent != nil
@@ -119,7 +124,8 @@ struct BalanceOverviewCard: View {
                     ForEach(windows) { window in
                         windowProgressBar(
                             label: window.label,
-                            pct: window.usedRatio ?? 0,
+                            usedRatio: window.usedRatio,
+                            remainingRatio: window.remainingRatio,
                             resetAt: window.resetAt,
                             windowSeconds: window.windowSeconds,
                             consumptionRate: window.consumptionRate
@@ -127,13 +133,13 @@ struct BalanceOverviewCard: View {
                     }
                 } else if hasLegacyWindows {
                     if let primary = snapshot.primaryWindowUsagePercent {
-                        windowProgressBar(label: snapshot.primaryWindowLabel ?? "", pct: primary)
+                        windowProgressBar(label: snapshot.primaryWindowLabel ?? "", usedRatio: primary, remainingRatio: nil)
                     }
                     if let secondary = snapshot.secondaryWindowUsagePercent {
-                        windowProgressBar(label: snapshot.secondaryWindowLabel ?? "", pct: secondary)
+                        windowProgressBar(label: snapshot.secondaryWindowLabel ?? "", usedRatio: secondary, remainingRatio: nil)
                     }
                     if let tertiary = snapshot.tertiaryWindowUsagePercent {
-                        windowProgressBar(label: snapshot.tertiaryWindowLabel ?? "", pct: tertiary)
+                        windowProgressBar(label: snapshot.tertiaryWindowLabel ?? "", usedRatio: tertiary, remainingRatio: nil)
                     }
                 } else if showCostOnly {
                     if let cost = snapshot.totalCostUSD {
@@ -149,13 +155,15 @@ struct BalanceOverviewCard: View {
                 } else if showValueEntries {
                     if let entries = snapshot.valueEntries {
                         ForEach(entries) { entry in
-                            HStack(spacing: 6) {
-                                Text(entry.currencyCode ?? "")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(palette.accent)
-                                Text(String(format: "%.2f", entry.amount))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(BalanceMenuBarExtraSupport.amountText(for: entry))
                                     .font(.caption)
                                     .foregroundStyle(palette.title)
+                                if let burnRateText = BalanceMenuBarExtraSupport.burnRateText(for: entry) {
+                                    Text(burnRateText)
+                                        .font(.caption2)
+                                        .foregroundStyle(palette.accent.opacity(0.8))
+                                }
                                 if let granted = entry.grantedAmount {
                                     Text(AppLocalization.format("balance.value.grantedShort", String(format: "%.2f", granted)))
                                         .font(.caption2)
@@ -165,7 +173,7 @@ struct BalanceOverviewCard: View {
                         }
                     }
                 } else if let pct = snapshot.usagePercent {
-                    windowProgressBar(label: nil, pct: pct)
+                    windowProgressBar(label: nil, usedRatio: pct, remainingRatio: nil)
                 }
             }
 
@@ -194,12 +202,26 @@ struct BalanceOverviewCard: View {
 
     private func windowProgressBar(
         label: String?,
-        pct: Double,
+        usedRatio: Double?,
+        remainingRatio: Double?,
         resetAt: Date? = nil,
         windowSeconds: Int? = nil,
         consumptionRate: ConsumptionRate? = nil
     ) -> some View {
-        let color = gradientColor(for: pct < 0.5 ? UsageGradient.low : pct < 0.8 ? .moderate : pct < 0.95 ? .high : .critical)
+        let displayRatioValue: Double
+        if let used = usedRatio {
+            displayRatioValue = BalanceMenuBarExtraSupport.displayRatio(for: used, displayMode: displayMode)
+        } else if let remaining = remainingRatio {
+            displayRatioValue = BalanceMenuBarExtraSupport.displayRatio(for: 1.0 - remaining, displayMode: displayMode)
+        } else {
+            displayRatioValue = 0
+        }
+        let clamped = min(max(displayRatioValue, 0), 1)
+        let color = BalanceMenuBarExtraSupport.quotaColor(
+            forDisplayRatio: clamped,
+            displayMode: displayMode,
+            palette: palette
+        )
         let countdownText: String? = {
             guard let resetAt, windowSeconds != nil else { return nil }
             let remaining = max(0, resetAt.timeIntervalSinceNow)
@@ -236,28 +258,28 @@ struct BalanceOverviewCard: View {
                             .frame(height: 6)
                         RoundedRectangle(cornerRadius: 3, style: .continuous)
                             .fill(color)
-                            .frame(width: geo.size.width * CGFloat(min(pct, 1.0)), height: 6)
+                            .frame(width: geo.size.width * CGFloat(clamped), height: 6)
                     }
                 }
                 .frame(height: 6)
-                Text("\(Int(pct * 100))%")
+                Text(TokenCostFormatters.percent(clamped))
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(palette.subtitle)
-                    .frame(width: 36, alignment: .trailing)
+                    .frame(width: 44, alignment: .trailing)
             }
             HStack(spacing: 8) {
                 if let countdownText {
                     Text(countdownText)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(palette.subtitle.opacity(0.7))
                 }
                 if let rateText {
                     Text(rateText)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(palette.accent.opacity(0.8))
                 } else if showPending {
                     Text(AppLocalization.text("balance.rate.pending"))
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.caption.weight(.medium))
                         .foregroundStyle(palette.subtitle.opacity(0.5))
                 }
             }

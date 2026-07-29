@@ -135,6 +135,11 @@ struct ContentView: View {
                 Task { await balanceManager.refresh() }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .appWillRelaunchForUpdate)) { _ in
+            appPreferencesModel.persistPreferences()
+            openCodeModel.persistSettings()
+            codexModel.persistSettings()
+        }
     }
 
     @ViewBuilder
@@ -202,6 +207,9 @@ struct ContentView: View {
                 Text(AppLocalization.format("update.upToDate", version))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .allowsTightening(true)
             }
 
         case .updateAvailable(let version):
@@ -216,7 +224,7 @@ struct ContentView: View {
                         .background(Capsule().fill(palette.accent.opacity(0.1)))
                         .overlay(Capsule().stroke(palette.accent.opacity(0.2)))
                 }
-                .help("v\(version)")
+                .help(version)
 
                 Button {
                     updateChecker.dismissUpdate()
@@ -250,7 +258,7 @@ struct ContentView: View {
 
         case .downloadComplete:
             Button {
-                updateChecker.openDownloadedApp()
+                updateChecker.installUpdate()
             } label: {
                 Text(AppLocalization.text("update.install"))
                     .font(.caption2.weight(.semibold))

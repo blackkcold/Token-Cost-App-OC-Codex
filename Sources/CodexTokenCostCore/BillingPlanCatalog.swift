@@ -92,22 +92,56 @@ public enum BillingSelectionMode: String, Codable, Sendable {
     case customMonthlyUSD
 }
 
+/// 订阅周期粒度：按日精确折算或按月整体计算
+public enum PeriodGranularity: String, Codable, Sendable, CaseIterable {
+    case day
+    case month
+}
+
+/// 订阅周期快捷预设：选择后自动填充起止日期，不持久化（填充后立即置 nil）
+public enum PeriodPreset: String, Codable, Sendable, CaseIterable {
+    case monthly
+    case quarterly
+    case yearly
+}
+
 public struct BillingPlanSelection: Codable, Equatable, Sendable {
     public var mode: BillingSelectionMode
     public var presetID: String
     public var customMonthlyUSD: Double?
     public var isSubscribed: Bool
+    /// 订阅周期粒度（默认 .month）
+    public var periodGranularity: PeriodGranularity
+    /// 订阅起始日期（nil 表示未设置，回退月费口径）
+    public var periodStart: Date?
+    /// 订阅结束日期（nil 表示未设置，回退月费口径）
+    public var periodEnd: Date?
+    /// 快捷预设（用于 UI 日期填充，持久化以支持跨会话恢复）
+    public var periodPreset: PeriodPreset?
+    /// 是否为此 provider 启用按周期成本跟踪（UI Toggle）。
+    /// 默认 `false`；从旧数据解码时若 `periodStart` 和 `periodEnd` 均已设置，则自动为 `true`。
+    public var hasPeriodTracking: Bool
 
     public init(
         mode: BillingSelectionMode = .preset,
         presetID: String,
         customMonthlyUSD: Double? = nil,
-        isSubscribed: Bool = true
+        isSubscribed: Bool = true,
+        periodGranularity: PeriodGranularity = .month,
+        periodStart: Date? = nil,
+        periodEnd: Date? = nil,
+        periodPreset: PeriodPreset? = nil,
+        hasPeriodTracking: Bool = false
     ) {
         self.mode = mode
         self.presetID = presetID
         self.customMonthlyUSD = customMonthlyUSD
         self.isSubscribed = isSubscribed
+        self.periodGranularity = periodGranularity
+        self.periodStart = periodStart
+        self.periodEnd = periodEnd
+        self.periodPreset = periodPreset
+        self.hasPeriodTracking = hasPeriodTracking
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -115,6 +149,11 @@ public struct BillingPlanSelection: Codable, Equatable, Sendable {
         case presetID = "presetId"
         case customMonthlyUSD = "customMonthlyUsd"
         case isSubscribed
+        case periodGranularity = "period_granularity"
+        case periodStart = "period_start"
+        case periodEnd = "period_end"
+        case periodPreset = "period_preset"
+        case hasPeriodTracking = "period_tracking"
     }
 
     public init(from decoder: Decoder) throws {
@@ -123,6 +162,17 @@ public struct BillingPlanSelection: Codable, Equatable, Sendable {
         self.presetID = try container.decode(String.self, forKey: .presetID)
         self.customMonthlyUSD = try container.decodeIfPresent(Double.self, forKey: .customMonthlyUSD)
         self.isSubscribed = try container.decodeIfPresent(Bool.self, forKey: .isSubscribed) ?? true
+        self.periodGranularity = try container.decodeIfPresent(PeriodGranularity.self, forKey: .periodGranularity) ?? .month
+        self.periodStart = try container.decodeIfPresent(Date.self, forKey: .periodStart)
+        self.periodEnd = try container.decodeIfPresent(Date.self, forKey: .periodEnd)
+        self.periodPreset = try container.decodeIfPresent(PeriodPreset.self, forKey: .periodPreset)
+        if let decodedTracking = try container.decodeIfPresent(Bool.self, forKey: .hasPeriodTracking) {
+            self.hasPeriodTracking = decodedTracking
+        } else if self.periodStart != nil, self.periodEnd != nil {
+            self.hasPeriodTracking = true
+        } else {
+            self.hasPeriodTracking = false
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -131,6 +181,11 @@ public struct BillingPlanSelection: Codable, Equatable, Sendable {
         try container.encode(presetID, forKey: .presetID)
         try container.encodeIfPresent(customMonthlyUSD, forKey: .customMonthlyUSD)
         try container.encode(isSubscribed, forKey: .isSubscribed)
+        try container.encode(periodGranularity, forKey: .periodGranularity)
+        try container.encodeIfPresent(periodStart, forKey: .periodStart)
+        try container.encodeIfPresent(periodEnd, forKey: .periodEnd)
+        try container.encodeIfPresent(periodPreset, forKey: .periodPreset)
+        try container.encode(hasPeriodTracking, forKey: .hasPeriodTracking)
     }
 }
 
@@ -144,6 +199,32 @@ public struct ResolvedBillingPlan: Equatable, Sendable {
     public var isCustom: Bool
     public var isFixedCost: Bool
     public var isSubscribed: Bool
+}
+
+/// Single canonical result for costs across a global reporting date range.
+///
+/// Combines prorated fixed subscription costs and uncovered API usage costs
+/// without double counting: a provider covered by a fixed subscription suppresses
+/// that provider's API usage contribution.
+public struct ReportingCostBreakdown: Equatable, Sendable {
+    public let totalCost: Double
+    /// Per-provider fixed subscription costs (prorated when period dates overlap the reporting range;
+    /// full monthly USD when no period dates are set, for backward compatibility).
+    public let fixedCostByProvider: [BillingProvider: Double]
+    /// Uncovered API usage costs keyed by normalized provider key.
+    public let uncoveredUsageByProviderKey: [String: Double]
+
+    public var hasCost: Bool { totalCost > 0 }
+
+    public init(
+        totalCost: Double,
+        fixedCostByProvider: [BillingProvider: Double] = [:],
+        uncoveredUsageByProviderKey: [String: Double] = [:]
+    ) {
+        self.totalCost = totalCost
+        self.fixedCostByProvider = fixedCostByProvider
+        self.uncoveredUsageByProviderKey = uncoveredUsageByProviderKey
+    }
 }
 
 public enum BillingPlanCatalog {
@@ -599,5 +680,464 @@ public extension AppPreferences {
         }
 
         return hasAnyCost ? total : nil
+    }
+
+    /// 按订阅周期计算单个 provider 的总成本（完整周期金额）。
+    ///
+    /// 算法（包含式日历日：起止日期均计入）：
+    /// - hasPeriodTracking=false / start/end 为 nil / start > end → 回退 monthlyUSD（月费口径）
+    /// - .month 粒度：total = monthlyUSD × (months + inclusiveDays/该月总天数)
+    /// - .day 粒度：total = (monthlyUSD / 30.4375) × inclusiveCalendarDays
+    /// - 同一天 = 1 天（非回退）
+    func periodTotalCost(for provider: BillingProvider) -> Double? {
+        let resolved = resolvedBillingPlan(for: provider)
+        guard resolved.isSubscribed,
+              resolved.isFixedCost,
+              let monthlyUSD = resolved.monthlyUSD,
+              monthlyUSD > 0 else { return nil }
+
+        let selection = billingSelection(for: provider)
+        guard selection.hasPeriodTracking,
+              let start = selection.periodStart,
+              let end = selection.periodEnd else { return monthlyUSD }
+
+        let calendar = Calendar.autoupdatingCurrent
+        guard calendar.startOfDay(for: start) <= calendar.startOfDay(for: end) else { return monthlyUSD }
+
+        let includedDays = Self.inclusiveCalendarDays(from: start, to: end)
+        switch selection.periodGranularity {
+        case .month:
+            let dayStart = calendar.startOfDay(for: start)
+            let dayEnd = calendar.startOfDay(for: end)
+            // Compute date components from start to the day after the included end,
+            // so full calendar-month cycles yield exact whole months without overcount.
+            guard let exclusiveEnd = calendar.date(byAdding: .day, value: 1, to: dayEnd) else {
+                // Conservative fallback when calendar arithmetic fails
+                return (monthlyUSD / 30.4375) * Double(includedDays)
+            }
+            let components = calendar.dateComponents([.month, .day], from: dayStart, to: exclusiveEnd)
+            let months = Double(components.month ?? 0)
+            let days = Double(components.day ?? 0)
+            let daysInEndMonth: Double
+            if let endMonthRange = calendar.range(of: .day, in: .month, for: dayEnd) {
+                daysInEndMonth = Double(endMonthRange.count)
+            } else {
+                daysInEndMonth = 30
+            }
+            return monthlyUSD * (months + days / daysInEndMonth)
+        case .day:
+            return (monthlyUSD / 30.4375) * Double(includedDays)
+        }
+    }
+
+    /// 所有 provider 的订阅周期总成本之和（仅含已设置有效周期的 provider）。
+    func combinedPeriodCost() -> Double? {
+        var total: Double = 0
+        var hasAnyCost = false
+        for provider in BillingProvider.allCases {
+            guard let cost = periodTotalCost(for: provider), cost > 0 else { continue }
+            total += cost
+            hasAnyCost = true
+        }
+        return hasAnyCost ? total : nil
+    }
+
+    /// 总成本：通过持久化的 `reportingRangeMode` 解析范围，委托给规范 `reportingCostBreakdown`。
+    /// 仅当 payload 无法形成有效范围时回退 `combinedMonthlyCost`。
+    /// `periodTotalCostEnabled` 不再影响规范总成本语义；仅作为旧字段保留以供兼容解码。
+    func combinedTotalCost(payload: DashboardPayload) -> Double? {
+        if let breakdown = reportingCostBreakdown(
+            payload: payload,
+            mode: reportingRangeMode,
+            customBounds: reportingRangeCustomBounds
+        ) {
+            return breakdown.totalCost
+        }
+        return combinedMonthlyCost(payload: payload)
+    }
+
+    // MARK: - Unified Reporting-Range Cost Model
+
+    /// Derives an inclusive whole-day reporting range from payload raw-data date strings.
+    ///
+    /// Returns `(startOfMinDay, endOfMaxDay)` adjusting via `Calendar.autoupdatingCurrent`,
+    /// or `nil` when rawData is empty or dates are unparseable.
+    static func reportingRange(from payload: DashboardPayload) -> (start: Date, end: Date)? {
+        let dates = payload.rawData.compactMap { row -> Date? in
+            let trimmed = row.date.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            if trimmed.count <= 10 {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                // No explicit timeZone: local-calendar semantics match SQLite localtime aggregation
+                return formatter.date(from: trimmed)
+            }
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withFullDate, .withDashSeparatorInDate]
+            return iso.date(from: trimmed)
+        }
+        guard let minDate = dates.min(), let maxDate = dates.max() else { return nil }
+        let calendar = Calendar.autoupdatingCurrent
+        let dayStart = calendar.startOfDay(for: minDate)
+        guard let dayEnd = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: calendar.startOfDay(for: maxDate)) else {
+            return nil
+        }
+        return (dayStart, dayEnd)
+    }
+
+    /// Resolves the effective reporting date range for the given mode and payload.
+    ///
+    /// - `.allAvailable`: full range derived from payload rawData dates (backward compat default)
+    /// - `.currentMonth`: start of current calendar month → now
+    /// - `.last30Days`: 30 days ago → now
+    /// - `.custom`: uses `ReportingRangeCustomBounds`; falls back to `.allAvailable` when bounds are missing or invalid
+    /// Returns `nil` only when the payload has no usable dates and the mode is `.allAvailable`.
+    static func resolveReportingRange(
+        mode: ReportingRangeMode,
+        customBounds: ReportingRangeCustomBounds,
+        payload: DashboardPayload
+    ) -> (start: Date, end: Date)? {
+        let calendar = Calendar.autoupdatingCurrent
+        let now = Date()
+
+        func dayRange(from startDate: Date, to endDate: Date) -> (start: Date, end: Date)? {
+            let s = calendar.startOfDay(for: startDate)
+            guard let e = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: calendar.startOfDay(for: endDate)) else {
+                return nil
+            }
+            guard s < e else { return nil }
+            return (s, e)
+        }
+
+        switch mode {
+        case .allAvailable:
+            return reportingRange(from: payload)
+
+        case .currentMonth:
+            guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) else {
+                return reportingRange(from: payload)
+            }
+            return dayRange(from: monthStart, to: now)
+
+        case .last30Days:
+            guard let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: now) else {
+                return reportingRange(from: payload)
+            }
+            return dayRange(from: thirtyDaysAgo, to: now)
+
+        case .custom:
+            guard let cs = customBounds.start,
+                  let ce = customBounds.end,
+                  cs < ce else {
+                return reportingRange(from: payload)
+            }
+            return dayRange(from: cs, to: ce)
+        }
+    }
+
+    /// Returns per-provider API usage costs, filtered to raw-data rows within the reporting range.
+    private static func filteredProviderUsageCosts(
+        payload: DashboardPayload,
+        reportingStart: Date,
+        reportingEnd: Date
+    ) -> [String: (raw: Double, synthetic: Double)] {
+        let calendar = Calendar.autoupdatingCurrent
+        let dayStart = calendar.startOfDay(for: reportingStart)
+        let dayEnd = calendar.startOfDay(for: reportingEnd)
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+
+        let filteredRows = payload.rawData.filter { row in
+            let trimmed = row.date.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return false }
+            guard let rowDate = dateFormatter.date(from: trimmed) ?? {
+                if trimmed.count > 10 {
+                    let iso = ISO8601DateFormatter()
+                    iso.formatOptions = [.withFullDate, .withDashSeparatorInDate]
+                    return iso.date(from: trimmed)
+                }
+                return nil
+            }() else { return false }
+            let rowDay = calendar.startOfDay(for: rowDate)
+            return rowDay >= dayStart && rowDay <= dayEnd
+        }
+
+        let filteredPayload = DashboardPayload(
+            summary: payload.summary,
+            dailyTotals: payload.dailyTotals,
+            modelTotals: payload.modelTotals,
+            providerCosts: payload.providerCosts,
+            providerTotals: payload.providerTotals,
+            rawData: filteredRows
+        )
+        return TokenCostDashboardAnalytics.providerUsageCosts(payload: filteredPayload)
+    }
+
+    /// Computes the number of whole calendar days between two dates, counting both
+    /// the start and end dates as included days.
+    ///
+    /// Uses `Calendar.autoupdatingCurrent` for day boundaries.
+    /// Returns 1 for same-day intervals; 0 only when `start > end`.
+    private static func inclusiveCalendarDays(from start: Date, to end: Date) -> Int {
+        let calendar = Calendar.autoupdatingCurrent
+        let s = calendar.startOfDay(for: start)
+        let e = calendar.startOfDay(for: end)
+        guard s <= e else { return 0 }
+        let days = calendar.dateComponents([.day], from: s, to: e).day ?? 0
+        return days + 1
+    }
+
+    /// Computes the number of whole days a subscription period overlaps with the reporting range,
+    /// counting both the first and last overlapping days as included calendar days.
+    ///
+    /// Uses `Calendar.autoupdatingCurrent` for day boundaries.
+    private static func overlappingDays(
+        periodStart: Date, periodEnd: Date,
+        reportingStart: Date, reportingEnd: Date
+    ) -> Int {
+        let calendar = Calendar.autoupdatingCurrent
+        let overlapStart = max(periodStart, reportingStart)
+        let overlapEnd = min(periodEnd, reportingEnd)
+        guard calendar.startOfDay(for: overlapStart) <= calendar.startOfDay(for: overlapEnd) else { return 0 }
+        return Self.inclusiveCalendarDays(from: overlapStart, to: overlapEnd)
+    }
+
+    /// Single canonical cost breakdown for a global reporting date range.
+    ///
+    /// Phase 1: Fixed subscriptions prorated when `hasPeriodTracking` is enabled
+    /// and the subscription period overlaps the reporting range (otherwise full monthly fallback).
+    /// Phase 2: Uncovered API usage costs filtered to rawData rows whose date falls within
+    /// the reporting range (`dayStart…dayEnd` inclusive whole-day).
+    /// No double counting: a provider with a tracked fixed subscription suppresses its API usage.
+    func reportingCostBreakdown(
+        payload: DashboardPayload,
+        reportingStart: Date,
+        reportingEnd: Date
+    ) -> ReportingCostBreakdown {
+        var total: Double = 0
+        var fixedCostByProvider: [BillingProvider: Double] = [:]
+        var uncoveredUsageByProviderKey: [String: Double] = [:]
+        var coveredRawKeys: Set<String> = []
+
+        let calendar = Calendar.autoupdatingCurrent
+        let reportingDayStart = calendar.startOfDay(for: reportingStart)
+
+        func addCost(_ cost: Double) {
+            guard cost.isFinite, cost > 0 else { return }
+            total += cost
+        }
+
+        // Phase 1: Fixed subscriptions — canonical per-provider cycle allocation
+        for provider in BillingProvider.allCases {
+            let resolved = resolvedBillingPlan(for: provider)
+            guard resolved.isSubscribed,
+                  resolved.isFixedCost,
+                  let monthlyUSD = resolved.monthlyUSD,
+                  monthlyUSD > 0
+            else { continue }
+
+            let selection = billingSelection(for: provider)
+            let cost: Double
+            if selection.hasPeriodTracking,
+               let pStart = selection.periodStart,
+               let pEnd = selection.periodEnd,
+               calendar.startOfDay(for: pStart) <= calendar.startOfDay(for: pEnd) {
+                let cycleTotalCost = periodTotalCost(for: provider) ?? monthlyUSD
+                let cycleIncludedDays = Self.inclusiveCalendarDays(from: pStart, to: pEnd)
+                let overlapDays = Self.overlappingDays(
+                    periodStart: pStart, periodEnd: pEnd,
+                    reportingStart: reportingDayStart, reportingEnd: reportingEnd
+                )
+                if overlapDays > 0, cycleIncludedDays > 0 {
+                    cost = cycleTotalCost * Double(overlapDays) / Double(cycleIncludedDays)
+                } else {
+                    cost = 0
+                }
+            } else {
+                cost = monthlyUSD
+            }
+            addCost(cost)
+            if cost > 0 {
+                fixedCostByProvider[provider] = cost
+                coveredRawKeys.insert(provider.rawValue.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))
+                coveredRawKeys.insert(provider.legacySubscriptionKey.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
+
+        // Phase 2: Uncovered API usage (filtered to reporting range)
+        let usageCosts = Self.filteredProviderUsageCosts(
+            payload: payload,
+            reportingStart: reportingDayStart,
+            reportingEnd: reportingEnd
+        )
+        for (rawKey, (raw, synthetic)) in usageCosts {
+            let normalized = rawKey.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !coveredRawKeys.contains(normalized) else { continue }
+            let cost = synthetic > 0 ? synthetic : raw
+            guard cost.isFinite, cost > 0 else { continue }
+            total += cost
+            uncoveredUsageByProviderKey[rawKey] = cost
+        }
+
+        return ReportingCostBreakdown(
+            totalCost: total,
+            fixedCostByProvider: fixedCostByProvider,
+            uncoveredUsageByProviderKey: uncoveredUsageByProviderKey
+        )
+    }
+
+    /// Convenience wrapper that resolves the reporting range from the persisted mode
+    /// and custom bounds, then delegates to `reportingCostBreakdown(payload:reportingStart:reportingEnd:)`.
+    func reportingCostBreakdown(
+        payload: DashboardPayload,
+        mode: ReportingRangeMode,
+        customBounds: ReportingRangeCustomBounds = ReportingRangeCustomBounds()
+    ) -> ReportingCostBreakdown? {
+        guard let range = Self.resolveReportingRange(
+            mode: mode, customBounds: customBounds, payload: payload
+        ) else { return nil }
+        return reportingCostBreakdown(
+            payload: payload,
+            reportingStart: range.start,
+            reportingEnd: range.end
+        )
+    }
+
+    /// Produces a reporting-range-filtered DashboardPayload with recalculated
+    /// aggregate fields and a billing-override map derived from the canonical
+    /// ReportingCostBreakdown.fixedCostByProvider for the same range.
+    ///
+    /// Filters `rawData` to rows whose date falls within the resolved reporting
+    /// range (inclusive whole-day boundaries) and rebuilds `summary`,
+    /// `dailyTotals`, `modelTotals`, `providerCosts`, and `providerTotals`
+    /// from the remaining rows.
+    ///
+    /// The override map includes both raw provider identities and legacy
+    /// subscription keys for providers that contribute fixed costs in the
+    /// reporting range.
+    ///
+    /// - Returns: `(filteredPayload, overrides)` or `nil` when the reporting
+    ///   range cannot be resolved (e.g. empty payload).
+    func filteredPayloadWithReportingOverrides(
+        payload: DashboardPayload,
+        mode: ReportingRangeMode,
+        customBounds: ReportingRangeCustomBounds = ReportingRangeCustomBounds()
+    ) -> (payload: DashboardPayload, overrides: [String: Double])? {
+        guard let range = Self.resolveReportingRange(
+            mode: mode, customBounds: customBounds, payload: payload
+        ) else { return nil }
+
+        let calendar = Calendar.autoupdatingCurrent
+        let dayStart = calendar.startOfDay(for: range.start)
+        let dayEnd = calendar.startOfDay(for: range.end)
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+
+        func parseDate(_ trimmed: String) -> Date? {
+            if let d = dateFormatter.date(from: trimmed) { return d }
+            if trimmed.count > 10 {
+                let iso = ISO8601DateFormatter()
+                iso.formatOptions = [.withFullDate, .withDashSeparatorInDate]
+                return iso.date(from: trimmed)
+            }
+            return nil
+        }
+
+        let filteredRows = payload.rawData.filter { row in
+            let trimmed = row.date.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let rowDate = parseDate(trimmed) else { return false }
+            let rowDay = calendar.startOfDay(for: rowDate)
+            return rowDay >= dayStart && rowDay <= dayEnd
+        }
+
+        // Rebuild aggregate fields from filtered rows
+        let sortedDates = Array(Set(filteredRows.map { $0.date })).sorted()
+        var dailyTotals: [String: Double] = [:]
+        var modelTotals: [String: Double] = [:]
+        var providerCosts: [String: Double] = [:]
+        var providerTotals: [String: DashboardPayload.ProviderTotals] = [:]
+
+        var totalTokens: Double = 0
+        var totalActualTokens: Double = 0
+        var totalCacheReadTokens: Double = 0
+        var totalCacheWriteTokens: Double = 0
+        var totalCost: Double = 0
+        var totalMessages: Int = 0
+
+        for row in filteredRows {
+            totalTokens += row.total
+            let actual = row.input + row.output + row.reasoning
+            totalActualTokens += actual
+            totalCacheReadTokens += row.cacheRead
+            totalCacheWriteTokens += row.cacheWrite
+            totalCost += row.cost
+            totalMessages += row.msgCount
+
+            dailyTotals[row.date, default: 0] += row.total
+            modelTotals[row.model, default: 0] += row.total
+            providerCosts[row.provider, default: 0] += row.cost
+
+            let provKey = row.provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            var pt = providerTotals[provKey] ?? DashboardPayload.ProviderTotals(
+                input: 0, output: 0,
+                cacheRead: 0, cacheWrite: 0,
+                cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                total: 0, actualTokens: 0, cost: 0, messages: 0
+            )
+            pt.input += row.input
+            pt.output += row.output
+            pt.cacheRead += row.cacheRead
+            pt.cacheWrite += row.cacheWrite
+            pt.cacheWriteMissingCount += row.cacheWriteMissingCount
+            pt.cacheWriteReportedCount += row.cacheWriteReportedCount
+            pt.total += row.total
+            pt.actualTokens += actual
+            pt.cost += row.cost
+            pt.messages += row.msgCount
+            providerTotals[provKey] = pt
+        }
+
+        let filteredPayload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: totalTokens,
+                totalActualTokens: totalActualTokens,
+                totalCacheReadTokens: totalCacheReadTokens,
+                totalCacheWriteTokens: totalCacheWriteTokens,
+                totalCacheTokens: totalCacheReadTokens + totalCacheWriteTokens,
+                totalCost: totalCost,
+                totalMessages: totalMessages,
+                activeDays: sortedDates.count,
+                dateRange: DashboardPayload.DateRange(
+                    start: sortedDates.first,
+                    end: sortedDates.last
+                ),
+                updatedAt: payload.summary.updatedAt
+            ),
+            dailyTotals: dailyTotals,
+            modelTotals: modelTotals,
+            providerCosts: providerCosts,
+            providerTotals: providerTotals,
+            rawData: filteredRows
+        )
+
+        let breakdown = reportingCostBreakdown(
+            payload: payload,
+            reportingStart: range.start,
+            reportingEnd: range.end
+        )
+
+        var overrides: [String: Double] = [:]
+        for (provider, cost) in breakdown.fixedCostByProvider where cost > 0 {
+            overrides[provider.rawValue] = cost
+            overrides[provider.legacySubscriptionKey] = cost
+        }
+
+        return (filteredPayload, overrides)
     }
 }
