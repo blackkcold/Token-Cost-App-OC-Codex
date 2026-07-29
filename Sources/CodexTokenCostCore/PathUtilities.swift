@@ -35,8 +35,28 @@ public enum TokenCostPathUtilities {
         "/Library", "/private", "/.Trash"
     ]
 
+    private static var sensitiveScanRoots: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home.appendingPathComponent(".ssh", isDirectory: true),
+            home.appendingPathComponent(".gnupg", isDirectory: true),
+            home.appendingPathComponent(".aws", isDirectory: true),
+            home.appendingPathComponent(".docker", isDirectory: true),
+            home.appendingPathComponent(".kube", isDirectory: true),
+            home.appendingPathComponent("Library/Keychains", isDirectory: true),
+            home.appendingPathComponent("Library/Application Support/Google/Chrome", isDirectory: true),
+            home.appendingPathComponent("Library/Application Support/Microsoft Edge", isDirectory: true),
+            home.appendingPathComponent("Library/Application Support/BraveSoftware", isDirectory: true),
+            home.appendingPathComponent("Library/Application Support/Arc", isDirectory: true)
+        ]
+    }
+
     /// Returns `true` when the URL's path is not one of the forbidden scan roots.
     public static func isSafeScanRoot(_ url: URL) -> Bool {
-        !forbiddenScanRoots.contains(url.path)
+        let canonical = canonicalURL(url)
+        guard !forbiddenScanRoots.contains(canonical.path) else {
+            return false
+        }
+        return !sensitiveScanRoots.contains { isDescendant(canonical, of: $0) }
     }
 }

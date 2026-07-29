@@ -418,8 +418,6 @@ struct BalanceFloatingPanelView: View {
             .contentShape(Circle())
         }
         .buttonStyle(.liquidGlass)
-        .focusable(false)
-        .focusEffectDisabled()
         .disabled(isBusy)
         .accessibilityLabel(Text(accessibilityLabel))
         .accessibilityValue(Text(accessibilityValue))

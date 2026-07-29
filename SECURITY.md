@@ -40,12 +40,12 @@
 - 本地化资源只读加载，不会向网络或外部服务传输文案
 - 内置计费文档只从 app bundle 资源读取，不开放任意本地文件路径，也不联网更新价格
 - 不收集、不上传任何使用数据
-- 余额监控功能（v0.1.2+）默认关闭 (`balanceEnabled=false`)，维持纯本地承诺。开启后通过 HTTPS 直接调用各 Provider 官方 API 端点（api.opencode.ai、chatgpt.com 等）获取实时余额；API key 从本地 auth.json 临时读取至内存，30 秒后清除，不持久化到磁盘或日志；所有网络请求使用 ephemeral URLSession，不经过第三方服务器；余额快照仅驻留内存，不写入任何本地文件
-- OpenCode Go 配额监控的 authCookie 凭证使用 macOS Keychain (`Security.framework`) 加密存储（`kSecClassGenericPassword` + `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`），不写入明文 JSON 配置文件。workspaceID 为非敏感标识符，仍可在 `AppPreferences` 中保留一份兼容副本，并在用户保存时同步写入 Keychain 供运行时读取；仅当用户在设置中显式开启“允许从环境变量读取凭证”后，运行时才允许读取 `OPENCODE_GO_WORKSPACE_ID` / `OPENCODE_GO_AUTH_COOKIE`
-- 浏览器凭证自动导入功能（v0.5.1+）仅读取 Edge / Chrome / Brave / Arc 中 `opencode.ai` 域名的 Cookie 和浏览记录；解密操作通过 Chromium 标准 AES-128-CBC + PBKDF2-SHA1 链路在本地完成，用户需在弹窗中明确确认后才执行；解密的 Cookie 只驻留一次 API 调用的内存生命周期，不写入日志、文件或 UserDefaults；浏览器数据库以 `SQLITE_OPEN_READONLY` + 临时文件副本方式访问，操作完成后自动清理
-- 凭证自动引导（v1.0.0+）：启动时自动从浏览器解密 OpenCode Go 和 Ollama 凭证（无需用户确认），最多重试 3 次（每次间隔 1 秒）；成功后凭证缓存在内存中供整个 session 使用，并 best-effort 写入 Keychain（写入不触发授权弹窗）；3 次失败后回退读取 Keychain 已有凭证，若 Keychain 也无凭证则报错误提示并写入 OSLog 日志。用户可在设置中将凭证来源模式切换为「仅从 Keychain 读取」以完全禁用启动时浏览器解密。切换模式时清除内存缓存，下次刷新时按新模式重新获取凭证
-- 版本更新检查功能（v0.5.0+）仅向 GitHub 公开 API (`api.github.com/repos/blackkcold/Token-Cost-App-OC-Codex/releases/latest`) 发起匿名 GET 请求获取最新 Release 元数据，不携带认证凭据、不收集不上传任何用户数据；下载的 `.zip` 文件经大小与 Content-Length 交叉校验后存放于本地 `Application Support` 沙箱内的 `updates/` 目录，不解压后自动运行；检查频率缓存为每 24 小时一次（启动自动），用户可通过工具栏按钮手动触发即时检查（忽略 24h 缓存），防止 API 限流
-- 更新包完整性校验（v0.6.0+）：ditto 解压后的 `.app` bundle 通过 `codesign --verify` 验证签名完整性，防止中间人篡改
+- 余额监控功能默认关闭 (`balanceEnabled=false`)。开启后通过 HTTPS 直接调用各 Provider 官方端点；API key 从已有本地 auth 文件按需读取，浏览器 Cookie 优先从内存缓存读取；所有网络请求使用 ephemeral URLSession，不经过第三方服务器，余额快照仅驻留内存。
+- OpenCode Go 与 Ollama Cookie 写入 App 专用目录中的 AES-256-GCM 加密文件；随机主密钥与密文分别以 `0600` 权限保存，目录权限为 `0700`。该方案避免日常访问 App 自身 Keychain 项目，但无法防御以同一 macOS 用户身份运行且已获得文件读取权限的恶意进程。
+- 浏览器凭证自动导入仅读取 Edge / Chrome / Brave / Arc 中目标域名的 Cookie/History 数据库。浏览器 Safe Storage 查询使用“禁止认证 UI”模式，无法静默读取时直接跳过，不触发系统授权弹窗；SQLite 副本只读打开并在操作后清理。
+- 凭证自动引导：余额监控启用后先验证 App 的本地加密缓存；缓存有效时不读取浏览器。缓存无效或缺失时，按浏览器/Profile 顺序逐个验证候选 Cookie，认证失败才继续下一项；网络不可用时保留本地缓存。成功候选写入内存与本地加密缓存；全部耗尽时 UI 显示未找到 Cookie，OSLog 只记录来源与失败类别，不记录 Cookie、密钥或完整路径。
+- 版本更新检查仅匿名读取 GitHub 公开 Release API。自动安装要求 Release 同时提供 Ed25519 签名 manifest；客户端先验证版本、Bundle ID、架构、文件名、长度和 SHA-256，再以流式方式下载到权限受限 staging 目录，限制最大体积，任何失败都会清理临时产物。
+- 更新包完整性校验：签名 manifest 保护 zip 内容，解压后的唯一 `.app` 仍通过 `codesign --verify --deep --strict` 验证；缺少 manifest 的历史 Release 不进入自动安装流程。
 - 浏览器临时文件隔离（v0.6.0+）：Cookie/History SQLite 副本从 `/tmp` 迁移至沙箱专用子目录，权限 0700，操作完成后自动清理
 - 路径穿越加固（v0.6.0+）：`SafeFileStore.relativeURL` 增加 `..` 路径组件早期拒绝
 - Keychain 写入校验（v0.6.0+）：`SecItemDelete` 返回值检查，防止旧凭证残留
@@ -56,7 +56,7 @@
 - Release 日志净化（v0.6.0+）：`UpdateChecker` 中所有文件路径/状态输出仅 DEBUG 构建可见
 - Keychain 静默读取（v0.6.0+）：`SecItemCopyMatching` 使用 `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，已有"Always Allow"授权静默返回，无授权不弹窗；`discoverCredentials()` 添加内存缓存避免同 session 重复 Keychain 访问；自动刷新链路只读凭证，不自动写入 Keychain，不触发浏览器 Cookie 导入
 - Keychain 设备锁定（v0.6.0+）：`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`，凭证不跨设备 iCloud 同步
-- Ollama Cloud 用量监控：余额监控系统的 Provider 扩展（门控在开发者模式下），Cookie 通过用户主动从浏览器导入或手动输入后存入系统 Keychain（file-based domain，与 OpenCode Go 凭证使用同一 Keychain 域），通过 HTTPS 访问 `ollama.com/settings` 解析 HTML 获取用量百分比。该功能属于余额监控系统的 Provider 扩展（与 OpenCode Go / Codex / OpenCode Zen / DeepSeek 同层），不是开发者模式本地只读能力，不受开发者模式网络禁令约束；开发者模式 gate 仅控制该 Provider 在 UI 中的可见性。使用 ephemeral URLSession，Cookie 不持久化到磁盘、不写入日志、不上传第三方服务；旧版 `~/.config/ollama-quota/cookie` 文件回退已移除；`saveOllamaCookie` 返回 `Bool` 确认写入结果，UI 根据返回值显示保存状态。
+- Ollama Cloud 用量监控：Cookie 从内存缓存读取，并可由本地 AES-256-GCM 加密缓存或经过验证的浏览器候选补充；通过 ephemeral URLSession 访问 `ollama.com/settings`，不写入日志、不上传第三方服务。旧版明文 Cookie 文件回退已移除。
 
 ## 开发者模式安全边界（v0.9.0+）
 

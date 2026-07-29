@@ -19,7 +19,7 @@ struct DeveloperModeDocView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .navigationTitle(Text(verbatim: "\u{1F527} \(AppLocalization.text("developerMode.doc.title"))"))
+            .navigationTitle(AppLocalization.text("developerMode.doc.title"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(AppLocalization.text("settings.action.close")) {
@@ -128,8 +128,8 @@ struct DeveloperModeDocView: View {
 
             featureRow(
                 icon: "cloud",
-                title: "Ollama Cloud 用量追踪",
-                description: "通过浏览器自动导入或手动输入 Cookie，在 Keychain 安全存储后用 HTTPS 查询 Ollama Cloud 余额与用量。",
+                title: AppLocalization.text("settings.developerMode.ollama.title"),
+                description: AppLocalization.text("developerMode.doc.ollamaDesc"),
                 status: .available
             )
 

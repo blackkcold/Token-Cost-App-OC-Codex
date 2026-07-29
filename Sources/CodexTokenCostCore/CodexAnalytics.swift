@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public enum CodexSessionSortField: String, CaseIterable, Identifiable, Codable, Sendable {
     case updatedAt
@@ -42,11 +43,14 @@ public struct CodexDailyTrendPoint: Identifiable, Sendable {
 public enum CodexDashboardAnalytics {
     public static func dailyTrendPoints(from payload: CodexDashboardPayload) -> [CodexDailyTrendPoint] {
         var groupedSessions: [Date: [CodexSessionSummary]] = [:]
+        let calendar = calendar()
+        let labelFormatter = dayLabelFormatter()
 
         for session in payload.sessions {
-            guard let bucketDate = dayBucketDate(for: session.updatedAt) else {
+            guard let parsedDate = date(from: session.updatedAt) else {
                 continue
             }
+            let bucketDate = calendar.startOfDay(for: parsedDate)
             groupedSessions[bucketDate, default: []].append(session)
         }
 
@@ -54,7 +58,7 @@ public enum CodexDashboardAnalytics {
             let sessions = groupedSessions[date, default: []]
             return CodexDailyTrendPoint(
                 date: date,
-                dateString: dayLabelFormatter().string(from: date),
+                dateString: labelFormatter.string(from: date),
                 sessionCount: sessions.count,
                 actualTokens: sessions.reduce(0) { $0 + $1.actualTokens },
                 inputTokens: sessions.reduce(0) { $0 + $1.usage.inputTokens },
@@ -101,10 +105,10 @@ public enum CodexDashboardAnalytics {
             return nil
         }
 
-        for formatter in isoDateFormatters() {
-            if let date = formatter.date(from: trimmed) {
-                return date
-            }
+        if let parsed = isoFormatterLock.withLock({
+            fractionalISOFormatter.date(from: trimmed) ?? standardISOFormatter.date(from: trimmed)
+        }) {
+            return parsed
         }
 
         let dayPrefix = String(trimmed.prefix(10))
@@ -174,13 +178,6 @@ public enum CodexDashboardAnalytics {
         return lhs.sessionId < rhs.sessionId
     }
 
-    private static func dayBucketDate(for updatedAt: String) -> Date? {
-        guard let date = date(from: updatedAt) else {
-            return nil
-        }
-        return calendar().startOfDay(for: date)
-    }
-
     private static func calendar() -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US_POSIX")
@@ -215,13 +212,15 @@ public enum CodexDashboardAnalytics {
         return formatter
     }
 
-    private static func isoDateFormatters() -> [ISO8601DateFormatter] {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        let standard = ISO8601DateFormatter()
-        standard.formatOptions = [.withInternetDateTime]
-
-        return [fractional, standard]
-    }
+    private static let isoFormatterLock = OSAllocatedUnfairLock()
+    nonisolated(unsafe) private static let fractionalISOFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    nonisolated(unsafe) private static let standardISOFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 }

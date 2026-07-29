@@ -24,8 +24,8 @@ struct TokenTrendRangePicker: View {
 
     var body: some View {
         Picker("", selection: $selection) {
-            Text("7 日").tag(7)
-            Text("30 日").tag(30)
+            Text(AppLocalization.text("trend.range.7days")).tag(7)
+            Text(AppLocalization.text("trend.range.30days")).tag(30)
         }
         .pickerStyle(.segmented)
         .fixedSize(horizontal: true, vertical: false)

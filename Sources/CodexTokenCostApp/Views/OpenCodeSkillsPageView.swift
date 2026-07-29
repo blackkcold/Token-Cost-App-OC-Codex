@@ -117,7 +117,10 @@ struct OpenCodeSkillsPageView: View {
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(.secondary)
-                    }.buttonStyle(.plain).help("Clear search")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text(AppLocalization.text("skills.action.clearSearch")))
+                    .help(AppLocalization.text("skills.action.clearSearch"))
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 4)
@@ -295,7 +298,7 @@ struct OpenCodeSkillsPageView: View {
                         .foregroundStyle(palette.accent)
                     }
                     .buttonStyle(.plain)
-                    .help("Back to skills overview")
+                    .help(AppLocalization.text("skills.action.backToOverview"))
                     statusDot(skill.manifest.state)
                     Text(verbatim: skill.name).font(.title3.weight(.semibold))
                     Spacer()

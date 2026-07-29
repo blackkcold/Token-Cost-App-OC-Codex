@@ -18,7 +18,7 @@ final class UpdateCheckerModel: ObservableObject {
     @Published var latestVersion: String = ""
 
     private var releasePageURL: URL?
-    private var releaseAssetURL: URL?
+    private var pendingRelease: GitHubRelease?
     private var checkTask: Task<Void, Never>?
 
     var errorMessage: String {
@@ -69,10 +69,8 @@ final class UpdateCheckerModel: ObservableObject {
     
                 if UpdateChecker.isUpdateAvailable(latestVersion: release.tagName) {
                     self.latestVersion = release.tagName
+                    self.pendingRelease = release
                     self.releasePageURL = URL(string: release.htmlUrl)
-                    if let zipAsset = UpdateChecker.findZipAsset(in: release) {
-                        self.releaseAssetURL = URL(string: zipAsset.browserDownloadUrl)
-                    }
                     self.state = .updateAvailable(version: release.tagName)
                 } else {
                     self.state = .upToDate(version: UpdateChecker.currentVersion)
@@ -97,17 +95,24 @@ final class UpdateCheckerModel: ObservableObject {
     }
 
     func startDownload() {
-        guard let url = releaseAssetURL else {
-            state = .error(message: AppLocalization.text("update.error.noDownloadUrl"))
-            return
-        }
-
         state = .downloading(progress: 0)
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let _ = try await UpdateChecker.downloadUpdate(from: url) { progress in
+                let release: GitHubRelease?
+                if let pendingRelease = self.pendingRelease {
+                    release = pendingRelease
+                } else {
+                    release = try await UpdateChecker.checkLatestRelease()
+                }
+                guard let release else {
+                    throw UpdateError.noReleaseAsset
+                }
+                self.pendingRelease = release
+                self.releasePageURL = URL(string: release.htmlUrl)
+                let verifiedUpdate = try await UpdateChecker.prepareVerifiedUpdate(from: release)
+                let _ = try await UpdateChecker.downloadUpdate(verifiedUpdate) { progress in
                     Task { @MainActor [weak self] in
                         self?.state = .downloading(progress: progress)
                     }
@@ -169,10 +174,9 @@ final class UpdateCheckerModel: ObservableObject {
                 }
 
                 self.latestVersion = release.tagName
+                self.pendingRelease = release
                 self.releasePageURL = URL(string: release.htmlUrl)
-                if let zipAsset = UpdateChecker.findZipAsset(in: release) {
-                    self.releaseAssetURL = URL(string: zipAsset.browserDownloadUrl)
-                } else {
+                if UpdateChecker.findZipAsset(in: release) == nil || UpdateChecker.findManifestAsset(in: release) == nil {
                     self.state = .error(message: AppLocalization.text("settings.developerMode.forceUpdate.noAsset"))
                     return
                 }

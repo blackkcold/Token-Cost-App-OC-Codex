@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.1)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.3)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
@@ -13,7 +13,23 @@
 
 A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
 
-> **Latest**: [v1.0.1](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.1) — Ollama Cloud cache read estimation, balance refresh optimization, Window scene simplification
+> **Latest**: [v1.0.3](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.3) — Credential bootstrap refactor, Ed25519 signed update manifest, BalanceManager timeout sentinel race fix
+
+### What's New in v1.0.3
+
+- **Credential bootstrap refactor** — `CredentialBootstrapService` now validates the encrypted local cache first, then checks browser/profile candidates in deterministic order until a valid credential is found. Browser keychain reads use `Security.framework` with `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`, never triggering system authorization prompts.
+- **Ed25519 signed update manifest** — `UpdateChecker` now requires a signed `.update-manifest.json` for auto-install; verifies version, Bundle ID, architecture, file name, size, SHA-256, and Ed25519 signature before streaming the download to a restricted staging directory (max 512MB). CI injects signing keys via secrets and uploads the manifest as a Release asset.
+- **Timeout sentinel race fix** — `BalanceManager` cancelled sentinel no longer generates a phantom `.unavailable` snapshot that overwrites real provider results; `SleepingMockChecker` `try?` bug fixed so timeout tests no longer false-green.
+- **Localization + docs** — 32 new bilingual keys (trend/heatmap/skills/Ollama/pricing), SECURITY.md and README updated to reflect the new credential bootstrap and signed manifest flows.
+
+### What's New in v1.0.2
+
+- **LiquidGlassButtonStyle** — New SwiftUI `ButtonStyle` subclass providing non-colored press feedback via `scaleEffect(0.96)` + `opacity(0.7)`, explicitly respecting Reduce Motion.
+- **Compact balance panel 5-cell progress bar** — Changed compact progress bar to 5 discrete Capsule segments preserving continuous normalized fill (e.g. 67% renders 3 full cells + 35% 4th cell + 1 empty cell).
+- **Subscription period settings (developer mode)** — Per-provider collapsible "subscription period settings" area in the billing tab; supports daily/monthly granularity, quick presets, custom date range, and `periodTotalCost(for:)` method.
+- **Settings panel layout optimization** — `SettingsSurfaceCard` corner radius 28→18pt, `SettingsControlTile` padding 12→10pt, `SettingsSummaryCard` number font 22→26pt for improved information density.
+- **Menu bar width and hierarchy refactor** — Window width 290→320pt, header adds large monthly cost (22pt bold), balance area uses `LazyVGrid adaptive(minimum:140)` + `ScrollView`.
+- **Bug fixes** — Menu bar balance card text truncation, compact panel progress bar collapsing to zero width, floating panel blue selection and gray focus ring, floating panel close button unreliable.
 
 ### What's New in v1.0.1
 
@@ -26,7 +42,7 @@ A native macOS dashboard for visualizing token usage and cost across AI coding t
 ### What's New in v1.0.0
 
 - **Credential storage upgrade** — Migrated from macOS Keychain to local AES-256-GCM encrypted storage (`LocalEncryptedCredentialStore`), eliminating Keychain permission prompts during development builds.
-- **Auto credential bootstrap** — On launch, automatically decrypts Go and Ollama credentials from browser cookies into memory; falls back to Keychain silently. Switch to "Keychain Only" mode in Settings.
+- **Auto credential bootstrap** — When balance monitoring is enabled, validates the app's encrypted cache first, then tries browser/profile Cookie candidates in order without displaying Keychain authorization UI.
 - **Legacy Keychain import** — Settings now offers a one-click "Import legacy Keychain" button to migrate existing credentials to local encrypted storage.
 - **Performance** — `DetailView` analytics computation moved off the main thread via async `Task.detached`, with loading placeholder states for large payloads.
 
@@ -47,7 +63,7 @@ AI coding tools charge by token — but most developers have no idea what they'r
 - **Bilingual UI** — Switch between Chinese and English; terminology stays consistent
 - **Multi-Theme** — Bay Blue, Forest Green, Twilight Orange, Aurora Purple
 - **CNY/USD Toggle** — All prices dynamically switch with currency; custom monthly fees auto-convert
-- **Balance Monitoring** — Real-time balance queries for OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud, with multi-window quota and balance-entry visualization (Ollama gated under Developer Mode, requires session cookie stored in system Keychain; supports browser-based auto-import from Chrome/Edge/Brave/Arc and one-click connection testing)
+- **Balance Monitoring** — Real-time balance queries for OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud, with validated encrypted Cookie caching, browser/profile fallback, and multi-window quota visualization
 - **Responsive Settings Panel** — Module-based collapsible settings with adaptive horizontal layout for faster desktop scanning
 - **Desktop-Friendly Window Behavior** — Closing the main window hides the Dock icon while keeping the MenuBar workflow active
 - **Update Checker** — Silent check on launch + manual trigger; auto-downloads updates
@@ -94,7 +110,7 @@ In the **Settings panel** you can:
 - Adjust scan depth and snapshot retention
 - Switch UI language and OpenCode pricing mode on the overview page
 - Manage provider billing plans: OpenCode Go / Zen, ChatGPT Plus / Pro / Business Codex, MiniMax Token Plan, Xiaomi MiMo Token Plan, or enter custom USD monthly fees
-- Configure OpenCode Go credentials (Workspace ID + Auth Cookie) and Ollama Cloud cookie with "Test Connection" buttons; both support auto-import from Edge / Chrome / Brave / Arc where available
+- Configure OpenCode Go credentials (Workspace ID + Auth Cookie) and Ollama Cloud Cookie; both use encrypted app-local caching and validated fallback across Edge / Chrome / Brave / Arc profiles
 - Open the built-in read-only pricing reference document to view current billing rates offline
 - Switch UI theme
 - Manage Codex session sources
@@ -132,7 +148,23 @@ MIT License — see [LICENSE](LICENSE)
 
 一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
 
-> **最新版本**: [v1.0.1](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.1) — Ollama Cloud 缓存读估算、余额刷新优化、Window 场景简化
+> **最新版本**: [v1.0.3](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.3) — 凭证引导重构、Ed25519 签名 update manifest、BalanceManager timeout sentinel 竞态修复
+
+### v1.0.3 更新
+
+- **凭证引导重构** — `CredentialBootstrapService` 改为先验证本地加密缓存，失败后按浏览器/Profile 顺序逐个验证候选 Cookie。浏览器 Keychain 读取改用 `Security.framework` + `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，无法静默读取时直接跳过，不触发系统授权弹窗。
+- **Ed25519 签名 update manifest** — `UpdateChecker` 自动安装要求 Release 提供 Ed25519 签名 manifest；先验证版本、Bundle ID、架构、文件名、长度和 SHA-256，再以流式方式下载到权限受限 staging 目录（最大 512MB），任何失败清理临时产物。CI 通过 secrets 注入签名密钥并将 manifest 作为 Release asset 上传。
+- **Timeout sentinel 竞态修复** — `BalanceManager` 取消哨兵不再生成虚假 `.unavailable` 快照覆盖真实 provider 结果；`SleepingMockChecker` `try?` bug 修复，超时测试不再假绿。
+- **本地化 + 文档** — 新增 32 个中英双语本地化 key（趋势/热力图/Skills/Ollama/计费），SECURITY.md 和 README 同步更新凭证引导与签名 manifest 流程说明。
+
+### v1.0.2 更新
+
+- **LiquidGlassButtonStyle** — 新增 SwiftUI `ButtonStyle` 子类，仅通过 `scaleEffect(0.96)` + `opacity(0.7)` 提供非彩色按压反馈，显式遵循 Reduce Motion。
+- **余额浮窗简略模式五格进度条** — 简略模式进度条改为 5 个分离的 Capsule 段，保留连续归一化填充（如 67% 显示为 3 满格 + 第 4 格 35% + 1 空格）。
+- **订阅周期设置（开发者模式）** — 计费方案 tab 每个 Provider 卡片新增可折叠「订阅周期设置」区域，支持按日/按月粒度切换、快捷预设、自定义起止日期，新增 `periodTotalCost(for:)` 按订阅周期折算总成本。
+- **设置面板布局优化** — `SettingsSurfaceCard` 圆角 28→18pt、`SettingsControlTile` padding 12→10pt、`SettingsSummaryCard` 数值字号 22→26pt，提升信息密度。
+- **菜单栏宽度与信息层级重构** — 窗口宽度 290→320pt，header 新增月费大字（22pt bold），余额区改用 `LazyVGrid adaptive(minimum:140)` + `ScrollView`。
+- **Bug 修复** — 菜栏余额卡片文本截断、简略模式进度条被压缩为零宽度、悬浮面板蓝色选中与灰色焦点框、悬浮面板关闭按钮不可用。
 
 ### v1.0.1 更新
 
@@ -145,7 +177,7 @@ MIT License — see [LICENSE](LICENSE)
 ### v1.0.0 更新
 
 - **凭证存储升级** — 从 macOS Keychain 全面迁移至本地 AES-256-GCM 加密存储，消除开发构建时的 Keychain 授权弹窗。
-- **自动凭证引导** — 启动时自动从浏览器解密 Go 和 Ollama 凭证到内存，静默回退 Keychain；可在设置中切换为「仅从 Keychain 读取」。
+- **自动凭证引导** — 启用余额监控后先验证 App 本地加密缓存；失效或缺失时再按浏览器/Profile 顺序验证候选 Cookie，全程不弹出 Keychain 授权窗口。
 - **旧 Keychain 导入** — 设置页新增一键「导入旧 Keychain」按钮，将已有凭证迁移到本地加密存储。
 - **性能优化** — 详情页 analytics 计算移至后台线程异步执行，大数据 payload 不再卡主线程。
 
@@ -166,7 +198,7 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 - **中英双语** — 界面可在中文 / 英语之间切换，术语保持一致
 - **多主题** — 海湾蓝、森林绿、暮光橙、极光紫 4 种主题色
 - **人民币/美元计价切换** — 所有价格展示随币种动态切换，自定义月费自动换算
-- **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud 余额实时查询，并展示多窗口配额与余额条目（Ollama 需在开发者模式下启用，session cookie 存储在系统 Keychain 中；支持从 Chrome/Edge/Brave/Arc 浏览器自动导入和一键测试连接；启动时自动从浏览器解密凭证并缓存到内存，无需每次打开 app 都触发 Keychain 权限弹窗，用户可在设置中切换为「仅从 Keychain 读取」模式）
+- **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud 余额实时查询；Cookie 优先从内存与 App 本地 AES 加密缓存读取，失效时自动验证 Chrome/Edge/Brave/Arc 的后续候选，不触发 Keychain 授权弹窗
 - **响应式设置页** — 模块化折叠设置面板，短控件采用横向自适应布局，桌面端浏览更高效
 - **桌面窗口行为优化** — 关闭主窗口后自动隐藏 Dock 图标，保留 MenuBar 工作流
 - **版本更新检查** — 启动时静默检查 + 手动触发，自动下载更新包
@@ -213,7 +245,7 @@ swift build
 - 调整扫描深度和快照保留数
 - 切换界面语言和总览页 OpenCode 计价口径
 - 管理各 Provider 计费方案：OpenCode Go / Zen、ChatGPT Plus / Pro / Business Codex、MiniMax Token Plan、Xiaomi MiMo Token Plan，或输入自定义 USD 月费
-- 配置 OpenCode Go 凭证（Workspace ID + Auth Cookie）和 Ollama Cloud Cookie，并用「测试连接」按钮校验当前配置；也支持从 Edge / Chrome / Brave / Arc 自动导入凭证
+- 配置 OpenCode Go 凭证（Workspace ID + Auth Cookie）和 Ollama Cloud Cookie；支持 App 本地加密缓存及 Edge / Chrome / Brave / Arc 多 Profile 验证兜底
 - 打开内置只读计费参考文档，离线查看当前内置价格口径
 - 切换界面主题
 - 管理 Codex session 来源

@@ -43,7 +43,9 @@ struct BalanceOverviewCard: View {
                                 .font(.caption.weight(.semibold))
                         }
                         .buttonStyle(.borderless)
-                        .help("Expand or collapse balance details")
+                        .accessibilityLabel(Text(AppLocalization.text("balance.expandCollapse")))
+                        .accessibilityValue(Text(expanded ? AppLocalization.text("common.collapse") : AppLocalization.text("common.showMore")))
+                        .help(AppLocalization.text("balance.expandCollapse"))
                     }
                 ),
                 palette: palette

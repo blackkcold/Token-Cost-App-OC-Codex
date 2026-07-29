@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - _No new features in this release._
 
+## [v1.0.3] - 2026-07-29
+
+> 相对 `v1.0.2` 的累计变更。**维护版本**：凭证引导重构为「本地加密缓存优先 → 浏览器/Profile 验证链」模型，新增 Ed25519 签名 update manifest 流式下载校验，修复 BalanceManager timeout sentinel 竞态。
+
+### Added
+
+- **Ed25519 签名 update manifest**：`UpdateChecker` 新增 `prepareVerifiedUpdate(from:)` 流程，从 GitHub Release 提取 `.update-manifest.json`（含 version/bundleIdentifier/architecture/assetName/assetSize/sha256/signature），先验证版本、Bundle ID、架构、文件名、长度和 SHA-256，再以流式方式下载到权限受限 staging 目录，最大 512MB，任何失败清理临时产物。构建脚本新增 `write_update_manifest()` 生成签名 manifest，CI workflow 注入 `UPDATE_MANIFEST_PRIVATE_KEY_PEM` / `UPDATE_MANIFEST_PUBLIC_KEY_B64` secrets 并将 manifest 作为 Release asset 上传（`UpdateChecker.swift`、`UpdateCheckerModel.swift`、`script/build_and_run_codex.sh`、`.github/workflows/release.yml`）。
+- **新增长本地化 key**：新增 32 个 trend/skills/settings/pricing 相关中英双语本地化键（趋势标题与副标题、热力图、余额折叠、Skills 清除搜索/返回总览、Ollama 实验性功能说明、计费参考头部说明、MiMo Credits 消耗规则、总成本口径）（`Localizable.strings` 中英双语）。
+- **新增测试**：`UpdateManifestTests`（Ed25519 签名 manifest 验证、canonical data 构造、公钥缺失/签名错误/元数据不匹配等边界）、`PathUtilitiesSecurityTests`（路径穿越安全）、`CredentialBootstrapServiceTests` 扩展覆盖按浏览器/Profile 验证链路（`Tests/`）。
+
+### Changed
+
+- **凭证引导重构为按浏览器/Profile 验证链**：`CredentialBootstrapService.bootstrapFromBrowser` 从「3 次批量解密浏览器 Cookie」改为「先验证本地加密缓存 → 失败后按浏览器/Profile 逐个验证候选 Cookie → 认证失败才继续下一项」。引入 `CredentialCandidateValidator` 协议（`LiveCredentialCandidateValidator` 通过实际 Provider API 验证），网络不可用时保留本地缓存。新增 `CredentialCandidateValidator.swift`（`CredentialBootstrapService.swift`、`BrowserCookieExtractor.swift`、`CredentialCandidateValidator.swift`）。
+- **`BrowserCookieExtractor` 候选列表化**：新增 `credentialCandidates()` / `ollamaCookieCandidates()` 返回带 `source` 的候选列表（去重），原 `extractCredentials()` / `extractOllamaCookie()` 改为返回首个候选。`fetchEncryptionKey` 从 fork `/usr/bin/security` 进程改为 `Security.framework` `SecItemCopyMatching` + `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，无法静默读取时直接跳过，不触发系统授权弹窗（`BrowserCookieExtractor.swift`）。
+- **AppPreferences 备份逻辑抽取**：`save()` 中的备份轮转逻辑抽取为 `SettingsBackupRotation.backupIfPresent`，消除 `timestamp()` / `rotateBackups()` / `backupExistingPreferencesIfNeeded()` 重复代码（`AppPreferences.swift`、`SettingsStore.swift`）。
+- **CodexHelperRunner / PathUtilities 改进**：Helper runner 错误处理增强，PathUtilities 路径穿越加固补充测试覆盖（`CodexHelperRunner.swift`、`PathUtilities.swift`）。
+- **CodexAnalytics 调整**：analytics 计算路径微调（`CodexAnalytics.swift`）。
+- **SECURITY.md / README.md 文案更新**：反映凭证引导新流程（本地加密缓存优先 → 浏览器验证兜底）和签名 manifest 更新校验（`SECURITY.md`、`README.md`）。
+
+### Fixed
+
+- **BalanceManager timeout sentinel 竞态**：取消时哨兵的 `CancellationError` 被捕获后生成虚假 `.unavailable` 快照，通过 `upsertSnapshot()` 覆盖真实的 `.opencodeGo` 结果。改为区分 cancelled sentinel 与真实 provider 完成，sentinel 不再生成虚假快照，`upsertSnapshot` 不再被取消哨兵污染（`BalanceManager.swift`、`BalanceRefreshScheduler.swift`）。
+- **SleepingMockChecker `try?` bug**：`try?` 吞掉了真实的断言错误，导致超时测试假绿。改为显式捕获并传播错误（`SleepingMockChecker`）。
+
+### Security
+
+- **签名 manifest 更新校验**：自动安装要求 Release 同时提供 Ed25519 签名 manifest；客户端先验证版本、Bundle ID、架构、文件名、长度和 SHA-256，再以流式方式下载到权限受限 staging 目录，限制最大体积 512MB，任何失败都会清理临时产物。缺少 manifest 的历史 Release 不进入自动安装流程（`UpdateChecker.swift`、`SECURITY.md`）。
+- **凭证引导安全边界**：余额监控启用后先验证 App 的本地加密缓存；缓存有效时不读取浏览器。缓存无效或缺失时，按浏览器/Profile 顺序逐个验证候选 Cookie，认证失败才继续下一项；网络不可用时保留本地缓存。成功候选写入内存与本地加密缓存；全部耗尽时 UI 显示未找到 Cookie，OSLog 只记录来源与失败类别，不记录 Cookie、密钥或完整路径（`CredentialBootstrapService.swift`、`SECURITY.md`）。
+- **浏览器 Keychain 静默读取**：`fetchEncryptionKey` 改用 `Security.framework` `SecItemCopyMatching` + `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，已有「Always Allow」授权静默返回，无授权不弹窗；无法静默读取时直接跳过该浏览器（`BrowserCookieExtractor.swift`、`SECURITY.md`）。
+
 ## [v1.0.2] - 2026-07-29
 
 ### Added
@@ -572,7 +602,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.3...HEAD
+[v1.0.3]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.2...v1.0.3
 [v1.0.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.1...v1.0.2
 [v1.0.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.0...v1.0.1
 [v1.0.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v0.9.9...v1.0.0

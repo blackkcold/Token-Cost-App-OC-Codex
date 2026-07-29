@@ -21,7 +21,7 @@ struct PricingDocView: View {
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .navigationTitle(Text(verbatim: "\u{1F4C4} \(AppLocalization.text("settings.billing.pricingDoc"))"))
+            .navigationTitle(AppLocalization.text("settings.billing.pricingDoc"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(AppLocalization.text("settings.action.close")) {
@@ -40,10 +40,10 @@ struct PricingDocView: View {
 
     private var headerNote: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("本文档为 App 内置只读参考。实际价格可能变更，设置页提供「自定义 USD 月费」作为兜底。")
+            Text(AppLocalization.text("pricing.header.reference"))
                 .font(.callout)
                 .foregroundStyle(palette.subtitle)
-            Text("总成本 = 已启用固定订阅费用 + 未订阅部分 API 估算成本；若所有订阅关闭，总成本全部按 API 定价估算。")
+            Text(AppLocalization.text("pricing.header.total"))
                 .font(.caption)
                 .foregroundStyle(palette.subtitle)
         }
@@ -96,21 +96,21 @@ struct PricingDocView: View {
     @ViewBuilder
     private func tableHeaderRow(provider: BillingProvider) -> some View {
         HStack(spacing: 0) {
-            Text("档位")
+            Text(AppLocalization.text("pricing.column.tier"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(palette.title)
                 .frame(minWidth: 90, maxWidth: 150, alignment: .leading)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
 
-            Text("费用")
+            Text(AppLocalization.text("pricing.column.cost"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(palette.title)
                 .frame(minWidth: 70, maxWidth: 110, alignment: .leading)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
 
-            Text("说明")
+            Text(AppLocalization.text("pricing.column.note"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(palette.title)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -149,19 +149,19 @@ struct PricingDocView: View {
 
     private var mimoCreditsCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("MiMo Credits 消耗规则")
+            Text(AppLocalization.text("pricing.mimo.title"))
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(palette.accent)
 
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
-                    Text("模型").font(.caption.weight(.semibold)).foregroundStyle(palette.title)
+                    Text(AppLocalization.text("pricing.mimo.model")).font(.caption.weight(.semibold)).foregroundStyle(palette.title)
                         .frame(minWidth: 80, maxWidth: 130, alignment: .leading).padding(.vertical, 6).padding(.horizontal, 8)
-                    Text("缓存命中").font(.caption.weight(.semibold)).foregroundStyle(palette.title)
+                    Text(AppLocalization.text("pricing.mimo.cacheHit")).font(.caption.weight(.semibold)).foregroundStyle(palette.title)
                         .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(.vertical, 6).padding(.horizontal, 8)
-                    Text("缓存未命中（输入）").font(.caption.weight(.semibold)).foregroundStyle(palette.title)
+                    Text(AppLocalization.text("pricing.mimo.cacheMiss")).font(.caption.weight(.semibold)).foregroundStyle(palette.title)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6).padding(.horizontal, 8)
-                    Text("输出").font(.caption.weight(.semibold)).foregroundStyle(palette.title)
+                    Text(AppLocalization.text("pricing.mimo.output")).font(.caption.weight(.semibold)).foregroundStyle(palette.title)
                         .frame(minWidth: 70, maxWidth: 110, alignment: .leading).padding(.vertical, 6).padding(.horizontal, 8)
                 }
                 .background(palette.cardFill)
@@ -178,7 +178,7 @@ struct PricingDocView: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            Text("MiMo 套餐是 Credit 包，不是无限请求包；Agent 多轮工具调用会快速消耗额度，实际耐用程度取决于模型、上下文长度、工具调用次数和缓存命中。夜间（0:00-8:00 北京时间）消耗系数 0.8x。")
+            Text(AppLocalization.text("pricing.mimo.note"))
                 .font(.caption)
                 .foregroundStyle(palette.subtitle)
                 .fixedSize(horizontal: false, vertical: true)
@@ -207,17 +207,17 @@ struct PricingDocView: View {
 
     private var totalCostExplanation: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("App 总计费口径")
+            Text(AppLocalization.text("pricing.total.title"))
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(palette.accent)
 
             VStack(alignment: .leading, spacing: 4) {
-                formulaLine("费用", "input × inputPrice + output × outputPrice + reasoning × reasoningPrice")
+                formulaLine(AppLocalization.text("pricing.total.cost"), "input × inputPrice + output × outputPrice + reasoning × reasoningPrice")
                 formulaLine("", "+ cacheRead × cacheReadPrice + cacheWrite × cacheWritePrice")
                 Divider().opacity(0.3)
-                formulaLine("实际输入 (OpenCode)", "input（已是非缓存值，不做减法）")
-                formulaLine("实际输入 (Codex)", "max(inputTokens - cachedInputTokens, 0)")
-                formulaLine("缓存命中率", "cacheRead / (actualTokens + cacheRead)")
+                formulaLine(AppLocalization.text("pricing.total.openCodeInput"), "input")
+                formulaLine(AppLocalization.text("pricing.total.codexInput"), "max(inputTokens - cachedInputTokens, 0)")
+                formulaLine(AppLocalization.text("pricing.total.cacheRate"), "cacheRead / (actualTokens + cacheRead)")
             }
             .padding(8)
             .background(
