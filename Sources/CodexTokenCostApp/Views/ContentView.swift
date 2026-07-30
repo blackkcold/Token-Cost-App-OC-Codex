@@ -8,6 +8,24 @@ enum CodexDashboardPage: String, CaseIterable, Identifiable {
     case skills
 
     var id: String { rawValue }
+
+    func systemImage(usesWorkshopStyle: Bool) -> String {
+        guard usesWorkshopStyle else {
+            switch self {
+            case .total: return "square.grid.2x2"
+            case .opencode: return "externaldrive"
+            case .codex: return "terminal"
+            case .skills: return "gearshape.2"
+            }
+        }
+
+        switch self {
+        case .total: return "rectangle.3.group.fill"
+        case .opencode: return "externaldrive.fill.badge.checkmark"
+        case .codex: return "apple.terminal.fill"
+        case .skills: return "wrench.and.screwdriver.fill"
+        }
+    }
 }
 
 struct ContentView: View {
@@ -19,13 +37,14 @@ struct ContentView: View {
     @ObservedObject var skillsModel: OpenCodeSkillsModel
     @Environment(\.openWindow) private var openWindow
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedPage: CodexDashboardPage = .total
     @State private var didOpenCodexSourcePrompt = false
     @State private var showCredentialBootstrapError = false
     @State private var credentialBootstrapErrorMessage = ""
 
     private var palette: TokenCostPalette {
-        TokenCostPalette(theme: appPreferencesModel.preferences.theme)
+        TokenCostPalette(accentPalette: appPreferencesModel.preferences.accentPalette)
     }
 
     private var isAnyRefreshing: Bool {
@@ -43,7 +62,7 @@ struct ContentView: View {
                     ProgressView()
                         .progressViewStyle(.linear)
                         .tint(palette.accent)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .transition(TokenMotion.disclosureTransition(reduceMotion: reduceMotion))
                         .padding(.horizontal, 4)
                 }
 
@@ -57,7 +76,10 @@ struct ContentView: View {
                     )
                     .tag(CodexDashboardPage.total)
                     .tabItem {
-                        Label(AppLocalization.text("tab.total"), systemImage: "square.grid.2x2")
+                        Label(
+                            AppLocalization.text("tab.total"),
+                            systemImage: CodexDashboardPage.total.systemImage(usesWorkshopStyle: palette.usesWorkshopStyle)
+                        )
                     }
 
                     OpenCodePageView(
@@ -68,19 +90,28 @@ struct ContentView: View {
                     )
                         .tag(CodexDashboardPage.opencode)
                         .tabItem {
-                            Label(AppLocalization.text("tab.opencode"), systemImage: "externaldrive")
+                            Label(
+                                AppLocalization.text("tab.opencode"),
+                                systemImage: CodexDashboardPage.opencode.systemImage(usesWorkshopStyle: palette.usesWorkshopStyle)
+                            )
                         }
 
                     CodexPageView(model: codexModel, balanceManager: balanceManager, appPreferencesModel: appPreferencesModel, palette: palette)
                         .tag(CodexDashboardPage.codex)
                         .tabItem {
-                            Label(AppLocalization.text("tab.codex"), systemImage: "terminal")
+                            Label(
+                                AppLocalization.text("tab.codex"),
+                                systemImage: CodexDashboardPage.codex.systemImage(usesWorkshopStyle: palette.usesWorkshopStyle)
+                            )
                         }
 
                     OpenCodeSkillsPageView(model: skillsModel, palette: palette)
                         .tag(CodexDashboardPage.skills)
                         .tabItem {
-                            Label(AppLocalization.text("tab.skills"), systemImage: "gearshape.2")
+                            Label(
+                                AppLocalization.text("tab.skills"),
+                                systemImage: CodexDashboardPage.skills.systemImage(usesWorkshopStyle: palette.usesWorkshopStyle)
+                            )
                         }
                 }
                 .task {
@@ -114,7 +145,7 @@ struct ContentView: View {
                 updateControls
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: isAnyRefreshing)
+        .animation(TokenMotion.resolved(TokenMotion.expand, reduceMotion: reduceMotion), value: isAnyRefreshing)
         .alert(AppLocalization.text("balance.bootstrap.error.title"), isPresented: $showCredentialBootstrapError) {
             Button(AppLocalization.text("settings.action.close"), role: .cancel) {}
         } message: {
@@ -154,29 +185,49 @@ struct ContentView: View {
                 openCodeModel.rescanSources()
                 codexModel.refresh()
             } label: {
-                Label(AppLocalization.text("tab.action.refreshAll"), systemImage: "arrow.clockwise")
+                dashboardActionLabel(
+                    AppLocalization.text("tab.action.refreshAll"),
+                    systemImage: "arrow.clockwise",
+                    tint: palette.accent
+                )
             }
+            .dashboardButtonStyle(palette: palette, compact: true)
             .disabled(isAnyRefreshing)
         case .opencode:
             Button {
                 openCodeModel.rescanSources()
             } label: {
-                Label(AppLocalization.text("sidebar.action.rescan"), systemImage: "arrow.clockwise")
+                dashboardActionLabel(
+                    AppLocalization.text("sidebar.action.rescan"),
+                    systemImage: "arrow.clockwise",
+                    tint: palette.accent
+                )
             }
+            .dashboardButtonStyle(palette: palette, compact: true)
             .disabled(openCodeModel.isBootstrapping || openCodeModel.isRefreshing)
         case .codex:
             Button {
                 codexModel.refresh()
             } label: {
-                Label(AppLocalization.text("settings.action.refreshCodex"), systemImage: "arrow.clockwise")
+                dashboardActionLabel(
+                    AppLocalization.text("settings.action.refreshCodex"),
+                    systemImage: "arrow.clockwise",
+                    tint: palette.accent
+                )
             }
+            .dashboardButtonStyle(palette: palette, compact: true)
             .disabled(codexModel.isBootstrapping || codexModel.isRefreshing)
         case .skills:
             Button {
                 skillsModel.refresh()
             } label: {
-                Label(AppLocalization.text("skills.action.refresh"), systemImage: "arrow.clockwise")
+                dashboardActionLabel(
+                    AppLocalization.text("skills.action.refresh"),
+                    systemImage: "arrow.clockwise",
+                    tint: palette.accent
+                )
             }
+            .dashboardButtonStyle(palette: palette, compact: true)
             .disabled(skillsModel.isRefreshing)
         }
     }
@@ -188,11 +239,13 @@ struct ContentView: View {
             Button {
                 updateChecker.manualCheck()
             } label: {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.caption2)
-                Text(AppLocalization.text("update.checkForUpdates"))
-                    .font(.caption2)
+                dashboardActionLabel(
+                    AppLocalization.text("update.checkForUpdates"),
+                    systemImage: "arrow.triangle.2.circlepath",
+                    tint: palette.accentSecondary
+                )
             }
+            .dashboardButtonStyle(palette: palette, compact: true)
 
         case .checking:
             HStack(spacing: 4) {
@@ -205,9 +258,13 @@ struct ContentView: View {
 
         case .upToDate(let version):
             HStack(spacing: 4) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.green)
+                TokenDashboardSymbolMark(
+                    systemImage: "checkmark",
+                    tint: palette.success,
+                    palette: palette,
+                    size: 20,
+                    fontSize: 9
+                )
                 Text(AppLocalization.format("update.upToDate", version))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -221,13 +278,18 @@ struct ContentView: View {
                 Button {
                     updateChecker.startDownload()
                 } label: {
-                    Text(AppLocalization.text("update.label"))
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(palette.accent)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(palette.accent.opacity(0.1)))
-                        .overlay(Capsule().stroke(palette.accent.opacity(0.2)))
+                    if palette.usesWorkshopStyle {
+                        Text(AppLocalization.text("update.label"))
+                    } else {
+                        Text(AppLocalization.text("update.label"))
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(palette.accent)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Capsule().fill(palette.accent.opacity(0.1)))
+                            .overlay(Capsule().stroke(palette.accent.opacity(0.2)))
+                    }
                 }
+                .dashboardButtonStyle(palette: palette, compact: true)
                 .help(version)
 
                 Button {
@@ -237,6 +299,7 @@ struct ContentView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+                .dashboardButtonStyle(palette: palette, compact: true)
             }
 
         case .downloading(let progress):
@@ -264,25 +327,54 @@ struct ContentView: View {
             Button {
                 updateChecker.installUpdate()
             } label: {
-                Text(AppLocalization.text("update.install"))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Capsule().fill(palette.accent))
+                if palette.usesWorkshopStyle {
+                    Text(AppLocalization.text("update.install"))
+                } else {
+                    Text(AppLocalization.text("update.install"))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(palette.accent))
+                }
             }
+            .dashboardButtonStyle(palette: palette, compact: true)
 
         case .error:
             Button {
                 updateChecker.startDownload()
             } label: {
-                Text(AppLocalization.text("update.retry"))
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Capsule().fill(Color.red.opacity(0.1)))
-                    .overlay(Capsule().stroke(Color.red.opacity(0.2)))
+                if palette.usesWorkshopStyle {
+                    Text(AppLocalization.text("update.retry"))
+                } else {
+                    Text(AppLocalization.text("update.retry"))
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(palette.danger)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(palette.danger.opacity(0.1)))
+                        .overlay(Capsule().stroke(palette.danger.opacity(0.2)))
+                }
             }
+            .dashboardButtonStyle(palette: palette, compact: true)
             .help(updateChecker.errorMessage)
+        }
+    }
+
+    @ViewBuilder
+    private func dashboardActionLabel(
+        _ title: String,
+        systemImage: String,
+        tint: Color
+    ) -> some View {
+        if palette.usesWorkshopStyle {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.caption2.weight(.black))
+                    .foregroundStyle(tint)
+                Text(title)
+                    .font(TokenTypography.caption(weight: .bold, palette: palette))
+            }
+        } else {
+            Label(title, systemImage: systemImage)
         }
     }
 

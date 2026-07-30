@@ -107,10 +107,9 @@ struct BalanceProviderCardView: View {
         }
         .padding(cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(LiquidGlassTileBackground(
+        .modifier(BalanceProviderCardSurface(
             palette: palette,
-            cornerRadius: cornerRadius,
-            accentSoft: palette.accentSoft
+            cornerRadius: cornerRadius
         ))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(snapshot.provider.displayName))
@@ -120,38 +119,88 @@ struct BalanceProviderCardView: View {
         .onAppear { hasAppeared = true }
     }
 
+    @ViewBuilder
     private var header: some View {
-        HStack(alignment: .top, spacing: 10) {
-            ProviderLogoMark(provider: snapshot.provider, size: 22, tint: palette.accent)
-                .frame(width: 28, height: 28)
-                .padding(6)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(palette.accentSoft)
+        if palette.usesWorkshopStyle {
+            HStack(alignment: .center, spacing: 11) {
+                WorkshopBalanceProviderMark(
+                    provider: snapshot.provider,
+                    palette: palette,
+                    size: 21,
+                    plateSize: 38
                 )
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(snapshot.provider.displayName)
-                        .font(.headline.weight(.semibold))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(snapshot.provider.displayName.uppercased())
+                        .font(TokenTypography.metric(size: 13, weight: .black, palette: palette))
                         .foregroundStyle(palette.title)
                         .lineLimit(1)
                         .minimumScaleFactor(BalanceFloatingPanelLayout.providerNameScaleFactor)
 
-                    Spacer(minLength: 8)
+                    if let planType = snapshot.planType, !planType.isEmpty {
+                        Text(planType)
+                            .font(TokenTypography.caption2(weight: .semibold, palette: palette))
+                            .foregroundStyle(palette.subtitle)
+                            .lineLimit(1)
+                    }
+                }
 
-                    Text(stateLabel)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(snapshot.isAvailable ? palette.accent : .red)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill((snapshot.isAvailable ? palette.accent : Color.red).opacity(0.12))
-                        )
-                        .lineLimit(1)
+                Spacer(minLength: 6)
+
+                WorkshopBalanceStatusStamp(
+                    title: stateLabel,
+                    tint: workshopStateTint,
+                    palette: palette
+                )
+            }
+        } else {
+            HStack(alignment: .top, spacing: 10) {
+                ProviderLogoMark(provider: snapshot.provider, size: 22, tint: palette.accent)
+                    .frame(width: 28, height: 28)
+                    .padding(6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(palette.accentSoft)
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(snapshot.provider.displayName)
+                            .font(TokenTypography.headline(weight: .bold, palette: palette))
+                            .foregroundStyle(palette.title)
+                            .lineLimit(1)
+                            .minimumScaleFactor(BalanceFloatingPanelLayout.providerNameScaleFactor)
+
+                        Spacer(minLength: 8)
+
+                        Text(stateLabel)
+                            .font(TokenTypography.caption2(weight: .bold, palette: palette))
+                            .foregroundStyle(snapshot.isAvailable ? palette.accent : .red)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill((snapshot.isAvailable ? palette.accent : Color.red).opacity(0.12))
+                            )
+                            .lineLimit(1)
+                    }
                 }
             }
+        }
+    }
+
+    private var workshopStateTint: Color {
+        guard snapshot.isAvailable else { return palette.danger }
+
+        switch snapshot.gradient {
+        case .unused, .low:
+            return palette.accentSecondary
+        case .moderate, .high:
+            return palette.warning
+        case .critical, .exceeded:
+            return palette.danger
+        case .unknown:
+            return palette.accent
         }
     }
 
@@ -175,9 +224,19 @@ struct BalanceProviderCardView: View {
     @ViewBuilder
     private var unavailableContent: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if palette.usesWorkshopStyle {
+                HStack(spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.black))
+                    Text(AppLocalization.text("balance.unavailable").uppercased())
+                        .font(TokenTypography.caption2(weight: .black, palette: palette))
+                }
+                .foregroundStyle(palette.danger)
+            }
+
             if let message = snapshot.errorMessage, !message.isEmpty {
                 Text(message)
-                    .font(.caption)
+                    .font(TokenTypography.caption(weight: palette.usesWorkshopStyle ? .semibold : .regular, palette: palette))
                     .foregroundStyle(palette.title)
                     .lineLimit(2)
             }
@@ -252,19 +311,48 @@ struct BalanceProviderCardView: View {
     }
 
     private var costOnlyView: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let cost = snapshot.totalCostUSD {
-                Text(AppLocalization.format("balance.total90Days", TokenCostFormatters.currency(cost)))
-                    .font(.callout)
-                    .foregroundStyle(palette.title)
-                    .lineLimit(2)
-            }
+        Group {
+            if palette.usesWorkshopStyle {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let cost = snapshot.totalCostUSD {
+                            Text(AppLocalization.format("balance.total90Days", TokenCostFormatters.currency(cost)))
+                                .font(TokenTypography.metric(size: 13, weight: .black, palette: palette))
+                                .foregroundStyle(palette.title)
+                                .lineLimit(2)
+                        }
 
-            if let avg = snapshot.avgCostPerDayUSD {
-                Text(AppLocalization.format("balance.dailyAverage", TokenCostFormatters.currency(avg)))
-                    .font(.caption)
-                    .foregroundStyle(palette.subtitle)
-                    .lineLimit(2)
+                        if let avg = snapshot.avgCostPerDayUSD {
+                            Text(AppLocalization.format("balance.dailyAverage", TokenCostFormatters.currency(avg)))
+                                .font(TokenTypography.caption2(weight: .semibold, palette: palette))
+                                .foregroundStyle(palette.subtitle)
+                                .lineLimit(2)
+                        }
+                    }
+
+                    Spacer(minLength: 4)
+
+                    WorkshopBalanceCurrencyStamp(
+                        symbols: BalanceFloatingPanelLayout.currencyDensitySymbols(for: snapshot),
+                        palette: palette
+                    )
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let cost = snapshot.totalCostUSD {
+                        Text(AppLocalization.format("balance.total90Days", TokenCostFormatters.currency(cost)))
+                            .font(.callout)
+                            .foregroundStyle(palette.title)
+                            .lineLimit(2)
+                    }
+
+                    if let avg = snapshot.avgCostPerDayUSD {
+                        Text(AppLocalization.format("balance.dailyAverage", TokenCostFormatters.currency(avg)))
+                            .font(.caption)
+                            .foregroundStyle(palette.subtitle)
+                            .lineLimit(2)
+                    }
+                }
             }
         }
     }
@@ -274,9 +362,19 @@ struct BalanceProviderCardView: View {
             if let entries = snapshot.valueEntries {
                 ForEach(entries) { entry in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if palette.usesWorkshopStyle {
+                            Rectangle()
+                                .fill(palette.accent)
+                                .frame(width: 4, height: 26)
+                                .accessibilityHidden(true)
+                        }
+
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.label)
-                                .font(.caption.weight(.medium))
+                                .font(TokenTypography.caption(
+                                    weight: palette.usesWorkshopStyle ? .bold : .medium,
+                                    palette: palette
+                                ))
                                 .foregroundStyle(palette.title)
                                 .lineLimit(2)
 
@@ -292,8 +390,11 @@ struct BalanceProviderCardView: View {
 
                         VStack(alignment: .trailing, spacing: 2) {
                             Text(BalanceMenuBarExtraSupport.amountText(for: entry))
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(palette.accent)
+                                .font(TokenTypography.caption(
+                                    weight: palette.usesWorkshopStyle ? .black : .semibold,
+                                    palette: palette
+                                ))
+                                .foregroundStyle(palette.usesWorkshopStyle ? palette.title : palette.accent)
 
                             if let burnRateText = BalanceMenuBarExtraSupport.burnRateText(for: entry) {
                                 Text(burnRateText)
@@ -307,6 +408,13 @@ struct BalanceProviderCardView: View {
                                     .font(.caption2)
                                     .foregroundStyle(palette.subtitle)
                             }
+                        }
+
+                        if palette.usesWorkshopStyle {
+                            WorkshopBalanceCurrencyStamp(
+                                symbols: BalanceFloatingPanelLayout.currencyDensitySymbols(for: [entry]),
+                                palette: palette
+                            )
                         }
                     }
                     .padding(.vertical, 2)
@@ -427,29 +535,44 @@ struct BalanceProviderCardView: View {
                         .frame(minWidth: 36, alignment: .leading)
                 }
 
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(palette.trackBackground.opacity(0.95))
-                            .frame(height: 6)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .strokeBorder(palette.surfaceAccessibleStroke.opacity(0.42), lineWidth: 0.7)
-                            )
+                if palette.usesWorkshopStyle {
+                    WorkshopBalanceQuotaMeter(
+                        value: normalizedPct,
+                        tint: color,
+                        palette: palette,
+                        segmentCount: BalanceWorkshopChartLayout.normalSegmentCount,
+                        height: 9
+                    )
+                    .frame(height: 9)
+                } else {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(palette.trackBackground.opacity(0.95))
+                                .frame(height: 6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                        .strokeBorder(palette.surfaceAccessibleStroke.opacity(0.42), lineWidth: 0.7)
+                                )
 
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(color)
-                            .frame(width: geo.size.width * normalizedPct, height: 6)
-                            .animation(reduceMotion ? nil : (hasAppeared ? .easeOut(duration: 0.3) : nil), value: normalizedPct)
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(color)
+                                .frame(width: geo.size.width * normalizedPct, height: 6)
+                                .animation(reduceMotion ? nil : (hasAppeared ? .easeOut(duration: 0.3) : nil), value: normalizedPct)
+                        }
                     }
+                    .frame(height: 6)
                 }
-                .frame(height: 6)
 
                 Text(TokenCostFormatters.percent(normalizedPct))
-                    .font(.system(size: criticalPercentFontSize, weight: .semibold, design: .rounded))
+                    .font(TokenTypography.metric(
+                        size: criticalPercentFontSize,
+                        weight: palette.usesWorkshopStyle ? .black : .semibold,
+                        palette: palette
+                    ))
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                    .foregroundStyle(palette.subtitle)
+                    .foregroundStyle(palette.usesWorkshopStyle ? color : palette.subtitle)
                     .frame(width: 44, alignment: .trailing)
             }
 
@@ -507,5 +630,42 @@ struct BalanceProviderCardView: View {
             return AppLocalization.format("balance.rate.perDay", rate.perDay)
         }
         return AppLocalization.format("balance.rate.perHour", rate.perHour)
+    }
+}
+
+private struct BalanceProviderCardSurface: ViewModifier {
+    let palette: TokenCostPalette
+    let cornerRadius: CGFloat
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if palette.usesWorkshopStyle {
+            content.background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(palette.surfaceSecondarySolidFill.opacity(0.92))
+                    .overlay(alignment: .topLeading) {
+                        HStack(spacing: 4) {
+                            Rectangle()
+                                .fill(palette.accent)
+                                .frame(width: 46, height: 5)
+                            Rectangle()
+                                .fill(palette.accentSecondary)
+                                .frame(width: 22, height: 5)
+                        }
+                        .padding(.leading, 12)
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(palette.surfaceAccessibleStroke, lineWidth: 2.2)
+                    )
+                    .shadow(color: palette.surfaceShadow.opacity(0.72), radius: 0, x: 4, y: 4)
+            }
+        } else {
+            content.modifier(LiquidGlassTileBackground(
+                palette: palette,
+                cornerRadius: cornerRadius,
+                accentSoft: palette.accentSoft
+            ))
+        }
     }
 }

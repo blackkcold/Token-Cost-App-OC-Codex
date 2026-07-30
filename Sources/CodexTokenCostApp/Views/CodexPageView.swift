@@ -74,7 +74,7 @@ struct CodexPageView: View {
                 if let error = model.lastErrorMessage, error != model.settingsLoadWarningMessage {
                     Text(error)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(palette.danger)
                 } else {
                     Text(model.statusMessage)
                         .font(.caption)
@@ -178,17 +178,13 @@ struct CodexPageView: View {
                                     .foregroundStyle(palette.title)
                                     .frame(width: 140, alignment: .leading)
                                     .lineLimit(1)
-                                GeometryReader { geo in
-                                    ZStack(alignment: .leading) {
-                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                            .fill(palette.cardStroke)
-                                            .frame(height: 8)
-                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                            .fill(palette.accent)
-                                            .frame(width: max(geo.size.width * CGFloat(pct), 4), height: 8)
-                                    }
-                                }
-                                .frame(height: 8)
+                                TokenProgressBar(
+                                    value: pct,
+                                    tint: palette.accent,
+                                    palette: palette,
+                                    height: 8,
+                                    minimumVisibleWidth: 4
+                                )
                                 VStack(alignment: .trailing, spacing: 2) {
                                     Text(TokenCostFormatters.tokens(usage.totalTokens))
                                         .font(.caption.monospacedDigit())
@@ -211,7 +207,7 @@ struct CodexPageView: View {
         TokenSectionCard(
             title: AppLocalization.text("codex.trend.title"),
             subtitle: "\(AppLocalization.text("codex.trend.subtitle")) · \(AppLocalization.format("trend.range.days", trendDayRange))",
-            trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange)),
+            trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange, palette: palette)),
             palette: palette
         ) {
             if model.payload != nil {
@@ -279,12 +275,12 @@ struct CodexPageView: View {
     }
 
     private var statusPill: some View {
-        Text(model.isRefreshing ? AppLocalization.text("common.refreshing") : AppLocalization.text("common.ready"))
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(model.isRefreshing ? palette.accent : palette.subtitle)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background((model.isRefreshing ? palette.accent : palette.subtitle).opacity(0.12), in: Capsule())
+        TokenStatusPill(
+            title: model.isRefreshing ? AppLocalization.text("common.refreshing") : AppLocalization.text("common.ready"),
+            tint: model.isRefreshing ? palette.accent : palette.success,
+            palette: palette,
+            systemImage: model.isRefreshing ? "arrow.clockwise" : "checkmark"
+        )
     }
 
     private func planSummary(_ counts: [String: Int]) -> String {
@@ -308,7 +304,7 @@ struct CodexPageView: View {
         ) {
             Text(message)
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(palette.warning)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -361,7 +357,7 @@ private struct CodexSessionRow: View {
                     if let planType = session.planType {
                         Text(planType)
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(palette.warning)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(.orange.opacity(0.12), in: Capsule())
@@ -465,7 +461,7 @@ private extension CodexPageView {
             }
             .frame(width: width, alignment: alignment)
         }
-        .buttonStyle(.plain)
+        .dashboardButtonStyle(palette: palette, compact: true, fallback: .plain)
     }
 
 }

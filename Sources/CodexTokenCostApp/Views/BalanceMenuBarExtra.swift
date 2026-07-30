@@ -143,14 +143,14 @@ enum BalanceMenuBarExtraSupport {
             switch clamped {
             case ..<0.5: return palette.accentSecondary
             case ..<0.8: return palette.accent
-            case ..<0.95: return .orange
-            default: return .red
+            case ..<0.95: return palette.warning
+            default: return palette.danger
             }
         case .remaining:
             if clamped > 0.5 { return palette.accentSecondary }
             if clamped > 0.2 { return palette.accent }
-            if clamped > 0.05 { return .orange }
-            return .red
+            if clamped > 0.05 { return palette.warning }
+            return palette.danger
         }
     }
 
@@ -435,9 +435,9 @@ struct BalanceMenuBarExtraLabelView: View {
         case .moderate:
             return palette.accent
         case .high:
-            return .orange
+            return palette.warning
         case .critical:
-            return .red
+            return palette.danger
         case .unavailable:
             return palette.subtitle.opacity(0.55)
         }
@@ -450,11 +450,11 @@ struct BalanceMenuBarExtraLabelView: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "gauge")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 11, weight: palette.usesWorkshopStyle ? .black : .semibold))
                 .foregroundStyle(tint)
 
             Text(selection.compactValueText)
-                .font(.caption.weight(.semibold))
+                .font(TokenTypography.caption(weight: .bold, palette: palette))
                 .monospacedDigit()
                 .foregroundStyle(valueForeground)
                 .lineLimit(1)
@@ -514,12 +514,17 @@ struct BalanceMenuBarPopoverView: View {
                 .frame(maxHeight: 320)
             }
 
-            Divider()
+            TokenThemedDivider(palette: palette)
 
             controls
         }
         .frame(width: 350)
-        .padding(12)
+        .padding(TokenSpacing.control)
+        .background {
+            if palette.usesWorkshopStyle {
+                palette.pageBackground
+            }
+        }
     }
 
     private var header: some View {
@@ -531,7 +536,7 @@ struct BalanceMenuBarPopoverView: View {
                         .frame(width: 7, height: 7)
 
                     Text(selection.titleText)
-                        .font(.subheadline.weight(.semibold))
+                        .font(TokenTypography.subheadline(weight: .bold, palette: palette))
                         .foregroundStyle(palette.title)
                         .lineLimit(1)
                         .minimumScaleFactor(0.9)
@@ -539,14 +544,14 @@ struct BalanceMenuBarPopoverView: View {
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(selection.valueText)
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(TokenTypography.metric(size: 20, weight: .bold, palette: palette))
                         .foregroundStyle(selection.tone == .critical ? .red : palette.accent)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
 
                     if let detailText = selection.detailText, !detailText.isEmpty {
                         Text(detailText)
-                            .font(.caption)
+                            .font(TokenTypography.caption(palette: palette))
                             .foregroundStyle(palette.subtitle)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
@@ -554,7 +559,7 @@ struct BalanceMenuBarPopoverView: View {
                 }
 
                 Text(lastRefreshText)
-                    .font(.caption)
+                    .font(TokenTypography.caption(palette: palette))
                     .foregroundStyle(palette.subtitle)
                     .lineLimit(1)
                     .minimumScaleFactor(0.9)
@@ -574,7 +579,7 @@ struct BalanceMenuBarPopoverView: View {
                         .font(.system(size: 12, weight: .semibold))
                 }
             }
-            .buttonStyle(.plain)
+            .dashboardButtonStyle(palette: palette, compact: true, fallback: .plain)
             .foregroundStyle(balanceManager.isRefreshing ? palette.subtitle : palette.accent)
             .disabled(balanceManager.isRefreshing)
             .help(AppLocalization.text("menu.refreshBalance"))
@@ -595,7 +600,13 @@ struct BalanceMenuBarPopoverView: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .settingsGlassButtonStyle(prominent: appPreferencesModel.preferences.balanceFloatingPanelEnabled)
+            .dashboardButtonStyle(
+                palette: palette,
+                compact: true,
+                fallback: appPreferencesModel.preferences.balanceFloatingPanelEnabled
+                    ? .settingsGlassProminent
+                    : .settingsGlass
+            )
             .controlSize(.small)
             .help(
                 appPreferencesModel.preferences.balanceFloatingPanelEnabled
@@ -610,27 +621,52 @@ struct BalanceMenuBarPopoverView: View {
                 )
             )
 
+            pinFloatingPanelToggle
+        }
+    }
+
+    @ViewBuilder
+    private var pinFloatingPanelToggle: some View {
+        let label = BalanceMenuBarExtraSupport.pinFloatingPanelLabel(
+            isEnabled: appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop
+        )
+        let hint = BalanceMenuBarExtraSupport.pinFloatingPanelHint(
+            isEnabled: appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop
+        )
+
+        if palette.usesWorkshopStyle {
             Toggle(isOn: appPreferencesModel.balanceFloatingPanelAlwaysOnTopBinding) {
                 Label(
-                    BalanceMenuBarExtraSupport.pinFloatingPanelLabel(isEnabled: appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop),
+                    label,
+                    systemImage: appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop ? "pin.fill" : "pin"
+                )
+            }
+            .toggleStyle(WorkshopToggleStyle(palette: palette))
+            .help(hint)
+            .accessibilityLabel(Text(label))
+            .accessibilityHint(Text(hint))
+        } else {
+            Toggle(isOn: appPreferencesModel.balanceFloatingPanelAlwaysOnTopBinding) {
+                Label(
+                    label,
                     systemImage: appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop ? "pin.fill" : "pin"
                 )
             }
             .toggleStyle(.switch)
             .controlSize(.small)
-            .help(BalanceMenuBarExtraSupport.pinFloatingPanelHint(isEnabled: appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop))
-            .accessibilityLabel(Text(BalanceMenuBarExtraSupport.pinFloatingPanelLabel(isEnabled: appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop)))
-            .accessibilityHint(Text(BalanceMenuBarExtraSupport.pinFloatingPanelHint(isEnabled: appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop)))
+            .help(hint)
+            .accessibilityLabel(Text(label))
+            .accessibilityHint(Text(hint))
         }
     }
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(AppLocalization.text("balance.empty.title"))
-                .font(.subheadline.weight(.semibold))
+                .font(TokenTypography.subheadline(weight: .bold, palette: palette))
                 .foregroundStyle(palette.title)
             Text(AppLocalization.text("balance.empty.body"))
-                .font(.caption)
+                .font(TokenTypography.caption(palette: palette))
                 .foregroundStyle(palette.subtitle)
                 .lineLimit(3)
         }

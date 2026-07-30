@@ -68,7 +68,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var balanceEnabled: Bool
     public var balanceRefreshSeconds: Int
     public var opencodeGoWorkspaceID: String?
-    public var theme: TokenCostThemeChoice
+    public var accentPalette: TokenCostAccentPalette
+    public var appearanceMode: TokenCostAppearanceMode
     public var displayCurrency: DisplayCurrency
     public var balanceConfig: BalanceConfiguration?
     public var skillsPanel: SkillsPanelPreferences
@@ -97,7 +98,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         balanceEnabled: Bool = false,
         balanceRefreshSeconds: Int = 300,
         opencodeGoWorkspaceID: String? = nil,
-        theme: TokenCostThemeChoice = .ocean,
+        accentPalette: TokenCostAccentPalette = .ocean,
+        appearanceMode: TokenCostAppearanceMode = .system,
         displayCurrency: DisplayCurrency = .usd,
         skillsPanel: SkillsPanelPreferences = SkillsPanelPreferences(),
         developerMode: DeveloperModePreferences = DeveloperModePreferences(),
@@ -125,7 +127,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.balanceEnabled = balanceEnabled
         self.balanceRefreshSeconds = balanceRefreshSeconds
         self.opencodeGoWorkspaceID = opencodeGoWorkspaceID
-        self.theme = theme
+        self.accentPalette = accentPalette
+        self.appearanceMode = appearanceMode
         self.displayCurrency = displayCurrency
         self.skillsPanel = skillsPanel
         self.developerMode = developerMode
@@ -156,6 +159,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case balanceRefreshSeconds = "balance_refresh_seconds"
         case legacyBalanceRefreshMinutes = "balance_refresh_minutes"
         case opencodeGoWorkspaceID = "opencode_go_workspace_id"
+        case accentPalette = "accent_palette"
+        case appearanceMode = "appearance_mode"
         case theme
         case displayCurrency
         case balanceConfig = "balance_config"
@@ -187,6 +192,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case balanceRefreshSeconds
         case legacyBalanceRefreshMinutes = "balanceRefreshMinutes"
         case opencodeGoWorkspaceID = "opencodeGoWorkspaceId"
+        case accentPalette
+        case appearanceMode
         case theme
         case displayCurrency
         case balanceConfig
@@ -249,7 +256,16 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         }
         self.opencodeGoWorkspaceID = try container.decodeIfPresent(String.self, forKey: .opencodeGoWorkspaceID)
             ?? legacyContainer?.decodeIfPresent(String.self, forKey: .opencodeGoWorkspaceID)
-        self.theme = try container.decodeIfPresent(TokenCostThemeChoice.self, forKey: .theme) ?? .ocean
+        let legacyTheme = try container.decodeIfPresent(TokenCostThemeChoice.self, forKey: .theme)
+            ?? legacyContainer?.decodeIfPresent(TokenCostThemeChoice.self, forKey: .theme)
+        self.accentPalette = try container.decodeIfPresent(TokenCostAccentPalette.self, forKey: .accentPalette)
+            ?? legacyContainer?.decodeIfPresent(TokenCostAccentPalette.self, forKey: .accentPalette)
+            ?? legacyTheme?.accentPalette
+            ?? .ocean
+        self.appearanceMode = try container.decodeIfPresent(TokenCostAppearanceMode.self, forKey: .appearanceMode)
+            ?? legacyContainer?.decodeIfPresent(TokenCostAppearanceMode.self, forKey: .appearanceMode)
+            ?? legacyTheme?.appearanceMode
+            ?? .system
         self.displayCurrency = try container.decodeIfPresent(DisplayCurrency.self, forKey: .displayCurrency) ?? .usd
         self.skillsPanel = try container.decodeIfPresent(SkillsPanelPreferences.self, forKey: .skillsPanel) ?? SkillsPanelPreferences()
         self.developerMode = try container.decodeIfPresent(DeveloperModePreferences.self, forKey: .developerMode)
@@ -317,7 +333,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(balanceEnabled, forKey: .balanceEnabled)
         try container.encode(balanceRefreshSeconds, forKey: .balanceRefreshSeconds)
         try container.encodeIfPresent(opencodeGoWorkspaceID, forKey: .opencodeGoWorkspaceID)
-        try container.encode(theme, forKey: .theme)
+        try container.encode(accentPalette, forKey: .accentPalette)
+        try container.encode(appearanceMode, forKey: .appearanceMode)
         try container.encode(displayCurrency, forKey: .displayCurrency)
         try container.encode(skillsPanel, forKey: .skillsPanel)
         try container.encode(developerMode, forKey: .developerMode)

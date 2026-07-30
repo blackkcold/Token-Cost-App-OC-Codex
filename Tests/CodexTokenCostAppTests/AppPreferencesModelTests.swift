@@ -1,9 +1,100 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import CodexTokenCostApp
 @testable import CodexTokenCostCore
 
 @MainActor
 final class AppPreferencesModelTests: XCTestCase {
+    func testAccentAndAppearanceBindingsPersistIndependently() {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("app_preferences_model_appearance_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let model = AppPreferencesModel(runtimeRoot: tempDir)
+        model.accentPaletteBinding.wrappedValue = .sunset
+        model.appearanceModeBinding.wrappedValue = .dark
+
+        let reloaded = AppPreferencesModel(runtimeRoot: tempDir)
+        XCTAssertEqual(reloaded.preferences.accentPalette, .sunset)
+        XCTAssertEqual(reloaded.preferences.appearanceMode, .dark)
+    }
+
+    func testLegacySourceThemeMigrationRunsOnlyForFallbackPreferences() {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("app_preferences_model_legacy_theme_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let model = AppPreferencesModel(runtimeRoot: tempDir)
+        model.migrateThemeFromSettingsIfNeeded(.forest)
+        XCTAssertEqual(model.preferences.accentPalette, .forest)
+        XCTAssertEqual(model.preferences.appearanceMode, .system)
+
+        model.accentPaletteBinding.wrappedValue = .ocean
+        model.migrateThemeFromSettingsIfNeeded(.violet)
+        XCTAssertEqual(model.preferences.accentPalette, .ocean)
+    }
+
+    func testAppearanceModeMapsToPreferredColorScheme() {
+        XCTAssertNil(TokenCostAppearanceMode.system.preferredColorScheme)
+        XCTAssertEqual(TokenCostAppearanceMode.light.preferredColorScheme, .light)
+        XCTAssertEqual(TokenCostAppearanceMode.dark.preferredColorScheme, .dark)
+        XCTAssertNil(TokenCostAppearanceMode.system.appKitAppearance)
+        XCTAssertEqual(TokenCostAppearanceMode.light.appKitAppearance?.name, .aqua)
+        XCTAssertEqual(TokenCostAppearanceMode.dark.appKitAppearance?.name, .darkAqua)
+    }
+
+    func testWorkshopPaletteUsesBrutalistSurfaceMetrics() {
+        let palette = TokenCostPalette(accentPalette: .workshop)
+
+        XCTAssertTrue(palette.usesWorkshopStyle)
+        XCTAssertEqual(palette.cardBorderWidth, 2.5)
+        XCTAssertEqual(palette.surfaceBorderWidth, 2.5)
+        XCTAssertEqual(palette.shadowRadius, 0)
+        XCTAssertEqual(palette.shadowX, 5)
+        XCTAssertEqual(palette.shadowY, 5)
+        XCTAssertEqual(palette.success, palette.accentSecondary)
+    }
+
+    func testExistingPaletteKeepsDefaultSurfaceMetrics() {
+        let palette = TokenCostPalette(accentPalette: .ocean)
+
+        XCTAssertFalse(palette.usesWorkshopStyle)
+        XCTAssertEqual(palette.cardBorderWidth, 1)
+        XCTAssertEqual(palette.surfaceBorderWidth, 1)
+        XCTAssertEqual(palette.shadowRadius, TokenShadow.large.radius)
+        XCTAssertEqual(palette.shadowX, 0)
+        XCTAssertEqual(palette.shadowY, TokenShadow.large.y)
+    }
+
+    func testWorkshopThemeRendersInLightAndDark() throws {
+        let lightImage = try renderWorkshopFixture(colorScheme: .light, filename: "workshop-light.png")
+        let darkImage = try renderWorkshopFixture(colorScheme: .dark, filename: "workshop-dark.png")
+
+        XCTAssertEqual(lightImage.size, NSSize(width: 900, height: 620))
+        XCTAssertEqual(darkImage.size, NSSize(width: 900, height: 620))
+    }
+
+    private func renderWorkshopFixture(colorScheme: ColorScheme, filename: String) throws -> NSImage {
+        let renderer = ImageRenderer(
+            content: WorkshopThemeFixture()
+                .environment(\.colorScheme, colorScheme)
+        )
+        renderer.proposedSize = ProposedViewSize(width: 900, height: 620)
+        renderer.scale = 2
+
+        let image = try XCTUnwrap(renderer.nsImage)
+        if let outputDirectory = ProcessInfo.processInfo.environment["WORKSHOP_SNAPSHOT_DIR"] {
+            let outputURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
+                .appendingPathComponent(filename)
+            let tiffData = try XCTUnwrap(image.tiffRepresentation)
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+            let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            try pngData.write(to: outputURL, options: .atomic)
+        }
+        return image
+    }
+
     func testEffectiveBalanceConfigurationFallsBackToDefault() {
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("app_preferences_model_default_\(UUID().uuidString)", isDirectory: true)
@@ -564,5 +655,87 @@ final class AppPreferencesModelTests: XCTestCase {
 
         XCTAssertEqual(order, [.opencodeZen, .codex, .opencodeGo, .deepseek, .ollama])
         XCTAssertEqual(Set(order), Set(BalanceProviderKind.allCases), "filtered drag must not drop hidden/unavailable providers")
+    }
+}
+
+private struct WorkshopThemeFixture: View {
+    private let palette = TokenCostPalette(accentPalette: .workshop)
+
+    var body: some View {
+        ZStack {
+            palette.pageBackground
+
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("TOKEN COST WORKSHOP")
+                            .font(TokenTypography.headline(weight: .black, palette: palette))
+                            .foregroundStyle(palette.title)
+                        Text("A structured sketch board for cost signals")
+                            .font(TokenTypography.caption(palette: palette))
+                            .foregroundStyle(palette.subtitle)
+                    }
+                    Spacer()
+                    TokenStatusPill(
+                        title: "LIVE BOARD",
+                        tint: palette.accentSecondary,
+                        palette: palette,
+                        systemImage: "cursorarrow.rays"
+                    )
+                }
+
+                HStack(spacing: 20) {
+                    TokenMetricCard(
+                        title: "MONTHLY COST",
+                        value: "$48.20",
+                        subtitle: "OpenCode + Codex",
+                        tint: palette.accent,
+                        palette: palette
+                    )
+                    TokenMetricCard(
+                        title: "TOKENS",
+                        value: "12.4M",
+                        subtitle: "30-day total",
+                        tint: palette.accentSecondary,
+                        palette: palette
+                    )
+                    TokenMetricCard(
+                        title: "CACHE HIT",
+                        value: "68%",
+                        subtitle: "Stable this week",
+                        tint: palette.warning,
+                        palette: palette
+                    )
+                }
+
+                TokenSectionCard(
+                    title: "WORKFLOW SIGNALS",
+                    subtitle: "Cards remain readable while the board keeps its rough workshop character",
+                    trailing: nil,
+                    palette: palette
+                ) {
+                    VStack(spacing: 14) {
+                        DistributionRow(
+                            title: "Input",
+                            value: 7.2,
+                            total: 12.4,
+                            tint: palette.accent,
+                            palette: palette,
+                            suffix: "Primary model context"
+                        )
+                        DistributionRow(
+                            title: "Output",
+                            value: 5.2,
+                            total: 12.4,
+                            tint: palette.accentSecondary,
+                            palette: palette,
+                            suffix: "Generated responses"
+                        )
+                    }
+                }
+            }
+            .padding(44)
+        }
+        .frame(width: 900, height: 620)
     }
 }

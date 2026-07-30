@@ -4,6 +4,7 @@ import CodexTokenCostCore
 struct OpenCodeSkillsPageView: View {
     @ObservedObject var model: OpenCodeSkillsModel
     let palette: TokenCostPalette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var searchText = ""
     @State private var selectedSkillID: String?
@@ -48,22 +49,31 @@ struct OpenCodeSkillsPageView: View {
                     .frame(minWidth: 420)
             }
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: palette.sectionCornerRadius, style: .continuous)
                     .fill(palette.surfaceFill)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .strokeBorder(palette.surfaceStroke, lineWidth: 0.8)
+                        RoundedRectangle(cornerRadius: palette.sectionCornerRadius, style: .continuous)
+                            .strokeBorder(palette.surfaceStroke, lineWidth: palette.surfaceBorderWidth)
                     )
-                    .shadow(color: palette.surfaceShadow, radius: 10, x: 0, y: 6)
+                    .shadow(
+                        color: palette.surfaceShadow,
+                        radius: palette.usesWorkshopStyle ? palette.shadowRadius : TokenShadow.medium.radius,
+                        x: palette.usesWorkshopStyle ? palette.shadowX : 0,
+                        y: palette.usesWorkshopStyle ? palette.shadowY : TokenShadow.medium.y
+                    )
             )
         }
     }
 
     private var notInstalledView: some View {
         VStack(spacing: 20) {
-            Image(systemName: "gearshape.2")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
+            TokenDashboardSymbolMark(
+                systemImage: palette.usesWorkshopStyle ? "wrench.and.screwdriver.fill" : "gearshape.2",
+                tint: palette.accent,
+                palette: palette,
+                size: 58,
+                fontSize: 28
+            )
             Text(AppLocalization.text("skills.notInstalled.title"))
                 .font(.title2)
             Text(AppLocalization.text("skills.notInstalled.body"))
@@ -118,7 +128,7 @@ struct OpenCodeSkillsPageView: View {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
+                    .dashboardButtonStyle(palette: palette, compact: true, fallback: .plain)
                     .accessibilityLabel(Text(AppLocalization.text("skills.action.clearSearch")))
                     .help(AppLocalization.text("skills.action.clearSearch"))
                 }
@@ -156,16 +166,29 @@ struct OpenCodeSkillsPageView: View {
     }
 
     private func filterChip(_ label: String, isActive: Bool, isMenu: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 2) {
-                Text(verbatim: label).font(.caption2)
-                if isMenu { Image(systemName: "chevron.down").font(.caption2) }
+        Group {
+            if palette.usesWorkshopStyle {
+                Button(action: action) {
+                    HStack(spacing: 3) {
+                        Text(verbatim: label)
+                        if isMenu { Image(systemName: "chevron.down") }
+                    }
+                    .foregroundStyle(isActive ? palette.accent : palette.title)
+                }
+                .dashboardButtonStyle(palette: palette, compact: true)
+            } else {
+                Button(action: action) {
+                    HStack(spacing: 2) {
+                        Text(verbatim: label).font(.caption2)
+                        if isMenu { Image(systemName: "chevron.down").font(.caption2) }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(isActive ? palette.accent.opacity(0.2) : .secondary.opacity(0.08)))
+                    .foregroundStyle(isActive ? palette.accent : .secondary)
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Capsule().fill(isActive ? palette.accent.opacity(0.2) : .secondary.opacity(0.08)))
-            .foregroundStyle(isActive ? palette.accent : .secondary)
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -200,7 +223,13 @@ struct OpenCodeSkillsPageView: View {
 
     private func sectionHeader(icon: String, title: String, count: Int, kind: String) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: icon).font(.caption2).foregroundStyle(.secondary)
+            TokenDashboardSymbolMark(
+                systemImage: icon,
+                tint: palette.accent,
+                palette: palette,
+                size: 19,
+                fontSize: 8
+            )
             Text(verbatim: title).font(.caption.weight(.medium))
             Text(verbatim: "\(count)").font(.caption2).foregroundStyle(.tertiary)
             Spacer()
@@ -253,18 +282,23 @@ struct OpenCodeSkillsPageView: View {
 
     private func statusDot(_ state: OpenCodeSkillManifestState) -> some View {
         Circle()
-            .fill(state == .valid ? .green : state == .warning ? .yellow : .red)
+            .fill(state == .valid ? palette.success : state == .warning ? palette.warning : palette.danger)
             .frame(width: 7, height: 7)
     }
 
     @ViewBuilder
     private func detailView(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
-        if let selectedID = selectedSkillID,
-           let skill = (snapshot.discoveredSkills + snapshot.builtinSkills).first(where: { $0.id == selectedID }) {
-            skillDetailView(skill, snapshot: snapshot)
-        } else {
-            overviewView(snapshot)
+        Group {
+            if let selectedID = selectedSkillID,
+               let skill = (snapshot.discoveredSkills + snapshot.builtinSkills).first(where: { $0.id == selectedID }) {
+                skillDetailView(skill, snapshot: snapshot)
+            } else {
+                overviewView(snapshot)
+            }
         }
+        .id(selectedSkillID)
+        .transition(.opacity)
+        .animation(TokenMotion.resolved(TokenMotion.contentSwap, reduceMotion: reduceMotion), value: selectedSkillID)
     }
 
     private func overviewView(_ snapshot: OpenCodeSkillsReadOnlySnapshot) -> some View {
@@ -289,6 +323,7 @@ struct OpenCodeSkillsPageView: View {
                 HStack {
                     Button {
                         selectedSkillID = nil
+                        bodyExpanded = false
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "chevron.left")
@@ -297,7 +332,7 @@ struct OpenCodeSkillsPageView: View {
                         .font(.subheadline)
                         .foregroundStyle(palette.accent)
                     }
-                    .buttonStyle(.plain)
+                    .dashboardButtonStyle(palette: palette, compact: true, fallback: .plain)
                     .help(AppLocalization.text("skills.action.backToOverview"))
                     statusDot(skill.manifest.state)
                     Text(verbatim: skill.name).font(.title3.weight(.semibold))
@@ -336,12 +371,16 @@ struct OpenCodeSkillsPageView: View {
                             .monospaced()
                             .foregroundStyle(.secondary)
                         if needsToggle {
-                            Button { withAnimation { bodyExpanded.toggle() } } label: {
+                            Button {
+                                withAnimation(TokenMotion.resolved(TokenMotion.expand, reduceMotion: reduceMotion)) {
+                                    bodyExpanded.toggle()
+                                }
+                            } label: {
                                 Text(verbatim: bodyExpanded ? AppLocalization.text("common.collapse") : AppLocalization.format("skills.detail.expandAll", body.count))
                                     .font(.caption2)
                                     .foregroundStyle(palette.accent)
                             }
-                            .buttonStyle(.plain)
+                            .dashboardButtonStyle(palette: palette, compact: true, fallback: .plain)
                             .padding(.top, 4)
                         }
                     }
@@ -369,7 +408,7 @@ struct OpenCodeSkillsPageView: View {
 
                 if !skill.duplicatePaths.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(AppLocalization.text("skills.detail.duplicates")).font(.caption).foregroundStyle(.orange)
+                        Text(AppLocalization.text("skills.detail.duplicates")).font(.caption).foregroundStyle(palette.warning)
                         ForEach(skill.duplicatePaths, id: \.self) { Text(verbatim: $0).font(.caption2).monospaced().foregroundStyle(.secondary) }
                     }
                 }
@@ -378,7 +417,9 @@ struct OpenCodeSkillsPageView: View {
                     detailCard(icon: "exclamationmark.triangle", title: AppLocalization.text("skills.detail.issues")) {
                         ForEach(skill.manifest.issues) { issue in
                             HStack(spacing: 6) {
-                                Circle().fill(issue.severity == .error ? .red : issue.severity == .warning ? .yellow : .blue).frame(width: 6, height: 6)
+                                Circle()
+                                    .fill(issue.severity == .error ? palette.danger : issue.severity == .warning ? palette.warning : palette.info)
+                                    .frame(width: 6, height: 6)
                                 Text(verbatim: issue.message).font(.caption)
                             }
                         }
@@ -403,7 +444,13 @@ struct OpenCodeSkillsPageView: View {
     private func detailCard<Content: View>(icon: String, title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: icon).font(.caption).foregroundStyle(palette.accent)
+                TokenDashboardSymbolMark(
+                    systemImage: icon,
+                    tint: palette.accent,
+                    palette: palette,
+                    size: 21,
+                    fontSize: 9
+                )
                 Text(verbatim: title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
             content()
@@ -442,7 +489,7 @@ struct OpenCodeSkillsPageView: View {
                         HStack(spacing: 4) {
                             Text(verbatim: "[\(rule.order)]").font(.caption2).monospaced()
                             Text(verbatim: "\(rule.pattern) = \(rule.action.rawValue)").font(.caption2)
-                            if rule.isLegacy { Text(verbatim: "(legacy)").font(.caption2).foregroundStyle(.orange) }
+                            if rule.isLegacy { Text(verbatim: "(legacy)").font(.caption2).foregroundStyle(palette.warning) }
                         }
                     }
                 }
@@ -458,10 +505,10 @@ struct OpenCodeSkillsPageView: View {
                         .fill(layer.isPresent ? (layer.parseError != nil ? .red : .green) : .gray)
                         .frame(width: 8, height: 8)
                     Text(verbatim: layer.name).font(.caption)
-                    if layer.isJSONC { Text(verbatim: "JSONC").font(.caption2).foregroundStyle(.orange) }
+                    if layer.isJSONC { Text(verbatim: "JSONC").font(.caption2).foregroundStyle(palette.warning) }
                     if layer.isCompatibilityLayer { Text(verbatim: "compat").font(.caption2).foregroundStyle(.secondary) }
                     if let err = layer.parseError {
-                        Text(verbatim: err).font(.caption2).foregroundStyle(.red).lineLimit(1)
+                        Text(verbatim: err).font(.caption2).foregroundStyle(palette.danger).lineLimit(1)
                     }
                 }
             }
@@ -471,7 +518,7 @@ struct OpenCodeSkillsPageView: View {
                     Text(AppLocalization.format("skills.config.pathsEntries", snapshot.skillsPathsEntries.count)).font(.caption2).foregroundStyle(.secondary)
                 }
                 if !snapshot.skillsUrlsEntries.isEmpty {
-                    Text(AppLocalization.format("skills.config.urlsEntries", snapshot.skillsUrlsEntries.count)).font(.caption2).foregroundStyle(.orange)
+                    Text(AppLocalization.format("skills.config.urlsEntries", snapshot.skillsUrlsEntries.count)).font(.caption2).foregroundStyle(palette.warning)
                 }
             }
         }
@@ -489,7 +536,7 @@ struct OpenCodeSkillsPageView: View {
                         Circle().fill(agent.skillToolAvailable ? .green : .red).frame(width: 7, height: 7)
                         Text(verbatim: agent.agent.rawValue).font(.caption)
                         if let note = agent.note {
-                            Text(verbatim: note).font(.caption2).foregroundStyle(.orange).lineLimit(1)
+                            Text(verbatim: note).font(.caption2).foregroundStyle(palette.warning).lineLimit(1)
                         }
                         Spacer()
                     }
@@ -514,7 +561,7 @@ struct OpenCodeSkillsPageView: View {
                         .foregroundStyle(.secondary)
                 }
                 if let error = snapshot.desktopSkillLock.parseError {
-                    Text(verbatim: error).font(.caption2).foregroundStyle(.red)
+                    Text(verbatim: error).font(.caption2).foregroundStyle(palette.danger)
                 }
                 ForEach(snapshot.desktopSkillLock.entries.prefix(6)) { entry in
                     desktopSkillLockRow(entry)
@@ -557,7 +604,7 @@ struct OpenCodeSkillsPageView: View {
         if snapshot.ohMyOpenAgent.detected {
             detailCard(icon: "point.3.connected.trianglepath.dotted", title: AppLocalization.text("skills.overview.omo")) {
                 if let error = snapshot.ohMyOpenAgent.parseError {
-                    Text(verbatim: error).font(.caption2).foregroundStyle(.red)
+                    Text(verbatim: error).font(.caption2).foregroundStyle(palette.danger)
                 } else {
                     Text(AppLocalization.format("skills.omo.agentsCategories", snapshot.ohMyOpenAgent.agentOverrides.count, snapshot.ohMyOpenAgent.categoryOverrides.count))
                         .font(.caption)

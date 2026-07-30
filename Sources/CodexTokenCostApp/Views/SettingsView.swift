@@ -37,7 +37,7 @@ struct SettingsView: View {
     private let listPageSize = 10
 
     private var palette: TokenCostPalette {
-        TokenCostPalette(theme: appPreferencesModel.preferences.theme)
+        TokenCostPalette(accentPalette: appPreferencesModel.preferences.accentPalette)
     }
 
     private enum SettingsSection: String, CaseIterable, Identifiable {
@@ -320,12 +320,12 @@ struct SettingsView: View {
                     HStack(alignment: .top, spacing: 10) {
                         Text(item.title)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(palette.warning)
                             .frame(width: 110, alignment: .leading)
 
                         Text(item.message)
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(palette.warning)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -463,7 +463,7 @@ struct SettingsView: View {
     private func badge(for section: SettingsSection) -> String? {
         switch section {
         case .overview: return warningMessages.isEmpty ? nil : "\(warningMessages.count)"
-        case .preferences: return appPreferencesModel.preferences.theme.displayName
+        case .preferences: return appPreferencesModel.preferences.accentPalette.displayName
         case .billing: return "\(billingProviderCount)"
         case .balance: return appPreferencesModel.preferences.balanceEnabled ? AppLocalization.text("common.ready") : AppLocalization.text("common.unavailable")
         case .opencode: return "\(openCodeModel.settings.scanRoots.count + openCodeModel.settings.manualDatabasePaths.count)"
@@ -484,7 +484,7 @@ struct SettingsView: View {
         case .opencode: return palette.accent
         case .codex: return palette.accentSecondary
         case .skills: return palette.accent
-        case .security: return .red
+        case .security: return palette.danger
         case .developer: return appPreferencesModel.preferences.developerMode.isEnabled ? palette.accent : palette.subtitle
         case .backup: return palette.accentSecondary
         }
@@ -512,7 +512,7 @@ private struct SettingsSidebarRow: View {
                 .foregroundStyle(palette.accent)
                 .frame(width: 32, height: 32)
                 .settingsInsetSurface(
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous),
+                    in: RoundedRectangle(cornerRadius: TokenRadius.compact, style: .continuous),
                     palette: palette
                 )
 
@@ -534,7 +534,7 @@ private struct SettingsSidebarRow: View {
                 Text(badge)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(badgeTint)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, TokenSpacing.small)
                     .padding(.vertical, 4)
                     .background(badgeTint.opacity(0.12), in: Capsule())
                     .overlay(

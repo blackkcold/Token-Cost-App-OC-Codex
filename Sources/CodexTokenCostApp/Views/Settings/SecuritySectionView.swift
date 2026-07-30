@@ -65,10 +65,10 @@ struct SecuritySectionView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(palette.warning)
                 Text(verbatim: message)
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(palette.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.vertical, 4)

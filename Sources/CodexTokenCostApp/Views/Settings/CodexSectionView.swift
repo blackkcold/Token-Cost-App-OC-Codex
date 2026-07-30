@@ -138,7 +138,7 @@ struct CodexSectionView: View {
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.caption2)
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(palette.danger)
                             }
                             .buttonStyle(.borderless)
                             .help("Remove Codex source root")
@@ -209,7 +209,7 @@ struct CodexSectionView: View {
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.caption2)
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(palette.danger)
                             }
                             .buttonStyle(.borderless)
                             .help("Remove Codex manual path")
@@ -296,10 +296,10 @@ struct CodexSectionView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(palette.warning)
                         Text(verbatim: warning)
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(palette.warning)
                     }
                     .padding(.top, 4)
                 }

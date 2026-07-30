@@ -23,13 +23,18 @@ public final class BalanceManager: ObservableObject {
     }
 
     /// Test-only: inject mock checkers with optional reduced timeout.
-    init(checkers: [BalanceChecker], configuration: BalanceConfiguration = BalanceConfiguration(), timeoutNanos: UInt64? = nil) {
+    /// `authTokenOverride` bypasses disk-based `AuthTokenProvider` lookups so
+    /// timeout/sentinel tests are deterministic on CI runners that lack the
+    /// developer's local auth files.
+    init(checkers: [BalanceChecker], configuration: BalanceConfiguration = BalanceConfiguration(), timeoutNanos: UInt64? = nil, authTokenOverride: String? = nil) {
         self.configuration = configuration
         self.checkers = checkers
         self._testTimeoutNanos = timeoutNanos
+        self._testAuthTokenOverride = authTokenOverride
     }
 
     private var _testTimeoutNanos: UInt64?
+    private var _testAuthTokenOverride: String?
 
     private var effectiveTimeoutNanos: UInt64 {
         _testTimeoutNanos ?? Self.refreshTimeout
@@ -71,6 +76,7 @@ public final class BalanceManager: ObservableObject {
         let currentCheckers = checkers
         let providerCount = currentCheckers.count
         let timeoutNanos = effectiveTimeoutNanos
+        let authTokenOverride = _testAuthTokenOverride
 
         let (rawSnapshots, anySucceeded, timedOut): ([BalanceSnapshot], Bool, Bool) = await withTaskGroup(
             of: ProviderOutcome.self,
@@ -83,9 +89,14 @@ public final class BalanceManager: ObservableObject {
 
             for checker in currentCheckers {
                 group.addTask {
-                    let token = await Task.detached {
-                        AuthTokenProvider.token(for: checker.providerKind)
-                    }.value
+                    let token: String?
+                    if let override = authTokenOverride {
+                        token = override
+                    } else {
+                        token = await Task.detached {
+                            AuthTokenProvider.token(for: checker.providerKind)
+                        }.value
+                    }
                     guard let token = token else {
                         return .snapshot(BalanceSnapshot.unavailable(
                             checker.providerKind,
