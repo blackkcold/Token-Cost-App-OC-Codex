@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- *待记录 / TBD*
+- **CI flaky timeout 测试稳定化**：`BalanceManager` 的 test-only init 新增 `authTokenOverride` 参数，允许 timeout/sentinel 测试注入 token 绕过磁盘 `AuthTokenProvider` 查找，消除 CI runner 缺少本地 auth 文件导致的非确定性失败。4 个 `testRefresh*` 测试注入 `"test-token"`，本地与 CI 行为一致（`BalanceManager.swift`、`CodexTokenCostCoreTests.swift`）。
+- **Release workflow 密钥缺失降级**：`write_update_manifest` 在 `UPDATE_MANIFEST_PRIVATE_KEY_PEM` / `UPDATE_MANIFEST_PUBLIC_KEY_B64` 缺失时跳过签名 manifest 生成并输出警告（`return 0`），不再 `exit 4` 阻塞发版；`release.yml` 的 manifest 资产检查从"恰好 1 个"放宽为"0 或 1 个"。配置密钥时签名照常，未配置时降级为无签名 Release（`script/build_and_run_codex.sh`、`.github/workflows/release.yml`）。
 
 ## [v1.1.0] - 2026-07-30
 
