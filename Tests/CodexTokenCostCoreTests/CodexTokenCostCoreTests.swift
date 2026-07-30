@@ -1054,7 +1054,8 @@ final class CodexTokenCostCoreTests: XCTestCase {
 
         let mgr = BalanceManager(
             checkers: [normal, cancelling],
-            timeoutNanos: 2_000_000_000
+            timeoutNanos: 2_000_000_000,
+            authTokenOverride: "test-token"
         )
         await mgr.refresh()
 
@@ -1079,7 +1080,8 @@ final class CodexTokenCostCoreTests: XCTestCase {
 
         let mgr = BalanceManager(
             checkers: [normal, slow],
-            timeoutNanos: 500_000_000
+            timeoutNanos: 500_000_000,
+            authTokenOverride: "test-token"
         )
         await mgr.refresh()
 
@@ -1100,7 +1102,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
         let c1 = MockBalanceChecker(providerKind: .codex, snapshot: s1)
         let c2 = MockBalanceChecker(providerKind: .deepseek, snapshot: s2)
 
-        let mgr = BalanceManager(checkers: [c1, c2], timeoutNanos: 2_000_000_000)
+        let mgr = BalanceManager(checkers: [c1, c2], timeoutNanos: 2_000_000_000, authTokenOverride: "test-token")
         await mgr.refresh()
 
         XCTAssertFalse(mgr.isRefreshing)
@@ -1119,7 +1121,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
         let c2 = MockBalanceChecker(providerKind: .deepseek, snapshot: s2)
         let c3 = MockBalanceChecker(providerKind: .opencodeGo, snapshot: s3)
 
-        let mgr = BalanceManager(checkers: [c1, c2, c3], timeoutNanos: 2_000_000_000)
+        let mgr = BalanceManager(checkers: [c1, c2, c3], timeoutNanos: 2_000_000_000, authTokenOverride: "test-token")
         var snapshotChangeCount = 0
 
         let sink = mgr.$snapshots.sink { _ in snapshotChangeCount += 1 }

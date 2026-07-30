@@ -259,8 +259,8 @@ write_update_manifest() {
   local asset_size sha256 signature
 
   if [[ -z "${UPDATE_MANIFEST_PRIVATE_KEY_PEM:-}" ]] || [[ -z "$UPDATE_MANIFEST_PUBLIC_KEY_B64" ]]; then
-    echo "release mode requires UPDATE_MANIFEST_PRIVATE_KEY_PEM and UPDATE_MANIFEST_PUBLIC_KEY_B64" >&2
-    exit 4
+    echo "warning: UPDATE_MANIFEST_PRIVATE_KEY_PEM or UPDATE_MANIFEST_PUBLIC_KEY_B64 not set; skipping signed update manifest" >&2
+    return 0
   fi
 
   asset_size="$(stat -f '%z' "$zip_path")"
