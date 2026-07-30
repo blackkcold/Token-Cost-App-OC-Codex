@@ -27,8 +27,28 @@ enum TokenCostSeriesPalette {
         return colors[index]
     }
 
+    static func color(for key: String, palette: TokenCostPalette) -> Color {
+        guard palette.usesWorkshopStyle else { return color(for: key) }
+        let workshopColors = [
+            palette.accent,
+            palette.accentSecondary,
+            palette.warning,
+            palette.danger,
+            palette.info,
+            palette.title.opacity(0.78)
+        ]
+        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return palette.subtitle }
+        let index = Int(stableHash(normalized) % UInt64(workshopColors.count))
+        return workshopColors[index]
+    }
+
     static func otherColor() -> Color {
         .secondary.opacity(0.38)
+    }
+
+    static func otherColor(palette: TokenCostPalette) -> Color {
+        palette.usesWorkshopStyle ? palette.title.opacity(0.52) : otherColor()
     }
 
     static func color(forRank rank: Int) -> Color {
@@ -37,6 +57,20 @@ enum TokenCostSeriesPalette {
         }
         let normalized = max(rank, 0)
         return colors[normalized % colors.count]
+    }
+
+    static func color(forRank rank: Int, palette: TokenCostPalette) -> Color {
+        guard palette.usesWorkshopStyle else { return color(forRank: rank) }
+        let workshopColors = [
+            palette.accent,
+            palette.accentSecondary,
+            palette.warning,
+            palette.danger,
+            palette.info,
+            palette.title.opacity(0.78)
+        ]
+        let normalized = max(rank, 0)
+        return workshopColors[normalized % workshopColors.count]
     }
 
     private static func stableHash(_ string: String) -> UInt64 {

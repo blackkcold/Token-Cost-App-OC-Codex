@@ -44,9 +44,13 @@ private struct SidebarSourceRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: iconName)
-                .foregroundStyle(color)
-                .frame(width: 18)
+            TokenDashboardSymbolMark(
+                systemImage: iconName,
+                tint: color,
+                palette: palette,
+                size: 22,
+                fontSize: 10
+            )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.name)
@@ -76,9 +80,9 @@ private struct SidebarSourceRow: View {
     private var color: Color {
         switch source.status {
         case .available: return palette.accent
-        case .locked: return .orange
-        case .unsupported: return .yellow
-        case .missing: return .red
+        case .locked: return palette.warning
+        case .unsupported: return palette.warning.opacity(0.82)
+        case .missing: return palette.danger
         case .unknown: return palette.subtitle
         }
     }
@@ -93,8 +97,13 @@ private struct SidebarFooter: View {
             Divider()
 
             HStack(spacing: 8) {
-                Image(systemName: model.isRefreshing ? "arrow.triangle.2.circlepath" : "checkmark.shield")
-                    .foregroundStyle(model.isRefreshing ? palette.accent : palette.subtitle)
+                TokenDashboardSymbolMark(
+                    systemImage: model.isRefreshing ? "arrow.triangle.2.circlepath" : "checkmark.shield.fill",
+                    tint: model.isRefreshing ? palette.accent : palette.success,
+                    palette: palette,
+                    size: 24,
+                    fontSize: 11
+                )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.statusMessage)
                         .font(.caption)
@@ -113,16 +122,28 @@ private struct SidebarFooter: View {
             .padding(.top, 12)
             .padding(.bottom, 12)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: palette.cardCornerRadius, style: .continuous)
                     .fill(palette.cardFill)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(palette.cardStroke, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: palette.cardCornerRadius, style: .continuous)
+                            .strokeBorder(palette.cardStroke, lineWidth: palette.cardBorderWidth)
+                    )
+                    .shadow(
+                        color: palette.cardShadow,
+                        radius: palette.shadowRadius,
+                        x: palette.shadowX,
+                        y: palette.shadowY
                     )
             )
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
-        .background(.ultraThinMaterial)
+        .background {
+            if palette.usesWorkshopStyle {
+                palette.surfaceSecondarySolidFill
+            } else {
+                Rectangle().fill(.ultraThinMaterial)
+            }
+        }
     }
 }

@@ -24,6 +24,7 @@ struct BalanceSectionView: View {
     @State private var expandedSnapshots: Set<String> = []
     @State private var showLegacyKeychainImportAlert = false
     @State private var legacyKeychainImportMessage: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -307,7 +308,7 @@ struct BalanceSectionView: View {
             HStack(spacing: 8) {
                 Image(systemName: snapshot.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .font(.caption2)
-                    .foregroundStyle(snapshot.isAvailable ? .green : .red)
+                    .foregroundStyle(snapshot.isAvailable ? palette.success : palette.danger)
 
                 Text(verbatim: snapshot.provider.displayName)
                     .font(.caption.weight(.semibold))
@@ -326,17 +327,15 @@ struct BalanceSectionView: View {
                         let converted = TokenCostCurrencyService.convert(remaining, from: .usd, to: dc)
                         Text(TokenCostCurrencyService.format(converted, currency: dc))
                             .font(.caption.monospacedDigit())
-                            .foregroundStyle(.green)
+                            .foregroundStyle(palette.success)
                     }
 
                     if hasDetails {
                         Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                if expandedSnapshots.contains(snapshotID) {
-                                    expandedSnapshots.remove(snapshotID)
-                                } else {
-                                    expandedSnapshots.insert(snapshotID)
-                                }
+                            if expandedSnapshots.contains(snapshotID) {
+                                expandedSnapshots.remove(snapshotID)
+                            } else {
+                                expandedSnapshots.insert(snapshotID)
                             }
                         } label: {
                             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
@@ -432,26 +431,29 @@ struct BalanceSectionView: View {
                                 if let granted = entry.grantedAmount {
                                     Text(verbatim: " (+\(String(format: "%.2f", granted)))")
                                         .font(.caption)
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(palette.success)
                                 }
                             }
                         }
                     }
                 }
                 .padding(.leading, 24)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(TokenMotion.disclosureTransition(reduceMotion: reduceMotion))
             }
 
             if !snapshot.isAvailable, let error = snapshot.errorMessage {
                 Text(verbatim: error)
                     .font(.caption2)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(palette.danger)
                     .padding(.leading, 24)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .animation(.easeInOut(duration: 0.2), value: expandedSnapshots.contains(snapshotID))
+        .animation(
+            TokenMotion.resolved(TokenMotion.expand, reduceMotion: reduceMotion),
+            value: expandedSnapshots.contains(snapshotID)
+        )
         .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.05)))
     }
 
@@ -491,9 +493,7 @@ struct BalanceSectionView: View {
 
                 if hasCredentialInput {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            expandedCredentialFor = expandedCredentialFor == kind ? nil : kind
-                        }
+                        expandedCredentialFor = expandedCredentialFor == kind ? nil : kind
                     } label: {
                         Image(systemName: expandedCredentialFor == kind ? "chevron.up" : "key.fill")
                             .font(.caption2)
@@ -509,14 +509,18 @@ struct BalanceSectionView: View {
             if hasCredentialInput, expandedCredentialFor == kind {
                 if kind == .opencodeGo {
                     goCredentialInputArea
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .transition(TokenMotion.disclosureTransition(reduceMotion: reduceMotion))
                 } else if kind == .ollama {
                     ollamaCredentialInputArea
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .transition(TokenMotion.disclosureTransition(reduceMotion: reduceMotion))
                 }
             }
         }
         .padding(.vertical, 2)
+        .animation(
+            TokenMotion.resolved(TokenMotion.expand, reduceMotion: reduceMotion),
+            value: expandedCredentialFor == kind
+        )
     }
 
     // MARK: - OpenCode Go credential input (collapsible)
@@ -553,10 +557,10 @@ struct BalanceSectionView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption2)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(palette.success)
                     Text("settings.opencodeGo.credentials.saved".localized)
                         .font(.caption2)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(palette.success)
                 }
             }
 
@@ -669,10 +673,10 @@ struct BalanceSectionView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption2)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(palette.success)
                     Text("settings.ollama.credentials.saved".localized)
                         .font(.caption2)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(palette.success)
                 }
             }
 
@@ -732,13 +736,13 @@ struct BalanceSectionView: View {
                 if !ollamaSnapshot.isAvailable, let error = ollamaSnapshot.errorMessage {
                     Text(verbatim: error)
                         .font(.caption2)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(palette.danger)
                 } else if ollamaSnapshot.isAvailable {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption2)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(palette.success)
                             if let pct = ollamaSnapshot.usagePercent {
                                 let displayRatio = quotaDisplayRatio(for: pct)
                                 Text(String(format: "settings.ollama.status.used".localized, quotaPercentInt(forDisplayRatio: displayRatio)))
@@ -747,7 +751,7 @@ struct BalanceSectionView: View {
                             } else {
                                 Text("settings.ollama.status.connected".localized)
                                     .font(.caption2)
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(palette.success)
                             }
                         }
 

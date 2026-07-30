@@ -8,12 +8,14 @@ final class AppPreferencesModel: ObservableObject {
     @Published var loadWarningMessage: String?
 
     private let store: AppPreferencesStore
+    private var shouldMigrateLegacyThemeFromSourceSettings: Bool
 
     init(runtimeRoot: URL = CodexAppPaths.runtimeRoot) {
         self.store = AppPreferencesStore(runtimeRoot: runtimeRoot)
         let loaded = store.load()
         self.preferences = loaded.preferences
         self.loadWarningMessage = loaded.errorMessage
+        self.shouldMigrateLegacyThemeFromSourceSettings = loaded.didFallbackToDefaults
         AppLocalization.setLanguage(loaded.preferences.language)
         if runtimeRoot == CodexAppPaths.runtimeRoot {
             try? CodexAppPaths.ensureRuntimeDirectories()
@@ -21,8 +23,13 @@ final class AppPreferencesModel: ObservableObject {
     }
 
     func migrateThemeFromSettingsIfNeeded(_ legacyTheme: TokenCostThemeChoice) {
-        guard preferences.theme == .ocean, legacyTheme != .ocean else { return }
-        updatePreferences { $0.theme = legacyTheme }
+        guard shouldMigrateLegacyThemeFromSourceSettings else { return }
+        shouldMigrateLegacyThemeFromSourceSettings = false
+        guard legacyTheme != .ocean else { return }
+        updatePreferences {
+            $0.accentPalette = legacyTheme.accentPalette
+            $0.appearanceMode = legacyTheme.appearanceMode
+        }
     }
 
     struct LocalCredentialSnapshot {
@@ -130,12 +137,23 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
-    var themeBinding: Binding<TokenCostThemeChoice> {
+    var accentPaletteBinding: Binding<TokenCostAccentPalette> {
         Binding(
-            get: { self.preferences.theme },
+            get: { self.preferences.accentPalette },
             set: { newValue in
                 self.updatePreferences { preferences in
-                    preferences.theme = newValue
+                    preferences.accentPalette = newValue
+                }
+            }
+        )
+    }
+
+    var appearanceModeBinding: Binding<TokenCostAppearanceMode> {
+        Binding(
+            get: { self.preferences.appearanceMode },
+            set: { newValue in
+                self.updatePreferences { preferences in
+                    preferences.appearanceMode = newValue
                 }
             }
         )

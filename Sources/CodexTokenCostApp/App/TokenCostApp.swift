@@ -44,6 +44,9 @@ struct CodexTokenCostApp: App {
                 updateChecker: updateChecker,
                 skillsModel: skillsModel
             )
+            .preferredColorScheme(appPreferencesModel.preferences.appearanceMode.preferredColorScheme)
+            .environment(\.tokenCostUsesWorkshopStyle, appPreferencesModel.preferences.accentPalette == .workshop)
+            .tokenWindowStyle(usesWorkshopStyle: appPreferencesModel.preferences.accentPalette == .workshop)
             .task {
                 appPreferencesModel.migrateThemeFromSettingsIfNeeded(openCodeModel.settings.theme)
             }
@@ -72,20 +75,29 @@ struct CodexTokenCostApp: App {
                 balanceManager: balanceManager,
                 updateCheckerModel: updateChecker
             )
+            .preferredColorScheme(appPreferencesModel.preferences.appearanceMode.preferredColorScheme)
+            .environment(\.tokenCostUsesWorkshopStyle, appPreferencesModel.preferences.accentPalette == .workshop)
+            .tokenWindowStyle(usesWorkshopStyle: appPreferencesModel.preferences.accentPalette == .workshop)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 960, height: 860)
         .environment(\.locale, appPreferencesModel.preferences.language.locale)
 
         Window(AppLocalization.text("settings.billing.pricingDoc"), id: "pricing-doc") {
-            PricingDocView(palette: TokenCostPalette(theme: appPreferencesModel.preferences.theme))
+            PricingDocView(palette: TokenCostPalette(accentPalette: appPreferencesModel.preferences.accentPalette))
+                .preferredColorScheme(appPreferencesModel.preferences.appearanceMode.preferredColorScheme)
+                .environment(\.tokenCostUsesWorkshopStyle, appPreferencesModel.preferences.accentPalette == .workshop)
+                .tokenWindowStyle(usesWorkshopStyle: appPreferencesModel.preferences.accentPalette == .workshop)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 900, height: 760)
         .environment(\.locale, appPreferencesModel.preferences.language.locale)
 
         Window(AppLocalization.text("developerMode.doc.title"), id: "dev-doc") {
-            DeveloperModeDocView(palette: TokenCostPalette(theme: appPreferencesModel.preferences.theme))
+            DeveloperModeDocView(palette: TokenCostPalette(accentPalette: appPreferencesModel.preferences.accentPalette))
+                .preferredColorScheme(appPreferencesModel.preferences.appearanceMode.preferredColorScheme)
+                .environment(\.tokenCostUsesWorkshopStyle, appPreferencesModel.preferences.accentPalette == .workshop)
+                .tokenWindowStyle(usesWorkshopStyle: appPreferencesModel.preferences.accentPalette == .workshop)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 820, height: 680)
@@ -98,11 +110,16 @@ struct CodexTokenCostApp: App {
                 appPreferencesModel: appPreferencesModel,
                 balanceManager: balanceManager,
                 balanceFloatingPanelCoordinator: balanceFloatingPanelCoordinator,
-                palette: TokenCostPalette(theme: appPreferencesModel.preferences.theme)
+                palette: TokenCostPalette(accentPalette: appPreferencesModel.preferences.accentPalette)
             )
+            .preferredColorScheme(appPreferencesModel.preferences.appearanceMode.preferredColorScheme)
+            .environment(\.tokenCostUsesWorkshopStyle, appPreferencesModel.preferences.accentPalette == .workshop)
         } label: {
-            Image(systemName: "chart.bar.xaxis")
-                .font(.system(size: 12, weight: .semibold))
+            Image(systemName: appPreferencesModel.preferences.accentPalette == .workshop ? "chart.bar.fill" : "chart.bar.xaxis")
+                .font(.system(
+                    size: 12,
+                    weight: appPreferencesModel.preferences.accentPalette == .workshop ? .black : .semibold
+                ))
                 .accessibilityLabel(Text(appPreferencesModel.preferences.language == .zhHans ? "代币费用" : "Token Cost"))
         }
         .menuBarExtraStyle(.window)
@@ -112,8 +129,10 @@ struct CodexTokenCostApp: App {
                 balanceManager: balanceManager,
                 appPreferencesModel: appPreferencesModel,
                 balanceFloatingPanelCoordinator: balanceFloatingPanelCoordinator,
-                palette: TokenCostPalette(theme: appPreferencesModel.preferences.theme)
+                palette: TokenCostPalette(accentPalette: appPreferencesModel.preferences.accentPalette)
             )
+            .preferredColorScheme(appPreferencesModel.preferences.appearanceMode.preferredColorScheme)
+            .environment(\.tokenCostUsesWorkshopStyle, appPreferencesModel.preferences.accentPalette == .workshop)
         } label: {
             BalanceMenuBarExtraLabelView(
                 selection: BalanceMenuBarExtraSupport.selection(
@@ -121,7 +140,7 @@ struct CodexTokenCostApp: App {
                     displayMode: appPreferencesModel.preferences.balanceDisplayMode,
                     displayCurrency: appPreferencesModel.preferences.displayCurrency
                 ),
-                palette: TokenCostPalette(theme: appPreferencesModel.preferences.theme)
+                palette: TokenCostPalette(accentPalette: appPreferencesModel.preferences.accentPalette)
             )
         }
         .menuBarExtraStyle(.window)

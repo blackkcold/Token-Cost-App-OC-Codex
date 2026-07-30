@@ -147,20 +147,29 @@ struct BalanceMinimalProviderTile: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 0) {
-            ProviderLogoMark(
-                provider: snapshot.provider,
-                size: BalanceFloatingPanelLayout.compactTileLogoSize,
-                tint: palette.accent
-            )
-                .frame(
-                    width: BalanceFloatingPanelLayout.compactTileLogoBackgroundSize - 6,
-                    height: BalanceFloatingPanelLayout.compactTileLogoBackgroundSize - 6
+            if palette.usesWorkshopStyle {
+                WorkshopBalanceProviderMark(
+                    provider: snapshot.provider,
+                    palette: palette,
+                    size: 14,
+                    plateSize: 26
                 )
-                .padding(3)
-                .background(
-                    Circle()
-                        .fill(palette.accentSoft.opacity(0.72))
+            } else {
+                ProviderLogoMark(
+                    provider: snapshot.provider,
+                    size: BalanceFloatingPanelLayout.compactTileLogoSize,
+                    tint: palette.accent
                 )
+                    .frame(
+                        width: BalanceFloatingPanelLayout.compactTileLogoBackgroundSize - 6,
+                        height: BalanceFloatingPanelLayout.compactTileLogoBackgroundSize - 6
+                    )
+                    .padding(3)
+                    .background(
+                        Circle()
+                            .fill(palette.accentSoft.opacity(0.72))
+                    )
+            }
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -195,27 +204,43 @@ struct BalanceMinimalProviderTile: View {
 
         return VStack(alignment: .center, spacing: isCompact ? 1 : 2) {
             Text(window.label)
-                .font(.system(size: secondaryFontSize, weight: .semibold, design: .rounded))
+                .font(TokenTypography.metric(
+                    size: secondaryFontSize,
+                    weight: .semibold,
+                    palette: palette
+                ))
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
                 .frame(maxWidth: .infinity, alignment: .leading)
             .frame(width: BalanceMinimalTileQuotaLayout.defaultContentWidth)
 
-            HStack(spacing: BalanceMinimalTileQuotaLayout.segmentGap) {
-                ForEach(segmentFills, id: \.index) { segment in
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule(style: .continuous)
-                                .fill(palette.trackBackground.opacity(0.95))
+            Group {
+                if palette.usesWorkshopStyle {
+                    WorkshopBalanceQuotaMeter(
+                        value: normalized,
+                        tint: color,
+                        palette: palette,
+                        segmentCount: BalanceWorkshopChartLayout.compactSegmentCount,
+                        height: BalanceFloatingPanelLayout.trackHeight
+                    )
+                } else {
+                    HStack(spacing: BalanceMinimalTileQuotaLayout.segmentGap) {
+                        ForEach(segmentFills, id: \.index) { segment in
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule(style: .continuous)
+                                        .fill(palette.trackBackground.opacity(0.95))
 
-                            Capsule(style: .continuous)
-                                .fill(color)
-                                .frame(width: hasAppeared ? geo.size.width * segment.ratio : 0)
-                                .animation(progressAnimation, value: segment.ratio)
+                                    Capsule(style: .continuous)
+                                        .fill(color)
+                                        .frame(width: hasAppeared ? geo.size.width * segment.ratio : 0)
+                                        .animation(progressAnimation, value: segment.ratio)
+                                }
+                            }
+                            .frame(width: BalanceMinimalTileQuotaLayout.segmentWidth)
                         }
                     }
-                    .frame(width: BalanceMinimalTileQuotaLayout.segmentWidth)
                 }
             }
             .frame(
@@ -229,7 +254,7 @@ struct BalanceMinimalProviderTile: View {
     private func valueEntryBody(_ entry: BalanceValueEntry) -> some View {
         VStack(alignment: .center, spacing: 2) {
             Text(BalanceMenuBarExtraSupport.amountText(for: entry))
-                .font(.system(size: percentFontSize, weight: .bold, design: .rounded))
+                .font(TokenTypography.metric(size: percentFontSize, weight: .bold, palette: palette))
                 .monospacedDigit()
                 .foregroundStyle(palette.title)
                 .lineLimit(1)
@@ -237,10 +262,19 @@ struct BalanceMinimalProviderTile: View {
 
             if let burnRateText = BalanceMenuBarExtraSupport.burnRateText(for: entry) {
                 Text(burnRateText)
-                    .font(.system(size: secondaryFontSize, weight: .medium, design: .rounded))
+                    .font(TokenTypography.metric(size: secondaryFontSize, weight: .medium, palette: palette))
                     .foregroundStyle(palette.accent.opacity(0.82))
                     .lineLimit(1)
                     .minimumScaleFactor(0.62)
+            }
+
+            if palette.usesWorkshopStyle {
+                WorkshopBalanceCurrencyStamp(
+                    symbols: BalanceFloatingPanelLayout.currencyDensitySymbols(for: [entry]),
+                    palette: palette
+                )
+                .scaleEffect(0.82)
+                .frame(height: 18)
             }
         }
     }
@@ -248,7 +282,7 @@ struct BalanceMinimalProviderTile: View {
     private func costBody(cost: Double, avg: Double?) -> some View {
         VStack(alignment: .center, spacing: 2) {
             Text(TokenCostFormatters.currency(cost))
-                .font(.system(size: percentFontSize, weight: .bold, design: .rounded))
+                .font(TokenTypography.metric(size: percentFontSize, weight: .bold, palette: palette))
                 .monospacedDigit()
                 .foregroundStyle(palette.title)
                 .lineLimit(1)
@@ -256,10 +290,19 @@ struct BalanceMinimalProviderTile: View {
 
             if let avg {
                 Text(AppLocalization.format("balance.dailyAverage", TokenCostFormatters.currency(avg)))
-                    .font(.system(size: secondaryFontSize, weight: .medium, design: .rounded))
+                    .font(TokenTypography.metric(size: secondaryFontSize, weight: .medium, palette: palette))
                     .foregroundStyle(palette.accent.opacity(0.82))
                     .lineLimit(1)
                     .minimumScaleFactor(0.62)
+            }
+
+            if palette.usesWorkshopStyle {
+                WorkshopBalanceCurrencyStamp(
+                    symbols: BalanceFloatingPanelLayout.currencyDensitySymbols(for: snapshot),
+                    palette: palette
+                )
+                .scaleEffect(0.82)
+                .frame(height: 18)
             }
         }
     }
@@ -268,7 +311,18 @@ struct BalanceMinimalProviderTile: View {
         VStack(alignment: .center, spacing: 4) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(palette.warning)
+                .frame(width: palette.usesWorkshopStyle ? 25 : nil, height: palette.usesWorkshopStyle ? 25 : nil)
+                .background {
+                    if palette.usesWorkshopStyle {
+                        Rectangle()
+                            .fill(palette.warning.opacity(0.16))
+                            .overlay(
+                                Rectangle()
+                                    .strokeBorder(palette.surfaceAccessibleStroke, lineWidth: 1.5)
+                            )
+                    }
+                }
 
             Text(AppLocalization.text("balance.unavailable"))
                 .font(.system(size: secondaryFontSize, weight: .medium, design: .rounded))
@@ -331,7 +385,25 @@ struct BalanceMinimalProviderTile: View {
 
     private func compactTileBackground() -> some View {
         Group {
-            if #available(macOS 26, *) {
+            if palette.usesWorkshopStyle {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(palette.surfaceSecondarySolidFill.opacity(0.92))
+                    .overlay(alignment: .topLeading) {
+                        HStack(spacing: 3) {
+                            Rectangle()
+                                .fill(palette.accent)
+                                .frame(width: 22, height: 4)
+                            Rectangle()
+                                .fill(palette.accentSecondary)
+                                .frame(width: 12, height: 4)
+                        }
+                        .padding(.leading, 7)
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(palette.surfaceAccessibleStroke, lineWidth: 1.8)
+                    )
+            } else if #available(macOS 26, *) {
                 RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.compactTileCornerRadius, style: .continuous)
                     .fill(.clear)
                     .glassEffect(
@@ -343,19 +415,23 @@ struct BalanceMinimalProviderTile: View {
                     .fill(palette.surfaceSolidFill.opacity(0.92))
             }
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.compactTileCornerRadius, style: .continuous)
-                .strokeBorder(palette.surfaceStroke.opacity(0.72), lineWidth: 0.8)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.compactTileCornerRadius, style: .continuous)
-                .strokeBorder(palette.surfaceAccessibleStroke.opacity(0.28), lineWidth: 0.5)
-        )
+        .overlay {
+            if !palette.usesWorkshopStyle {
+                RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.compactTileCornerRadius, style: .continuous)
+                    .strokeBorder(palette.surfaceStroke.opacity(0.72), lineWidth: 0.8)
+            }
+        }
+        .overlay {
+            if !palette.usesWorkshopStyle {
+                RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.compactTileCornerRadius, style: .continuous)
+                    .strokeBorder(palette.surfaceAccessibleStroke.opacity(0.28), lineWidth: 0.5)
+            }
+        }
         .shadow(
-            color: palette.surfaceShadow.opacity(0.55),
-            radius: BalanceFloatingPanelLayout.compactTileShadowRadius,
-            x: 0,
-            y: BalanceFloatingPanelLayout.compactTileShadowYOffset
+            color: palette.usesWorkshopStyle ? palette.surfaceShadow.opacity(0.68) : palette.surfaceShadow.opacity(0.55),
+            radius: palette.usesWorkshopStyle ? 0 : BalanceFloatingPanelLayout.compactTileShadowRadius,
+            x: palette.usesWorkshopStyle ? 2 : 0,
+            y: palette.usesWorkshopStyle ? 2 : BalanceFloatingPanelLayout.compactTileShadowYOffset
         )
     }
 

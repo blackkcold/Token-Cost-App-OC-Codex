@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.0.3)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.1.0)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
@@ -28,7 +28,7 @@ AI coding tools charge by token — but most developers have no idea what they'r
 - **Visual Dashboard** — Unified 7/30-day daily trend charts, responsive 52-week usage heatmap, provider cost-efficiency rankings, model distribution pie charts, stacked bar charts
 - **Menu Bar Widget** — Combined monthly cost overview card + 7-day OpenCode daily usage mini trend chart — no need to open the main window
 - **Bilingual UI** — Switch between Chinese and English; terminology stays consistent
-- **Multi-Theme** — Bay Blue, Forest Green, Twilight Orange, Aurora Purple
+- **Theme & Appearance** — Choose Ocean, Forest, Sunset, or Violet independently from System, Light, or Dark appearance
 - **CNY/USD Toggle** — All prices dynamically switch with currency; custom monthly fees auto-convert
 - **Balance Monitoring** — Real-time balance queries for OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud, with validated encrypted Cookie caching, browser/profile fallback, and multi-window quota visualization
 - **Responsive Settings Panel** — Module-based collapsible settings with adaptive horizontal layout for faster desktop scanning
@@ -79,7 +79,7 @@ In the **Settings panel** you can:
 - Manage provider billing plans: OpenCode Go / Zen, ChatGPT Plus / Pro / Business Codex, MiniMax Token Plan, Xiaomi MiMo Token Plan, or enter custom USD monthly fees
 - Configure OpenCode Go credentials (Workspace ID + Auth Cookie) and Ollama Cloud Cookie; both use encrypted app-local caching and validated fallback across Edge / Chrome / Brave / Arc profiles
 - Open the built-in read-only pricing reference document to view current billing rates offline
-- Switch UI theme
+- Choose an accent palette and independently follow the system appearance or force Light/Dark mode
 - Manage Codex session sources
 
 ### Tech Stack
@@ -130,7 +130,7 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 - **可视化仪表盘** — 统一 7/30 日趋势图、过去 52 周响应式用量热力图、Provider 性价比排行、模型分布饼图、堆叠条形图
 - **菜单栏速览** — 综合月费概览卡片 + 最近 7 天 OpenCode 日用量迷你趋势图，无需打开主窗口
 - **中英双语** — 界面可在中文 / 英语之间切换，术语保持一致
-- **多主题** — 海湾蓝、森林绿、暮光橙、极光紫 4 种主题色
+- **主题与外观** — 海洋蓝、森林绿、日落橙、紫罗兰 4 种主题色，可独立选择跟随系统、浅色或深色外观
 - **人民币/美元计价切换** — 所有价格展示随币种动态切换，自定义月费自动换算
 - **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud 余额实时查询；Cookie 优先从内存与 App 本地 AES 加密缓存读取，失效时自动验证 Chrome/Edge/Brave/Arc 的后续候选，不触发 Keychain 授权弹窗
 - **响应式设置页** — 模块化折叠设置面板，短控件采用横向自适应布局，桌面端浏览更高效
@@ -181,7 +181,7 @@ swift build
 - 管理各 Provider 计费方案：OpenCode Go / Zen、ChatGPT Plus / Pro / Business Codex、MiniMax Token Plan、Xiaomi MiMo Token Plan，或输入自定义 USD 月费
 - 配置 OpenCode Go 凭证（Workspace ID + Auth Cookie）和 Ollama Cloud Cookie；支持 App 本地加密缓存及 Edge / Chrome / Brave / Arc 多 Profile 验证兜底
 - 打开内置只读计费参考文档，离线查看当前内置价格口径
-- 切换界面主题
+- 独立选择主题色，并设置跟随系统、固定浅色或固定深色外观
 - 管理 Codex session 来源
 
 ### 技术栈

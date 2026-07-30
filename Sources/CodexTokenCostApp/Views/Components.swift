@@ -1,6 +1,10 @@
 import SwiftUI
 import CodexTokenCostCore
 
+extension EnvironmentValues {
+    @Entry var tokenCostUsesWorkshopStyle = false
+}
+
 enum TokenCostFormatters {
     private static nonisolated(unsafe) let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -82,7 +86,7 @@ struct TokenMetricCard: View {
     }
 
     var body: some View {
-        let cardPadding: CGFloat = compact ? 12 : 16
+        let cardPadding: CGFloat = compact ? TokenSpacing.control : TokenSpacing.card
         let valueFontSize: CGFloat = compact ? 19 : 26
         let contentSpacing: CGFloat = compact ? 8 : 10
 
@@ -93,20 +97,20 @@ struct TokenMetricCard: View {
                     .frame(width: 8, height: 8)
 
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .font(TokenTypography.caption(weight: .semibold, palette: palette))
                     .foregroundStyle(palette.subtitle)
 
                 Spacer(minLength: 0)
             }
 
             Text(value)
-                .font(.system(size: valueFontSize, weight: .semibold, design: .rounded))
+                .font(TokenTypography.metric(size: valueFontSize, palette: palette))
                 .foregroundStyle(palette.title)
                 .lineLimit(2)
                 .minimumScaleFactor(0.72)
 
             Text(subtitle)
-                .font(.caption)
+                .font(TokenTypography.caption(palette: palette))
                 .foregroundStyle(palette.subtitle)
                 .lineLimit(2)
         }
@@ -114,13 +118,18 @@ struct TokenMetricCard: View {
         .accessibilityElement(children: .combine)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: palette.cardCornerRadius, style: .continuous)
                 .fill(palette.cardFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(palette.cardStroke, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: palette.cardCornerRadius, style: .continuous)
+                        .strokeBorder(palette.cardStroke, lineWidth: palette.cardBorderWidth)
                 )
-                .shadow(color: palette.cardShadow, radius: 14, x: 0, y: 8)
+                .shadow(
+                    color: palette.cardShadow,
+                    radius: palette.shadowRadius,
+                    x: palette.shadowX,
+                    y: palette.shadowY
+                )
         )
     }
 }
@@ -151,10 +160,10 @@ struct TokenSectionCard<Content: View>: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.headline.weight(.semibold))
+                        .font(TokenTypography.headline(palette: palette))
                         .foregroundStyle(palette.title)
                     Text(subtitle)
-                        .font(.caption)
+                        .font(TokenTypography.caption(palette: palette))
                         .foregroundStyle(palette.subtitle)
                 }
 
@@ -165,16 +174,21 @@ struct TokenSectionCard<Content: View>: View {
 
             content
         }
-        .padding(16)
+        .padding(TokenSpacing.card)
         .accessibilityElement(children: .contain)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: palette.sectionCornerRadius, style: .continuous)
                 .fill(palette.cardFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(palette.cardStroke, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: palette.sectionCornerRadius, style: .continuous)
+                        .strokeBorder(palette.cardStroke, lineWidth: palette.cardBorderWidth)
                 )
-                .shadow(color: palette.cardShadow, radius: 16, x: 0, y: 10)
+                .shadow(
+                    color: palette.cardShadow,
+                    radius: palette.shadowRadius,
+                    x: palette.shadowX,
+                    y: palette.shadowY
+                )
         )
     }
 }
@@ -185,6 +199,7 @@ struct TokenCollapsibleSectionCard<Content: View>: View {
     let trailing: AnyView?
     let palette: TokenCostPalette
     @Binding var isExpanded: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let content: Content
 
     init(
@@ -214,9 +229,7 @@ struct TokenCollapsibleSectionCard<Content: View>: View {
                     }
 
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isExpanded.toggle()
-                        }
+                        isExpanded.toggle()
                     } label: {
                         Label(
                             isExpanded ? AppLocalization.text("common.collapse") : AppLocalization.text("common.showMore"),
@@ -224,7 +237,11 @@ struct TokenCollapsibleSectionCard<Content: View>: View {
                         )
                         .font(.caption.weight(.medium))
                     }
-                    .buttonStyle(.borderless)
+                    .dashboardButtonStyle(
+                        palette: palette,
+                        compact: true,
+                        fallback: .borderless
+                    )
                     .foregroundStyle(palette.accent)
                 }
             ),
@@ -232,10 +249,10 @@ struct TokenCollapsibleSectionCard<Content: View>: View {
         ) {
             if isExpanded {
                 content
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(TokenMotion.disclosureTransition(reduceMotion: reduceMotion))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: isExpanded)
+        .animation(TokenMotion.resolved(TokenMotion.expand, reduceMotion: reduceMotion), value: isExpanded)
     }
 }
 
@@ -313,7 +330,7 @@ struct SettingsControlTile<Content: View>: View {
         VStack(alignment: .leading, spacing: title == nil ? 0 : 8) {
             if let title {
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .font(TokenTypography.caption(weight: .semibold, palette: palette))
                     .foregroundStyle(palette.subtitle)
             }
 
@@ -321,10 +338,10 @@ struct SettingsControlTile<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .controlSize(.small)
-        .padding(10)
+        .padding(TokenSpacing.small)
         .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
         .settingsInsetSurface(
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+            in: RoundedRectangle(cornerRadius: palette.cardCornerRadius, style: .continuous),
             palette: palette
         )
     }
@@ -352,7 +369,7 @@ struct SettingsFieldGroup<Content: View>: View {
         VStack(alignment: .leading, spacing: spacing) {
             if let title {
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .font(TokenTypography.caption(weight: .semibold, palette: palette))
                     .foregroundStyle(palette.subtitle)
             }
 
@@ -381,7 +398,7 @@ struct SettingsInlineControlRow<Control: View>: View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 12) {
                 Text(title)
-                    .font(.caption)
+                    .font(TokenTypography.caption(palette: palette))
                     .foregroundStyle(palette.title)
                     .lineLimit(1)
 
@@ -392,7 +409,7 @@ struct SettingsInlineControlRow<Control: View>: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(title)
-                    .font(.caption)
+                    .font(TokenTypography.caption(palette: palette))
                     .foregroundStyle(palette.title)
                 control
             }
@@ -432,9 +449,9 @@ struct SettingsSurfaceCard<Content: View>: View {
 
     var body: some View {
         let isPrimary = role == .primary
-        let cornerRadius: CGFloat = isPrimary ? 18 : 16
+        let cornerRadius: CGFloat = isPrimary ? palette.sectionCornerRadius : palette.cardCornerRadius
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        let contentPadding: CGFloat = isPrimary ? 20 : 16
+        let contentPadding: CGFloat = isPrimary ? TokenSpacing.section : TokenSpacing.card
         let shadow = role == .warning ? palette.surfaceShadow : palette.surfaceShadow
         let stroke = role == .warning ? Color.orange.opacity(0.22) : palette.surfaceStroke
         let glassTint: Color? = role == .warning ? Color.orange.opacity(0.14) : nil
@@ -444,11 +461,11 @@ struct SettingsSurfaceCard<Content: View>: View {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(title)
-                            .font(.headline.weight(.semibold))
+                            .font(TokenTypography.headline(palette: palette))
                             .foregroundStyle(palette.title)
                         if let subtitle {
                             Text(subtitle)
-                                .font(.caption)
+                                .font(TokenTypography.caption(palette: palette))
                                 .foregroundStyle(palette.subtitle)
                         }
                     }
@@ -489,15 +506,43 @@ private struct SettingsSurfaceBackgroundModifier: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        if usesSolidFallback {
+        if palette.usesWorkshopStyle {
+            let fill = role == .secondary ? palette.surfaceSecondarySolidFill : palette.surfaceSolidFill
+            let accessibleStroke = role == .warning ? Color.orange.opacity(0.58) : palette.surfaceAccessibleStroke
+            content
+                .background(
+                    shape
+                        .fill(fill)
+                        .overlay(
+                            shape.strokeBorder(
+                                accessibleStroke,
+                                lineWidth: palette.surfaceBorderWidth
+                            )
+                        )
+                        .shadow(
+                            color: shadow,
+                            radius: palette.shadowRadius,
+                            x: palette.shadowX,
+                            y: palette.shadowY
+                        )
+                )
+        } else if usesSolidFallback {
             let fill = role == .secondary ? palette.surfaceSecondarySolidFill : palette.surfaceSolidFill
             let accessibleStroke = role == .warning ? Color.orange.opacity(0.58) : palette.surfaceAccessibleStroke
             content
                 .background(shape.fill(fill))
                 .overlay(
-                    shape.strokeBorder(accessibleStroke, lineWidth: role == .primary ? 1.2 : 1)
+                    shape.strokeBorder(
+                        accessibleStroke,
+                        lineWidth: role == .primary ? 1.2 : 1
+                    )
                 )
-                .shadow(color: shadow.opacity(0.55), radius: role == .primary ? 8 : 5, x: 0, y: role == .primary ? 5 : 3)
+                .shadow(
+                    color: shadow.opacity(0.55),
+                    radius: role == .primary ? TokenShadow.medium.radius : TokenShadow.small.radius,
+                    x: 0,
+                    y: role == .primary ? TokenShadow.medium.y : TokenShadow.small.y
+                )
         } else if #available(macOS 26, *) {
             let glass: Glass = glassTint.map { .regular.tint($0) } ?? .regular
             content
@@ -513,7 +558,12 @@ private struct SettingsSurfaceBackgroundModifier: ViewModifier {
                 .overlay(
                     shape.strokeBorder(stroke.opacity(role == .secondary ? 0.72 : 1.0), lineWidth: role == .primary ? 1 : 0.8)
                 )
-                .shadow(color: shadow, radius: role == .primary ? 14 : 10, x: 0, y: role == .primary ? 8 : 6)
+                .shadow(
+                    color: shadow,
+                    radius: role == .primary ? TokenShadow.large.radius : TokenShadow.medium.radius,
+                    x: 0,
+                    y: role == .primary ? TokenShadow.large.y : TokenShadow.medium.y
+                )
         }
     }
 }
@@ -531,11 +581,16 @@ struct SettingsInsetSurfaceBackgroundModifier<S: InsettableShape>: ViewModifier 
     }
 
     func body(content: Content) -> some View {
-        if usesSolidFallback {
+        if usesSolidFallback || palette.usesWorkshopStyle {
             content
                 .background(shape.fill(palette.surfaceSecondarySolidFill))
                 .overlay(
-                    shape.strokeBorder(stroke ?? palette.surfaceAccessibleStroke, lineWidth: max(lineWidth, 1))
+                    shape.strokeBorder(
+                        stroke ?? palette.surfaceAccessibleStroke,
+                        lineWidth: palette.usesWorkshopStyle
+                            ? palette.surfaceBorderWidth
+                            : max(lineWidth, 1)
+                    )
                 )
         } else {
             content
@@ -549,6 +604,7 @@ struct SettingsInsetSurfaceBackgroundModifier<S: InsettableShape>: ViewModifier 
 
 private struct SettingsGlassButtonStyleModifier: ViewModifier {
     let prominent: Bool
+    @Environment(\.tokenCostUsesWorkshopStyle) private var usesWorkshopStyle
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
@@ -558,7 +614,13 @@ private struct SettingsGlassButtonStyleModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(macOS 26, *), !usesSolidFallback {
+        if usesWorkshopStyle {
+            if prominent {
+                content.buttonStyle(.borderedProminent)
+            } else {
+                content.buttonStyle(.bordered)
+            }
+        } else if #available(macOS 26, *), !usesSolidFallback {
             if prominent {
                 content.buttonStyle(.glassProminent)
             } else {
@@ -569,6 +631,163 @@ private struct SettingsGlassButtonStyleModifier: ViewModifier {
         } else {
             content.buttonStyle(.bordered)
         }
+    }
+}
+
+enum TokenDashboardButtonFallback {
+    case automatic
+    case borderless
+    case plain
+    case settingsGlass
+    case settingsGlassProminent
+}
+
+private struct WorkshopDashboardButtonStyle: ButtonStyle {
+    let palette: TokenCostPalette
+    let compact: Bool
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(TokenTypography.caption(weight: .bold, palette: palette))
+            .foregroundStyle(isEnabled ? palette.title : palette.subtitle.opacity(0.62))
+            .padding(.horizontal, compact ? 7 : 10)
+            .padding(.vertical, compact ? 4 : 6)
+            .background(
+                RoundedRectangle(cornerRadius: compact ? 5 : 7, style: .continuous)
+                    .fill(configuration.isPressed ? palette.accentSoft : palette.surfaceSolidFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: compact ? 5 : 7, style: .continuous)
+                            .strokeBorder(
+                                isEnabled ? palette.surfaceAccessibleStroke : palette.surfaceInnerStroke,
+                                lineWidth: compact ? 1.8 : palette.surfaceBorderWidth
+                            )
+                    )
+                    .shadow(
+                        color: isEnabled ? palette.surfaceShadow.opacity(0.72) : .clear,
+                        radius: 0,
+                        x: configuration.isPressed ? 0 : 3,
+                        y: configuration.isPressed ? 0 : 3
+                    )
+            )
+            .offset(
+                x: configuration.isPressed ? 2 : 0,
+                y: configuration.isPressed ? 2 : 0
+            )
+            .opacity(isEnabled ? 1 : 0.72)
+            .contentShape(Rectangle())
+            .animation(
+                TokenMotion.resolved(TokenMotion.micro, reduceMotion: reduceMotion),
+                value: configuration.isPressed
+            )
+    }
+}
+
+private struct DashboardButtonStyleModifier: ViewModifier {
+    let palette: TokenCostPalette
+    let compact: Bool
+    let fallback: TokenDashboardButtonFallback
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if palette.usesWorkshopStyle {
+            content.buttonStyle(WorkshopDashboardButtonStyle(palette: palette, compact: compact))
+        } else {
+            switch fallback {
+            case .automatic:
+                content
+            case .borderless:
+                content.buttonStyle(.borderless)
+            case .plain:
+                content.buttonStyle(.plain)
+            case .settingsGlass:
+                content.settingsGlassButtonStyle()
+            case .settingsGlassProminent:
+                content.settingsGlassButtonStyle(prominent: true)
+            }
+        }
+    }
+}
+
+struct TokenDashboardSymbolMark: View {
+    let systemImage: String
+    let tint: Color
+    let palette: TokenCostPalette
+    var size: CGFloat = 24
+    var fontSize: CGFloat = 11
+
+    @ViewBuilder
+    var body: some View {
+        if palette.usesWorkshopStyle {
+            Image(systemName: systemImage)
+                .font(.system(size: fontSize, weight: .black))
+                .foregroundStyle(tint)
+                .frame(width: size, height: size)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(palette.surfaceSolidFill)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(tint, lineWidth: 1.6)
+                )
+                .shadow(color: tint.opacity(0.28), radius: 0, x: 2, y: 2)
+        } else {
+            Image(systemName: systemImage)
+                .font(.system(size: fontSize, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: size, height: size)
+        }
+    }
+}
+
+struct TokenThemedDivider: View {
+    let palette: TokenCostPalette
+
+    @ViewBuilder
+    var body: some View {
+        if palette.usesWorkshopStyle {
+            Rectangle()
+                .fill(palette.surfaceAccessibleStroke)
+                .frame(height: 2)
+                .accessibilityHidden(true)
+        } else {
+            Divider()
+        }
+    }
+}
+
+struct WorkshopToggleStyle: ToggleStyle {
+    let palette: TokenCostPalette
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            HStack(spacing: TokenSpacing.small) {
+                configuration.label
+                Spacer(minLength: TokenSpacing.small)
+                Image(systemName: configuration.isOn ? "checkmark.square.fill" : "square")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(configuration.isOn ? palette.accentSecondary : palette.subtitle)
+            }
+            .font(TokenTypography.caption(weight: .bold, palette: palette))
+            .foregroundStyle(palette.title)
+            .padding(.horizontal, TokenSpacing.small)
+            .padding(.vertical, TokenSpacing.xSmall)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(configuration.isOn ? palette.accentSoft : palette.surfaceSolidFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(palette.surfaceAccessibleStroke, lineWidth: 1.6)
+                    )
+                    .shadow(color: palette.surfaceShadow.opacity(0.58), radius: 0, x: 2, y: 2)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -595,22 +814,22 @@ struct SettingsSummaryCard: View {
             }
 
             Text(value)
-                .font(.system(size: 26, weight: .semibold, design: .rounded))
+                .font(TokenTypography.metric(size: 26, palette: palette))
                 .foregroundStyle(palette.title)
                 .lineLimit(2)
                 .minimumScaleFactor(0.76)
 
             Text(subtitle)
-                .font(.caption)
+                .font(TokenTypography.caption(palette: palette))
                 .foregroundStyle(palette.subtitle)
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(16)
+        .padding(TokenSpacing.card)
         .accessibilityElement(children: .combine)
         .frame(maxWidth: .infinity, minHeight: 124, alignment: .leading)
         .settingsInsetSurface(
-            in: RoundedRectangle(cornerRadius: 20, style: .continuous),
+            in: RoundedRectangle(cornerRadius: palette.sectionCornerRadius, style: .continuous),
             palette: palette
         )
     }
@@ -631,21 +850,21 @@ struct SettingsInfoChip: View {
                     .foregroundStyle(tint)
 
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .font(TokenTypography.caption(weight: .semibold, palette: palette))
                     .foregroundStyle(palette.subtitle)
             }
 
             Text(value)
-                .font(.caption.weight(.medium))
+                .font(TokenTypography.caption(weight: .medium, palette: palette))
                 .foregroundStyle(palette.title)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, TokenSpacing.control)
+        .padding(.vertical, TokenSpacing.small)
         .frame(maxWidth: .infinity, alignment: .leading)
         .settingsInsetSurface(
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+            in: RoundedRectangle(cornerRadius: palette.cardCornerRadius, style: .continuous),
             palette: palette
         )
     }
@@ -664,32 +883,123 @@ struct DistributionRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
-                    .font(.subheadline.weight(.medium))
+                    .font(TokenTypography.subheadline(weight: .medium, palette: palette))
                     .foregroundStyle(palette.title)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 Text(valueLabel ?? TokenCostFormatters.tokens(value))
-                    .font(.subheadline.weight(.semibold))
+                    .font(TokenTypography.subheadline(weight: .semibold, palette: palette))
                     .foregroundStyle(palette.title)
             }
 
-            GeometryReader { proxy in
-                let ratio = total > 0 ? min(max(value / total, 0), 1) : 0
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 999, style: .continuous)
-                        .fill(palette.trackBackground)
-                    RoundedRectangle(cornerRadius: 999, style: .continuous)
-                        .fill(tint.gradient)
-                        .frame(width: proxy.size.width * ratio)
-                }
-            }
-            .frame(height: 8)
+            TokenProgressBar(
+                value: total > 0 ? value / total : 0,
+                tint: tint,
+                palette: palette,
+                height: 8
+            )
 
             if !suffix.isEmpty {
                 Text(suffix)
-                    .font(.caption2)
+                    .font(TokenTypography.caption2(palette: palette))
                     .foregroundStyle(palette.subtitle)
             }
+        }
+    }
+}
+
+struct TokenProgressBar: View {
+    let value: Double
+    let tint: Color
+    let palette: TokenCostPalette
+    var height: CGFloat = 6
+    var minimumVisibleWidth: CGFloat = 0
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hasAppeared = false
+
+    private var clampedValue: Double {
+        min(max(value, 0), 1)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            if palette.usesWorkshopStyle {
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(palette.surfaceSecondarySolidFill)
+                    Rectangle()
+                        .fill(tint)
+                        .frame(width: max(proxy.size.width * clampedValue, clampedValue > 0 ? minimumVisibleWidth : 0))
+                }
+                .overlay(
+                    Rectangle()
+                        .strokeBorder(palette.surfaceAccessibleStroke, lineWidth: 1.2)
+                )
+            } else {
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                        .fill(palette.trackBackground)
+                    RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                        .fill(tint.gradient)
+                        .frame(width: max(proxy.size.width * clampedValue, clampedValue > 0 ? minimumVisibleWidth : 0))
+                }
+            }
+        }
+        .frame(height: height)
+        .animation(
+            reduceMotion || !hasAppeared ? nil : TokenMotion.progress,
+            value: clampedValue
+        )
+        .onAppear { hasAppeared = true }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(AppLocalization.text("common.progress")))
+        .accessibilityValue(Text(TokenCostFormatters.percent(clampedValue)))
+    }
+}
+
+struct TokenStatusPill: View {
+    let title: String
+    let tint: Color
+    let palette: TokenCostPalette
+    var systemImage: String?
+
+    @ViewBuilder
+    var body: some View {
+        if palette.usesWorkshopStyle {
+            label
+                .foregroundStyle(palette.title)
+                .padding(.horizontal, TokenSpacing.small)
+                .padding(.vertical, TokenSpacing.xSmall)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(tint.opacity(0.16))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(tint, lineWidth: 1.6)
+                        )
+                        .shadow(color: tint.opacity(0.32), radius: 0, x: 2, y: 2)
+                )
+                .accessibilityElement(children: .combine)
+        } else {
+            label
+                .foregroundStyle(tint)
+                .padding(.horizontal, TokenSpacing.small)
+                .padding(.vertical, TokenSpacing.xSmall)
+                .background(tint.opacity(0.12), in: Capsule())
+                .overlay(Capsule().strokeBorder(tint.opacity(0.22), lineWidth: 0.8))
+                .accessibilityElement(children: .combine)
+        }
+    }
+
+    private var label: some View {
+        HStack(spacing: TokenSpacing.xSmall) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.caption2.weight(palette.usesWorkshopStyle ? .black : .semibold))
+            }
+            Text(title)
+                .font(TokenTypography.caption(weight: .semibold, palette: palette))
         }
     }
 }
@@ -699,26 +1009,17 @@ struct SourceStatusPill: View {
     let palette: TokenCostPalette
 
     var body: some View {
-        Text(label)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(background, in: Capsule())
+        TokenStatusPill(title: label, tint: foreground, palette: palette)
     }
 
     private var foreground: Color {
         switch source.status {
         case .available: return palette.accent
-        case .locked: return .orange
-        case .unsupported: return .yellow
-        case .missing: return .red
+        case .locked: return palette.warning
+        case .unsupported: return palette.warning.opacity(0.82)
+        case .missing: return palette.danger
         case .unknown: return palette.subtitle
         }
-    }
-
-    private var background: Color {
-        foreground.opacity(0.14)
     }
 
     private var label: String {
@@ -760,7 +1061,7 @@ struct PaginationControls: View {
     var body: some View {
         HStack(spacing: 10) {
             Text(title)
-                .font(.caption)
+                .font(TokenTypography.caption(palette: palette))
                 .foregroundStyle(palette.subtitle)
 
             Spacer(minLength: 0)
@@ -773,7 +1074,7 @@ struct PaginationControls: View {
                 startIndex,
                 endIndex
             ))
-                .font(.caption)
+                .font(TokenTypography.caption(palette: palette))
                 .foregroundStyle(palette.subtitle)
 
             Button {
@@ -781,7 +1082,7 @@ struct PaginationControls: View {
             } label: {
                 Label(AppLocalization.text("pagination.previous"), systemImage: "chevron.left")
             }
-            .settingsGlassButtonStyle()
+            .dashboardButtonStyle(palette: palette, compact: true, fallback: .settingsGlass)
             .controlSize(.small)
             .disabled(clampedPageIndex == 0)
 
@@ -790,7 +1091,7 @@ struct PaginationControls: View {
             } label: {
                 Label(AppLocalization.text("pagination.next"), systemImage: "chevron.right")
             }
-            .settingsGlassButtonStyle()
+            .dashboardButtonStyle(palette: palette, compact: true, fallback: .settingsGlass)
             .controlSize(.small)
             .disabled(clampedPageIndex >= pageCount - 1)
         }
@@ -798,6 +1099,18 @@ struct PaginationControls: View {
 }
 
 extension View {
+    func dashboardButtonStyle(
+        palette: TokenCostPalette,
+        compact: Bool = false,
+        fallback: TokenDashboardButtonFallback = .automatic
+    ) -> some View {
+        modifier(DashboardButtonStyleModifier(
+            palette: palette,
+            compact: compact,
+            fallback: fallback
+        ))
+    }
+
     func settingsInsetSurface<S: InsettableShape>(
         in shape: S,
         palette: TokenCostPalette,

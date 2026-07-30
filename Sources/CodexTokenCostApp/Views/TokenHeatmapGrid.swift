@@ -27,8 +27,15 @@ struct TokenHeatmapGrid: View {
             VStack(alignment: .leading, spacing: legendTopSpacing) {
                 LazyVGrid(columns: columns, alignment: .center, spacing: spacing) {
                     ForEach(cells) { cell in
-                        RoundedRectangle(cornerRadius: max(1, layout.cellSize * 0.14))
+                        RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : max(1, layout.cellSize * 0.14))
                             .fill(heatmapColor(intensity: cell.intensity))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : max(1, layout.cellSize * 0.14))
+                                    .strokeBorder(
+                                        palette.usesWorkshopStyle ? palette.title.opacity(0.30) : .clear,
+                                        lineWidth: palette.usesWorkshopStyle ? 0.8 : 0
+                                    )
+                            )
                             .frame(width: layout.cellSize, height: layout.cellSize)
                             .help("\(cell.dateString): \(Int(cell.tokenCount)) tokens")
                     }
@@ -36,13 +43,20 @@ struct TokenHeatmapGrid: View {
                 .frame(maxWidth: .infinity, minHeight: gridHeight, maxHeight: gridHeight, alignment: .center)
 
                 HStack(spacing: 4) {
-                    Text("少").font(.caption2).foregroundStyle(palette.subtitle)
+                    Text("少").font(TokenTypography.caption2(palette: palette)).foregroundStyle(palette.subtitle)
                     ForEach([0.0, 0.25, 0.5, 0.75, 1.0], id: \.self) { lvl in
-                        RoundedRectangle(cornerRadius: 2)
+                        RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : 2)
                             .fill(heatmapColor(intensity: lvl))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : 2)
+                                    .strokeBorder(
+                                        palette.usesWorkshopStyle ? palette.title.opacity(0.35) : .clear,
+                                        lineWidth: palette.usesWorkshopStyle ? 0.8 : 0
+                                    )
+                            )
                             .frame(width: 8, height: 8)
                     }
-                    Text("多").font(.caption2).foregroundStyle(palette.subtitle)
+                    Text("多").font(TokenTypography.caption2(palette: palette)).foregroundStyle(palette.subtitle)
                 }
                 .frame(height: legendHeight)
             }
@@ -77,8 +91,18 @@ struct TokenHeatmapGrid: View {
     }
 
     private func heatmapColor(intensity: Double) -> Color {
-        guard intensity > 0 else { return palette.accent.opacity(0.06) }
-        return palette.accent.opacity(0.10 + min(max(intensity, 0), 1) * 0.90)
+        guard intensity > 0 else {
+            return palette.usesWorkshopStyle
+                ? palette.surfaceSecondarySolidFill
+                : palette.accent.opacity(0.06)
+        }
+        let clamped = min(max(intensity, 0), 1)
+        if palette.usesWorkshopStyle {
+            return clamped < 0.5
+                ? palette.accentSecondary.opacity(0.30 + clamped)
+                : palette.accent.opacity(0.35 + clamped * 0.65)
+        }
+        return palette.accent.opacity(0.10 + clamped * 0.90)
     }
 }
 

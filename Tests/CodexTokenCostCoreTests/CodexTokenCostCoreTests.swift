@@ -454,7 +454,12 @@ final class CodexTokenCostCoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let store = AppPreferencesStore(runtimeRoot: tempDir)
-        var preferences = AppPreferences(balanceEnabled: true, theme: .violet, displayCurrency: .cny)
+        var preferences = AppPreferences(
+            balanceEnabled: true,
+            accentPalette: .violet,
+            appearanceMode: .dark,
+            displayCurrency: .cny
+        )
         preferences.balanceConfig = BalanceConfiguration(
             enabledBalanceProviders: [.codex, .deepseek],
             allowEnvironmentCredentials: true
@@ -469,7 +474,8 @@ final class CodexTokenCostCoreTests: XCTestCase {
         let loaded = store.load()
         XCTAssertFalse(loaded.didFallbackToDefaults)
         XCTAssertEqual(loaded.preferences.balanceEnabled, true)
-        XCTAssertEqual(loaded.preferences.theme, .violet)
+        XCTAssertEqual(loaded.preferences.accentPalette, .violet)
+        XCTAssertEqual(loaded.preferences.appearanceMode, .dark)
         XCTAssertEqual(loaded.preferences.displayCurrency, .cny)
         XCTAssertEqual(loaded.preferences.balanceConfig, preferences.balanceConfig)
         XCTAssertEqual(loaded.preferences.billingSelection(for: .opencode).isSubscribed, false)

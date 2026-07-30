@@ -2,7 +2,7 @@
 # This file is written only for non-release (development) builds.
 # Release builds use the official versioned directory structure instead.
 
-Version:     v1.0.2
+Version:     v1.0.3
 Mode:        build
 Arch:        arm64
-Built:       2026-07-29T08:00:51Z
+Built:       2026-07-30T07:21:21Z

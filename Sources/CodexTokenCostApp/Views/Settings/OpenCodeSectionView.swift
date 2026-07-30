@@ -55,7 +55,7 @@ struct OpenCodeSectionView: View {
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.caption2)
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(palette.danger)
                             }
                             .buttonStyle(.borderless)
                             .help("Remove scan root")
@@ -141,7 +141,7 @@ struct OpenCodeSectionView: View {
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.caption2)
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(palette.danger)
                             }
                             .buttonStyle(.borderless)
                             .help("Remove database path")

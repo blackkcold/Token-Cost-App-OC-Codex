@@ -159,6 +159,57 @@ final class BalanceFloatingPanelLayoutTests: XCTestCase {
         XCTAssertNil(BalanceMinimalTileQuotaLayout.usedRatio(usedRatio: .infinity, remainingRatio: .nan))
     }
 
+    func testWorkshopChartNormalizationClampsAndRejectsNonFiniteValues() {
+        XCTAssertEqual(BalanceWorkshopChartLayout.normalized(-0.2), 0)
+        XCTAssertEqual(BalanceWorkshopChartLayout.normalized(0.42), 0.42)
+        XCTAssertEqual(BalanceWorkshopChartLayout.normalized(1.4), 1)
+        XCTAssertEqual(BalanceWorkshopChartLayout.normalized(.nan), 0)
+        XCTAssertEqual(BalanceWorkshopChartLayout.normalized(.infinity), 0)
+    }
+
+    func testWorkshopChartSegmentFillsUseNormalAndCompactDensities() {
+        let normal = BalanceWorkshopChartLayout.segmentFills(
+            for: 0.36,
+            segmentCount: BalanceWorkshopChartLayout.normalSegmentCount
+        )
+        XCTAssertEqual(normal.count, 10)
+        XCTAssertEqual(normal[0], SegmentFill(index: 0, ratio: 1))
+        XCTAssertEqual(normal[1], SegmentFill(index: 1, ratio: 1))
+        XCTAssertEqual(normal[2], SegmentFill(index: 2, ratio: 1))
+        XCTAssertEqual(normal[3].index, 3)
+        XCTAssertEqual(normal[3].ratio, 0.6, accuracy: 0.000_001)
+        XCTAssertEqual(normal[4], SegmentFill(index: 4, ratio: 0))
+
+        let compact = BalanceWorkshopChartLayout.segmentFills(
+            for: 0.5,
+            segmentCount: BalanceWorkshopChartLayout.compactSegmentCount
+        )
+        XCTAssertEqual(compact.count, 5)
+        XCTAssertEqual(compact[0], SegmentFill(index: 0, ratio: 1))
+        XCTAssertEqual(compact[1], SegmentFill(index: 1, ratio: 1))
+        XCTAssertEqual(compact[2], SegmentFill(index: 2, ratio: 0.5))
+        XCTAssertEqual(compact[3], SegmentFill(index: 3, ratio: 0))
+        XCTAssertEqual(compact[4], SegmentFill(index: 4, ratio: 0))
+    }
+
+    func testWorkshopChartSegmentFillsHandleInvalidCountAndBounds() {
+        XCTAssertTrue(BalanceWorkshopChartLayout.segmentFills(for: 0.5, segmentCount: 0).isEmpty)
+
+        let full = BalanceWorkshopChartLayout.segmentFills(for: 2, segmentCount: 3)
+        XCTAssertEqual(full, [
+            SegmentFill(index: 0, ratio: 1),
+            SegmentFill(index: 1, ratio: 1),
+            SegmentFill(index: 2, ratio: 1)
+        ])
+
+        let empty = BalanceWorkshopChartLayout.segmentFills(for: -.infinity, segmentCount: 3)
+        XCTAssertEqual(empty, [
+            SegmentFill(index: 0, ratio: 0),
+            SegmentFill(index: 1, ratio: 0),
+            SegmentFill(index: 2, ratio: 0)
+        ])
+    }
+
     func testCurrencyDensitySymbolsAreAmountTiered() {
         let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
         let lowCostSnapshot = BalanceSnapshot(

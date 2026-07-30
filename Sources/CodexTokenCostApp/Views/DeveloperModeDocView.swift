@@ -163,7 +163,7 @@ struct DeveloperModeDocView: View {
                     if status == .comingSoon {
                         Text(AppLocalization.text("developerMode.doc.comingSoon"))
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(palette.warning)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(
@@ -257,7 +257,7 @@ struct DeveloperModeDocView: View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.caption)
-                .foregroundStyle(.green)
+                .foregroundStyle(palette.success)
             Text(text)
                 .font(.caption)
                 .foregroundStyle(palette.title)

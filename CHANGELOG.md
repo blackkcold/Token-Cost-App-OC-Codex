@@ -9,7 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- _No new features in this release._
+- *待记录 / TBD*
+
+### Changed
+
+- *待记录 / TBD*
+
+### Fixed
+
+- *待记录 / TBD*
+
+## [v1.1.0] - 2026-07-30
+
+> 相对 `v1.0.3` 的累计变更。**主题与外观解耦版本**：主题色与明暗外观独立拆分（Ocean / Forest / Sunset / Violet × System / Light / Dark），引入统一 Design / Motion Tokens 与共享组件，Workshop 余额浮窗以新粗野工作坊语言完整重制。
+
+### Added
+
+- **Design / Motion Tokens**：新增统一的间距、圆角、阴影与动效 token，以及共享 `TokenProgressBar` / `TokenStatusPill` 组件；关键展开、内容切换、进度和按压反馈遵循 Reduce Motion（`DesignTokens.swift`、`Components.swift`、`LiquidGlassButtonStyle.swift`）。
+- **Workshop 余额浮窗视觉组件**：新增微网格面板背景、方形 Provider 品牌板、状态戳、10/5 段额度仪表与货币密度符号组件，并新增分段图表归一化和边界测试（`WorkshopBalanceComponents.swift`、`BalanceFloatingPanelLayoutTests.swift`）。
+
+### Changed
+
+- **主题色与明暗外观解耦**：设置页将原组合主题拆分为 Ocean / Forest / Sunset / Violet 四种强调色和 System / Light / Dark 三种外观模式；所有 SwiftUI Scene 与浮动 `NSPanel` 同步响应外观切换。旧 `theme` 值自动迁移到 `accent_palette` + `appearance_mode`，新版本不再写回旧字段（`Theme.swift`、`AppPreferences.swift`、`AppPreferencesModel.swift`、`TokenCostApp.swift`、`BalanceFloatingPanelCoordinator.swift`）。
+- **UI 状态与动效一致性**：主窗口、设置页、MenuBar、余额浮窗和 Skills 页统一语义状态色、卡片密度、圆角、进度条和必要的衔接动画，避免高密度列表和系统菜单使用多余动效（`ThemePalette.swift`、`Components.swift`、`Views/`）。
+- **Workshop 余额浮窗完整重制**：浮窗外壳、标题栏、操作按钮、空状态、普通/紧凑 Provider 卡片、品牌符号和额度图表统一为新粗野工作坊语言；硬阴影仅作用于背景 Shape，其他主题继续使用原 Liquid Glass / VisualEffectBackground 路径（`BalanceFloatingPanelView.swift`、`BalanceProviderCardView.swift`、`BalanceMinimalProviderTile.swift`、`docs/开发手册.md`、`docs/功能模块关联清单.md`）。
 
 ## [v1.0.3] - 2026-07-29
 
@@ -602,7 +625,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.0...HEAD
+[v1.1.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.3...v1.1.0
 [v1.0.3]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.2...v1.0.3
 [v1.0.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.1...v1.0.2
 [v1.0.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.0...v1.0.1

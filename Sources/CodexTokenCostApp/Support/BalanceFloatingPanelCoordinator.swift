@@ -109,6 +109,14 @@ final class BalanceFloatingPanelCoordinator: NSObject, NSWindowDelegate {
             }
             .store(in: &cancellables)
 
+        appPreferencesModel.$preferences
+            .map(\.appearanceMode)
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.syncPanelAppearance()
+            }
+            .store(in: &cancellables)
+
         balanceManager.$snapshots
             .map(\.count)
             .removeDuplicates()
@@ -188,12 +196,18 @@ final class BalanceFloatingPanelCoordinator: NSObject, NSWindowDelegate {
 
         self.panel = panel
         self.hostingView = hostingView
+        syncPanelAppearance()
         return panel
     }
 
     private func syncPanelLevel() {
         guard let panel else { return }
         panel.level = appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop ? .floating : .normal
+    }
+
+    private func syncPanelAppearance() {
+        panel?.appearance = appPreferencesModel.preferences.appearanceMode.appKitAppearance
+        hostingView?.appearance = appPreferencesModel.preferences.appearanceMode.appKitAppearance
     }
 
     private func updatePanelPresentation(animated: Bool) {

@@ -7,6 +7,7 @@ struct DetailView: View {
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     @ObservedObject var balanceManager: BalanceManager
     let palette: TokenCostPalette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var detailSortField: TokenCostDetailSortField = .date
     @State private var detailSortDirection: TokenCostSortDirection = .descending
@@ -261,7 +262,7 @@ struct DetailView: View {
         return TokenSectionCard(
             title: AppLocalization.text("detail.trend.title"),
             subtitle: "\(AppLocalization.text("detail.trend.subtitle")) · \(AppLocalization.format("trend.range.days", trendDayRange))",
-            trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange)),
+            trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange, palette: palette)),
             palette: palette
         ) {
             if points.isEmpty {
@@ -358,7 +359,7 @@ struct DetailView: View {
                             title: row.displayName,
                             value: row.tokensPerDollar,
                             total: max(maxRatio, 1),
-                            tint: TokenCostSeriesPalette.color(for: row.colorKey),
+                            tint: TokenCostSeriesPalette.color(for: row.colorKey, palette: palette),
                             palette: palette,
                             suffix: providerRankSuffix(row),
                             valueLabel: TokenCostFormatters.millionRate(row.tokensPerDollar, displayCurrency: appPreferencesModel.preferences.displayCurrency)
@@ -392,7 +393,7 @@ struct DetailView: View {
                             title: row.displayName,
                             value: row.tokensPerDollar,
                             total: max(maxRatio, 1),
-                            tint: TokenCostSeriesPalette.color(for: row.colorKey),
+                            tint: TokenCostSeriesPalette.color(for: row.colorKey, palette: palette),
                             palette: palette,
                             suffix: "\(row.provider) · \(modelCostLabel(row))",
                             valueLabel: TokenCostFormatters.millionRate(row.tokensPerDollar, displayCurrency: appPreferencesModel.preferences.displayCurrency)
@@ -471,7 +472,8 @@ struct DetailView: View {
                                 total: dayTotal(at: index, series: window.series),
                                 maxTotal: max(maxTotal, 1),
                                 series: window.series,
-                                dateIndex: index
+                                dateIndex: index,
+                                palette: palette
                             )
                         }
                     }
@@ -671,18 +673,18 @@ struct DetailView: View {
                             SectorMark(
                                 angle: .value("Token", slice.value),
                                 innerRadius: .ratio(0.62),
-                                angularInset: 1.2
+                                angularInset: palette.usesWorkshopStyle ? 3 : 1.2
                             )
-                            .foregroundStyle(TokenCostSeriesPalette.color(for: slice.colorKey))
+                            .foregroundStyle(TokenCostSeriesPalette.color(for: slice.colorKey, palette: palette))
                         }
                         .frame(height: 220)
 
                         VStack(spacing: 4) {
                             Text(AppLocalization.text("common.total"))
-                                .font(.caption)
+                                .font(TokenTypography.caption(palette: palette))
                                 .foregroundStyle(palette.subtitle)
                             Text(TokenCostFormatters.tokens(total))
-                                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                                .font(TokenTypography.metric(size: 24, palette: palette))
                                 .foregroundStyle(palette.title)
                         }
                     }
@@ -693,7 +695,7 @@ struct DetailView: View {
                                 title: slice.label,
                                 value: slice.value,
                                 percentage: slice.percentage,
-                                color: TokenCostSeriesPalette.color(for: slice.colorKey),
+                                color: TokenCostSeriesPalette.color(for: slice.colorKey, palette: palette),
                                 palette: palette
                             )
                         }
@@ -708,21 +710,35 @@ struct DetailView: View {
             ForEach(Array(series.enumerated()), id: \.element.id) { index, item in
                 HStack(spacing: 8) {
                     ZStack {
-                        Circle()
-                            .fill(item.isOther ? TokenCostSeriesPalette.otherColor() : TokenCostSeriesPalette.color(forRank: index))
-                        Circle()
-                            .strokeBorder(palette.cardStroke.opacity(0.95), lineWidth: 1.2)
+                        if palette.usesWorkshopStyle {
+                            Rectangle()
+                                .fill(item.isOther
+                                    ? TokenCostSeriesPalette.otherColor(palette: palette)
+                                    : TokenCostSeriesPalette.color(forRank: index, palette: palette))
+                            Rectangle()
+                                .strokeBorder(palette.cardStroke.opacity(0.95), lineWidth: 1.2)
+                        } else {
+                            Circle()
+                                .fill(item.isOther
+                                    ? TokenCostSeriesPalette.otherColor(palette: palette)
+                                    : TokenCostSeriesPalette.color(forRank: index, palette: palette))
+                            Circle()
+                                .strokeBorder(palette.cardStroke.opacity(0.95), lineWidth: 1.2)
+                        }
                     }
                     .frame(width: 10, height: 10)
                     Text(item.label)
-                        .font(.caption)
+                        .font(TokenTypography.caption(palette: palette))
                         .foregroundStyle(palette.subtitle)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(palette.accentSoft, in: Capsule())
+                .background(
+                    palette.accentSoft,
+                    in: RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 4 : 999, style: .continuous)
+                )
                 .overlay(
-                    Capsule(style: .continuous)
+                    RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 4 : 999, style: .continuous)
                         .strokeBorder(palette.cardStroke.opacity(0.9), lineWidth: 1.1)
                 )
             }
@@ -769,7 +785,7 @@ struct DetailView: View {
             title: row.displayName,
             value: row.cacheReadTokens,
             total: max(detailCacheDistributionTotal(for: row), 1),
-            tint: TokenCostSeriesPalette.color(for: row.colorKey),
+            tint: TokenCostSeriesPalette.color(for: row.colorKey, palette: palette),
             palette: palette,
             suffix: cacheRowSuffix(for: row)
         )
@@ -840,7 +856,9 @@ struct DetailView: View {
 
         return AnyView(
             Button {
-                modelComparisonExpanded.toggle()
+                withAnimation(TokenMotion.resolved(TokenMotion.expand, reduceMotion: reduceMotion)) {
+                    modelComparisonExpanded.toggle()
+                }
             } label: {
                 Label(
                     modelComparisonExpanded ? AppLocalization.text("common.collapse") : AppLocalization.text("common.showMore"),
@@ -1010,23 +1028,28 @@ private struct PieLegendRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Circle()
-                .fill(color)
+            Group {
+                if palette.usesWorkshopStyle {
+                    Rectangle().fill(color)
+                } else {
+                    Circle().fill(color)
+                }
+            }
                 .frame(width: 10, height: 10)
 
             Text(title)
-                .font(.subheadline.weight(.medium))
+                .font(TokenTypography.subheadline(weight: .medium, palette: palette))
                 .foregroundStyle(palette.title)
                 .lineLimit(1)
 
             Spacer(minLength: 0)
 
             Text(TokenCostFormatters.tokens(value))
-                .font(.subheadline.weight(.semibold))
+                .font(TokenTypography.subheadline(weight: .semibold, palette: palette))
                 .foregroundStyle(palette.title)
 
             Text(TokenCostFormatters.percent(percentage))
-                .font(.caption)
+                .font(TokenTypography.caption(palette: palette))
                 .foregroundStyle(palette.subtitle)
                 .frame(width: 54, alignment: .trailing)
         }
@@ -1039,12 +1062,13 @@ private struct StackedDayRow: View {
     let maxTotal: Double
     let series: [DetailStackSeries]
     let dateIndex: Int
+    let palette: TokenCostPalette
 
     var body: some View {
         HStack(spacing: 12) {
             Text(dateLabel)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(TokenTypography.caption(palette: palette).monospacedDigit())
+                .foregroundStyle(palette.subtitle)
                 .frame(width: 92, alignment: .leading)
 
             GeometryReader { proxy in
@@ -1053,27 +1077,36 @@ private struct StackedDayRow: View {
                 let totalForDay = dayValues.reduce(0, +)
 
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 999, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
+                    RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : 999, style: .continuous)
+                        .fill(palette.trackBackground)
 
                     HStack(spacing: 1) {
                         ForEach(Array(series.enumerated()), id: \.element.id) { index, item in
                             let value = item.values[safe: dateIndex] ?? 0
                             if value > 0 {
-                                RoundedRectangle(cornerRadius: 999, style: .continuous)
-                                    .fill(item.isOther ? TokenCostSeriesPalette.otherColor() : TokenCostSeriesPalette.color(forRank: index))
+                                RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : 999, style: .continuous)
+                                    .fill(item.isOther
+                                        ? TokenCostSeriesPalette.otherColor(palette: palette)
+                                        : TokenCostSeriesPalette.color(forRank: index, palette: palette))
                                     .frame(width: width * (value / max(maxTotal, 1)))
                             }
                         }
                     }
                     .frame(width: width * (totalForDay / max(maxTotal, 1)), alignment: .leading)
                 }
+                .overlay(
+                    RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : 999, style: .continuous)
+                        .strokeBorder(
+                            palette.usesWorkshopStyle ? palette.surfaceAccessibleStroke : .clear,
+                            lineWidth: palette.usesWorkshopStyle ? 1 : 0
+                        )
+                )
             }
             .frame(height: 12)
 
             Text(TokenCostFormatters.tokens(total))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(TokenTypography.caption(palette: palette).monospacedDigit())
+                .foregroundStyle(palette.subtitle)
                 .frame(width: 78, alignment: .trailing)
         }
     }

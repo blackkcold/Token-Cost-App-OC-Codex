@@ -7,7 +7,8 @@ final class AppPreferencesTests: XCTestCase {
             language: .en,
             balanceEnabled: true,
             balanceRefreshSeconds: 300,
-            theme: .forest,
+            accentPalette: .forest,
+            appearanceMode: .dark,
             displayCurrency: .cny,
             developerMode: DeveloperModePreferences(isEnabled: true, localGovernanceEnabled: true)
         )
@@ -16,6 +17,51 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(original, decoded)
         XCTAssertTrue(decoded.developerMode.isEnabled)
         XCTAssertTrue(decoded.developerMode.localGovernanceEnabled)
+    }
+
+    func testAppearancePreferencesUseIndependentEncodedKeys() throws {
+        let prefs = AppPreferences(accentPalette: .violet, appearanceMode: .light)
+        let data = try JSONEncoder().encode(prefs)
+        let dict = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(dict["accent_palette"] as? String, "violet")
+        XCTAssertEqual(dict["appearance_mode"] as? String, "light")
+        XCTAssertNil(dict["theme"])
+    }
+
+    func testLegacyThemeMigratesToAccentPaletteAndSystemAppearance() throws {
+        let cases: [(legacy: String, accent: TokenCostAccentPalette)] = [
+            ("ocean", .ocean),
+            ("forest", .forest),
+            ("sunset", .sunset),
+            ("violet", .violet),
+            ("system", .ocean)
+        ]
+
+        for item in cases {
+            let data = #"{"language":"zh-Hans","theme":"\#(item.legacy)"}"#.data(using: .utf8)!
+            let prefs = try JSONDecoder().decode(AppPreferences.self, from: data)
+            XCTAssertEqual(prefs.accentPalette, item.accent)
+            XCTAssertEqual(prefs.appearanceMode, .system)
+        }
+    }
+
+    func testAppearancePreferencesDefaultToOceanAndSystem() throws {
+        let data = #"{"language":"zh-Hans"}"#.data(using: .utf8)!
+        let prefs = try JSONDecoder().decode(AppPreferences.self, from: data)
+        XCTAssertEqual(prefs.accentPalette, .ocean)
+        XCTAssertEqual(prefs.appearanceMode, .system)
+    }
+
+    func testWorkshopThemeRoundtrip() throws {
+        let original = AppPreferences(accentPalette: .workshop, appearanceMode: .dark)
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(AppPreferences.self, from: data)
+        let dict = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(decoded.accentPalette, .workshop)
+        XCTAssertEqual(decoded.appearanceMode, .dark)
+        XCTAssertEqual(dict["accent_palette"] as? String, "workshop")
     }
 
     func testOldConfigWithoutDeveloperModeDefaultsToAllOff() throws {

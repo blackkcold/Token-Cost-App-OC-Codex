@@ -6,6 +6,7 @@ struct DeveloperSectionView: View {
     @ObservedObject var updateCheckerModel: UpdateCheckerModel
     let palette: TokenCostPalette
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var optimizeFindings: [DeveloperFinding] = []
     @State private var hasScanned = false
@@ -37,9 +38,7 @@ struct DeveloperSectionView: View {
                     isOn: Binding(
                         get: { appPreferencesModel.preferences.developerMode.isEnabled },
                         set: { newValue in
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                appPreferencesModel.developerModeIsEnabledBinding.wrappedValue = newValue
-                            }
+                            appPreferencesModel.developerModeIsEnabledBinding.wrappedValue = newValue
                         }
                     )
                 )
@@ -51,7 +50,10 @@ struct DeveloperSectionView: View {
                     .foregroundStyle(palette.subtitle)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: appPreferencesModel.preferences.developerMode.isEnabled)
+        .animation(
+            TokenMotion.resolved(TokenMotion.expand, reduceMotion: reduceMotion),
+            value: appPreferencesModel.preferences.developerMode.isEnabled
+        )
     }
 
     // MARK: - 存储优化扫描
@@ -87,7 +89,7 @@ struct DeveloperSectionView: View {
                     if optimizeFindings.isEmpty {
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(palette.success)
                                 .font(.caption)
                             Text(AppLocalization.text("settings.developerMode.optimize.noIssues"))
                                 .font(.caption)
@@ -149,11 +151,11 @@ struct DeveloperSectionView: View {
 
     private func findingColor(for category: DeveloperFinding.FindingCategory) -> Color {
         switch category {
-        case .staleSnapshot: return .orange
-        case .excessBackup: return .yellow
-        case .largeSessionDir: return .red
-        case .configFragmentation: return .orange
-        case .staleLatest: return .orange
+        case .staleSnapshot: return palette.warning
+        case .excessBackup: return palette.warning.opacity(0.82)
+        case .largeSessionDir: return palette.danger
+        case .configFragmentation: return palette.warning
+        case .staleLatest: return palette.warning
         }
     }
 
@@ -304,7 +306,7 @@ struct DeveloperSectionView: View {
             HStack(spacing: 8) {
                 Text(AppLocalization.text("settings.developerMode.forceUpdate.complete"))
                     .font(.caption2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(palette.success)
                 Button {
                     updateCheckerModel.installUpdate()
                 } label: {
@@ -317,7 +319,7 @@ struct DeveloperSectionView: View {
         case .error(let msg):
             Text(verbatim: msg)
                 .font(.caption2)
-                .foregroundStyle(.red)
+                .foregroundStyle(palette.danger)
         default:
             EmptyView()
         }

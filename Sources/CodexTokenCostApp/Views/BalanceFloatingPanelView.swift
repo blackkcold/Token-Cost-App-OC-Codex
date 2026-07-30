@@ -13,7 +13,7 @@ struct BalanceFloatingPanelView: View {
     let onRequestClose: () -> Void
 
     private var palette: TokenCostPalette {
-        TokenCostPalette(theme: appPreferencesModel.preferences.theme)
+        TokenCostPalette(accentPalette: appPreferencesModel.preferences.accentPalette)
     }
 
     private var displayMode: BalanceFloatingPanelDisplayMode {
@@ -60,7 +60,11 @@ struct BalanceFloatingPanelView: View {
         let panelSize = BalanceFloatingPanelLayout.panelSize(for: displayMode, providerCount: sortedSnapshots.count)
 
         panelBody(width: panelSize.width)
+            .id(displayMode)
+            .transition(.opacity)
             .frame(width: panelSize.width, height: panelSize.height, alignment: .topLeading)
+            .preferredColorScheme(appPreferencesModel.preferences.appearanceMode.preferredColorScheme)
+            .animation(TokenMotion.resolved(TokenMotion.contentSwap, reduceMotion: reduceMotion), value: displayMode)
     }
 
     @ViewBuilder
@@ -141,22 +145,30 @@ struct BalanceFloatingPanelView: View {
 
     private var widgetHeader: some View {
         HStack(alignment: .top, spacing: BalanceFloatingPanelLayout.headerSpacing) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Circle()
-                        .fill(palette.accent)
-                        .frame(width: 8, height: 8)
+            if palette.usesWorkshopStyle {
+                WorkshopBalanceTitleMark(
+                    title: AppLocalization.text("balance.title"),
+                    subtitle: lastRefreshSubtitle,
+                    palette: palette
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        Circle()
+                            .fill(palette.accent)
+                            .frame(width: 8, height: 8)
 
-                    Text(AppLocalization.text("balance.title"))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(palette.title)
+                        Text(AppLocalization.text("balance.title"))
+                            .font(TokenTypography.subheadline(weight: .bold, palette: palette))
+                            .foregroundStyle(palette.title)
+                    }
+
+                    Text(lastRefreshSubtitle)
+                        .font(TokenTypography.caption(palette: palette))
+                        .foregroundStyle(palette.subtitle)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                 }
-
-                Text(lastRefreshSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(palette.subtitle)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
             }
 
             Spacer(minLength: 8)
@@ -214,16 +226,29 @@ struct BalanceFloatingPanelView: View {
 
     private var minimalWidgetHeader: some View {
         HStack(alignment: .center, spacing: BalanceFloatingPanelLayout.minimalPanelHeaderSpacing) {
-            HStack(alignment: .center, spacing: 6) {
-                Circle()
-                    .fill(palette.accent)
-                    .frame(width: 6, height: 6)
+            if palette.usesWorkshopStyle {
+                WorkshopBalanceTitleMark(
+                    title: AppLocalization.text("balance.title"),
+                    subtitle: nil,
+                    palette: palette,
+                    compact: true
+                )
+            } else {
+                HStack(alignment: .center, spacing: 6) {
+                    Circle()
+                        .fill(palette.accent)
+                        .frame(width: 6, height: 6)
 
-                Text(AppLocalization.text("balance.title"))
-                    .font(.system(size: BalanceFloatingPanelLayout.minimalPanelTitleFontSize, weight: .semibold, design: .rounded))
-                    .foregroundStyle(palette.title)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    Text(AppLocalization.text("balance.title"))
+                        .font(TokenTypography.metric(
+                            size: BalanceFloatingPanelLayout.minimalPanelTitleFontSize,
+                            weight: .bold,
+                            palette: palette
+                        ))
+                        .foregroundStyle(palette.title)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
 
             Spacer(minLength: 4)
@@ -303,65 +328,110 @@ struct BalanceFloatingPanelView: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                ProviderLogoMark(provider: .opencodeGo, size: 18, tint: palette.accent)
-                    .frame(width: 24, height: 24)
-                    .padding(6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(palette.accentSoft)
+                if palette.usesWorkshopStyle {
+                    WorkshopBalanceProviderMark(
+                        provider: .opencodeGo,
+                        palette: palette,
+                        size: 18,
+                        plateSize: 34
                     )
+                } else {
+                    ProviderLogoMark(provider: .opencodeGo, size: 18, tint: palette.accent)
+                        .frame(width: 24, height: 24)
+                        .padding(6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(palette.accentSoft)
+                        )
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(AppLocalization.text("balance.empty.title"))
-                        .font(.subheadline.weight(.semibold))
+                        .font(TokenTypography.subheadline(weight: .bold, palette: palette))
                         .foregroundStyle(palette.title)
 
                     Text(AppLocalization.text("balance.empty.subtitle"))
-                        .font(.caption)
+                        .font(TokenTypography.caption(palette: palette))
                         .foregroundStyle(palette.subtitle)
                 }
             }
 
             Text(AppLocalization.text("balance.empty.body"))
-                .font(.caption)
+                .font(TokenTypography.caption(palette: palette))
                 .foregroundStyle(palette.subtitle)
                 .lineLimit(4)
+
+            if palette.usesWorkshopStyle {
+                WorkshopBalanceQuotaMeter(
+                    value: 0.36,
+                    tint: palette.accentSecondary,
+                    palette: palette,
+                    segmentCount: BalanceWorkshopChartLayout.normalSegmentCount,
+                    height: 8
+                )
+                .frame(maxWidth: 180)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(BalanceFloatingPanelLayout.tilePaddingNormal)
         .background {
-            RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
-                .fill(palette.surfaceSolidFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
-                        .strokeBorder(palette.surfaceStroke.opacity(0.95), lineWidth: 1)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
-                        .strokeBorder(palette.surfaceAccessibleStroke.opacity(0.5), lineWidth: 0.5)
-                )
-                .shadow(color: palette.surfaceShadow, radius: 14, x: 0, y: 8)
+            if palette.usesWorkshopStyle {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(palette.surfaceSecondarySolidFill.opacity(0.86))
+                    .overlay(alignment: .topLeading) {
+                        Rectangle()
+                            .fill(palette.accentSecondary)
+                            .frame(width: 42, height: 4)
+                            .padding(.leading, 14)
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(palette.surfaceAccessibleStroke, lineWidth: 2)
+                    )
+                    .shadow(color: palette.surfaceShadow.opacity(0.72), radius: 0, x: 3, y: 3)
+            } else {
+                RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
+                    .fill(palette.surfaceSolidFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
+                            .strokeBorder(palette.surfaceStroke.opacity(0.95), lineWidth: 1)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
+                            .strokeBorder(palette.surfaceAccessibleStroke.opacity(0.5), lineWidth: 0.5)
+                    )
+                    .shadow(color: palette.surfaceShadow, radius: 14, x: 0, y: 8)
+            }
         }
     }
 
     private var minimalEmptyState: some View {
         HStack(alignment: .center, spacing: 8) {
-            ProviderLogoMark(provider: .opencodeGo, size: 16, tint: palette.accent)
-                .frame(width: 20, height: 20)
-                .padding(4)
-                .background(
-                    Circle()
-                        .fill(palette.accentSoft)
+            if palette.usesWorkshopStyle {
+                WorkshopBalanceProviderMark(
+                    provider: .opencodeGo,
+                    palette: palette,
+                    size: 14,
+                    plateSize: 28
                 )
+            } else {
+                ProviderLogoMark(provider: .opencodeGo, size: 16, tint: palette.accent)
+                    .frame(width: 20, height: 20)
+                    .padding(4)
+                    .background(
+                        Circle()
+                            .fill(palette.accentSoft)
+                    )
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(AppLocalization.text("balance.empty.title"))
-                    .font(.caption.weight(.semibold))
+                    .font(TokenTypography.caption(weight: .bold, palette: palette))
                     .foregroundStyle(palette.title)
                     .lineLimit(1)
 
                 Text(AppLocalization.text("balance.notRefreshed"))
-                    .font(.caption2)
+                    .font(TokenTypography.caption2(palette: palette))
                     .foregroundStyle(palette.subtitle)
                     .lineLimit(1)
             }
@@ -371,12 +441,22 @@ struct BalanceFloatingPanelView: View {
         .frame(maxWidth: .infinity, minHeight: BalanceFloatingPanelLayout.minimalTileHeight, alignment: .leading)
         .padding(10)
         .background {
-            RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
-                .fill(palette.surfaceSolidFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
-                        .strokeBorder(palette.surfaceStroke.opacity(0.9), lineWidth: 1)
-                )
+            if palette.usesWorkshopStyle {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(palette.surfaceSecondarySolidFill.opacity(0.86))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(palette.surfaceAccessibleStroke, lineWidth: 1.8)
+                    )
+                    .shadow(color: palette.surfaceShadow.opacity(0.68), radius: 0, x: 2, y: 2)
+            } else {
+                RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
+                    .fill(palette.surfaceSolidFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.tileCornerRadius, style: .continuous)
+                            .strokeBorder(palette.surfaceStroke.opacity(0.9), lineWidth: 1)
+                    )
+            }
         }
     }
 
@@ -394,15 +474,27 @@ struct BalanceFloatingPanelView: View {
     ) -> some View {
         Button(action: action) {
             ZStack {
-                Circle()
-                    .fill(hovered.wrappedValue ? palette.surfaceSolidFill.opacity(0.72) : .clear)
-                    .overlay(
-                        Circle()
-                            .strokeBorder(
-                                hovered.wrappedValue ? palette.surfaceAccessibleStroke.opacity(0.35) : .clear,
-                                lineWidth: 1
+                Group {
+                    if palette.usesWorkshopStyle {
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(hovered.wrappedValue ? palette.accentSoft : palette.surfaceSecondarySolidFill)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .strokeBorder(palette.surfaceAccessibleStroke, lineWidth: 2)
                             )
-                    )
+                            .shadow(color: palette.surfaceShadow.opacity(0.58), radius: 0, x: 2, y: 2)
+                    } else {
+                        Circle()
+                            .fill(hovered.wrappedValue ? palette.surfaceSolidFill.opacity(0.72) : .clear)
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(
+                                        hovered.wrappedValue ? palette.surfaceAccessibleStroke.opacity(0.35) : .clear,
+                                        lineWidth: 1
+                                    )
+                            )
+                    }
+                }
 
                 if isBusy {
                     ProgressView()
@@ -415,7 +507,7 @@ struct BalanceFloatingPanelView: View {
                 }
             }
             .frame(width: size, height: size)
-            .contentShape(Circle())
+            .contentShape(Rectangle())
         }
         .buttonStyle(.liquidGlass)
         .disabled(isBusy)
@@ -424,7 +516,7 @@ struct BalanceFloatingPanelView: View {
         .accessibilityHint(Text(accessibilityHelp ?? accessibilityValue))
         .help(accessibilityHelp ?? "\(accessibilityLabel) · \(accessibilityValue)")
         .onHover { hovering in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+            withAnimation(TokenMotion.resolved(TokenMotion.micro, reduceMotion: reduceMotion)) {
                 hovered.wrappedValue = hovering
             }
         }
@@ -432,7 +524,19 @@ struct BalanceFloatingPanelView: View {
 
     private var shellBackdrop: some View {
         Group {
-            if #available(macOS 26, *) {
+            if palette.usesWorkshopStyle {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(palette.surfaceSolidFill)
+                    .overlay {
+                        WorkshopBalancePanelBackdrop(palette: palette)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(palette.surfaceAccessibleStroke, lineWidth: 2.5)
+                    )
+                    .shadow(color: palette.surfaceShadow.opacity(0.68), radius: 0, x: 5, y: 5)
+            } else if #available(macOS 26, *) {
                 RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.shellCornerRadius, style: .continuous)
                     .fill(.clear)
                     .glassEffect(
@@ -446,14 +550,26 @@ struct BalanceFloatingPanelView: View {
                 )
             }
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.shellCornerRadius, style: .continuous)
-                .strokeBorder(palette.surfaceAccessibleStroke.opacity(0.55), lineWidth: BalanceFloatingPanelLayout.shellStrokeWidth)
+        .overlay {
+            if !palette.usesWorkshopStyle {
+                RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.shellCornerRadius, style: .continuous)
+                    .strokeBorder(
+                        palette.surfaceAccessibleStroke.opacity(0.55),
+                        lineWidth: BalanceFloatingPanelLayout.shellStrokeWidth
+                    )
+            }
+        }
+        .overlay {
+            if !palette.usesWorkshopStyle {
+                RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.shellCornerRadius, style: .continuous)
+                    .strokeBorder(palette.surfaceAccessibleStroke.opacity(0.35), lineWidth: 0.5)
+            }
+        }
+        .shadow(
+            color: palette.usesWorkshopStyle ? .clear : palette.surfaceShadow,
+            radius: palette.usesWorkshopStyle ? 0 : 18,
+            x: 0,
+            y: palette.usesWorkshopStyle ? 0 : 10
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: BalanceFloatingPanelLayout.shellCornerRadius, style: .continuous)
-                .strokeBorder(palette.surfaceAccessibleStroke.opacity(0.35), lineWidth: 0.5)
-        )
-        .shadow(color: palette.surfaceShadow, radius: 18, x: 0, y: 10)
     }
 }

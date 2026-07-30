@@ -90,7 +90,7 @@ struct TotalView: View {
         return TokenSectionCard(
             title: AppLocalization.text("overview.trend.title"),
             subtitle: AppLocalization.format("overview.trend.subtitle", totalTrendDayRange),
-            trailing: AnyView(TokenTrendRangePicker(selection: $totalTrendDayRange)),
+            trailing: AnyView(TokenTrendRangePicker(selection: $totalTrendDayRange, palette: palette)),
             palette: palette
         ) {
             if visiblePoints.isEmpty {

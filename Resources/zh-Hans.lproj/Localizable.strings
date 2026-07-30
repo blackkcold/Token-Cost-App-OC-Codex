@@ -41,9 +41,12 @@
 "common.noData" = "暂无数据";
 "common.other" = "其他";
 "common.pleaseWait" = "请稍候";
+"common.progress" = "进度";
 "common.readOnly" = "只读访问";
 "common.ready" = "就绪";
 "common.refreshing" = "刷新中";
+"common.selected" = "已选择";
+"common.notSelected" = "未选择";
 "common.showMore" = "查看更多";
 "common.total" = "总计";
 "common.unavailable" = "未提供";
@@ -229,7 +232,7 @@
 "settings.appPreferences.codexPlanSubtitle" = "固定订阅：%@";
 "settings.appPreferences.openCodePlan" = "OpenCode 口径";
 "settings.appPreferences.openCodePlanSubtitle" = "当前选项";
-"settings.appPreferences.subtitle" = "语言、币种和主题独立保存";
+"settings.appPreferences.subtitle" = "语言、币种、主题色和界面外观独立保存";
 "settings.appPreferences.title" = "全局偏好";
 "settings.codex.autoRescan" = "启动时自动刷新";
 "settings.codex.body" = "默认会自动扫描两个系统位置，你只需要在需要时补充额外目录或单个文件。";
@@ -308,6 +311,8 @@
 "settings.subtitle" = "调整主题、来源扫描和本地快照。OpenCode 和 Codex 分别使用独立的配置文件与支持目录。";
 "settings.theme.subtitle" = "视觉风格只影响界面，不影响数据边界";
 "settings.theme.title" = "主题";
+"settings.accentPalette.title" = "主题预设";
+"settings.appearance.title" = "界面外观";
 "settings.title" = "设置";
 "settings.warning.subtitle" = "已启用安全回退，原始文件保留不回写";
 "settings.warning.title" = "设置读取警告";
@@ -395,8 +400,16 @@
 "theme.sunset.summary" = "更温暖，更醒目";
 "theme.violet.displayName" = "极光紫";
 "theme.violet.summary" = "更强识别度，更有活力";
+"theme.workshop.displayName" = "新粗野工作坊";
+"theme.workshop.summary" = "粗描边、硬阴影与协作白板式草图感";
 "theme.system.displayName" = "跟随系统";
 "theme.system.summary" = "根据系统外观自动切换明暗模式";
+"appearance.system.displayName" = "跟随系统";
+"appearance.system.summary" = "跟随 macOS 外观自动切换";
+"appearance.light.displayName" = "浅色";
+"appearance.light.summary" = "始终使用浅色外观";
+"appearance.dark.displayName" = "深色";
+"appearance.dark.summary" = "始终使用深色外观";
 
 "unit.perMonth" = "/月";
 

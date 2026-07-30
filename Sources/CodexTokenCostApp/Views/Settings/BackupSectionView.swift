@@ -77,11 +77,11 @@ struct BackupSectionView: View {
                 Spacer()
                 if group.anyBackedUp {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(palette.success)
                         .font(.caption)
                 } else if group.files.contains(where: { !$0.sourceExists }) {
                     Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(palette.warning)
                         .font(.caption)
                 }
             }
@@ -240,7 +240,7 @@ struct BackupSectionView: View {
             Spacer()
             Text("\("settings.backup.unmanagedBakCount".localized): \(appPreferencesModel.unmanagedBakFiles.count)")
                 .font(.caption2)
-                .foregroundStyle(.orange)
+                .foregroundStyle(palette.warning)
         }
     }
 
@@ -423,7 +423,7 @@ struct BackupSectionView: View {
                 if let error = appPreferencesModel.backupLastError {
                     Text(verbatim: error)
                         .font(.caption2)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(palette.danger)
                 }
 
                 Text("settings.backup.layeredSensitive".localized)
@@ -557,7 +557,7 @@ struct BackupSectionView: View {
                             } label: {
                                 Image(systemName: "trash")
                                     .font(.caption2)
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(palette.danger)
                             }
                             .buttonStyle(.borderless)
                             .help("Delete backup record")

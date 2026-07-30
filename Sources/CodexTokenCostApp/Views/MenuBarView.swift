@@ -24,29 +24,35 @@ struct MenuBarView: View {
             header
 
             if hasSummary {
-                Divider()
+                TokenThemedDivider(palette: palette)
                 summaryOverview(cost: cost, tokens: tokens, messages: messages, sessions: sessions)
             }
 
             if points.count >= 2 {
-                Divider()
+                TokenThemedDivider(palette: palette)
                 sparklineSection(points: points)
             }
 
             if appPreferencesModel.preferences.balanceEnabled,
                !balanceManager.snapshots.isEmpty {
-                Divider()
+                TokenThemedDivider(palette: palette)
                 balanceSummary
             }
 
-            Divider()
+            TokenThemedDivider(palette: palette)
             Button {
                 balanceFloatingPanelCoordinator.toggleFromMenuBar()
             } label: {
                 Label(AppLocalization.text("menu.balanceFloatingPanel.title"), systemImage: "rectangle.on.rectangle")
                     .frame(maxWidth: .infinity)
             }
-            .settingsGlassButtonStyle(prominent: appPreferencesModel.preferences.balanceFloatingPanelEnabled)
+            .dashboardButtonStyle(
+                palette: palette,
+                compact: true,
+                fallback: appPreferencesModel.preferences.balanceFloatingPanelEnabled
+                    ? .settingsGlassProminent
+                    : .settingsGlass
+            )
             .controlSize(.small)
             .help(
                 appPreferencesModel.preferences.balanceFloatingPanelEnabled
@@ -59,7 +65,7 @@ struct MenuBarView: View {
                 : AppLocalization.text("menu.balanceFloatingPanel.show")
             )
 
-            Divider()
+            TokenThemedDivider(palette: palette)
             HStack(spacing: 8) {
                 Button {
                     activateMainWindow()
@@ -67,7 +73,7 @@ struct MenuBarView: View {
                     Label(AppLocalization.text("menu.openMainWindow"), systemImage: "macwindow")
                         .frame(maxWidth: .infinity)
                 }
-                .settingsGlassButtonStyle(prominent: true)
+                .dashboardButtonStyle(palette: palette, compact: true, fallback: .settingsGlassProminent)
                 .controlSize(.small)
 
                 Button {
@@ -77,7 +83,7 @@ struct MenuBarView: View {
                     Label(AppLocalization.text("menu.refreshAll"), systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity)
                 }
-                .settingsGlassButtonStyle(prominent: false)
+                .dashboardButtonStyle(palette: palette, compact: true, fallback: .settingsGlass)
                 .controlSize(.small)
                 .disabled(openCodeModel.isBootstrapping || openCodeModel.isRefreshing || codexModel.isBootstrapping || codexModel.isRefreshing)
 
@@ -87,10 +93,10 @@ struct MenuBarView: View {
                     Label(AppLocalization.text("menu.openSettings"), systemImage: "gearshape")
                         .frame(maxWidth: .infinity)
                 }
-                .settingsGlassButtonStyle(prominent: false)
+                .dashboardButtonStyle(palette: palette, compact: true, fallback: .settingsGlass)
                 .controlSize(.small)
             }
-            Divider()
+            TokenThemedDivider(palette: palette)
             HStack {
                 Spacer()
                 Button {
@@ -99,13 +105,18 @@ struct MenuBarView: View {
                     Image(systemName: "xmark.circle")
                         .font(.system(size: 13))
                 }
-                .buttonStyle(.plain)
+                .dashboardButtonStyle(palette: palette, compact: true, fallback: .plain)
                 .help(AppLocalization.text("menu.quit"))
                 .accessibilityLabel(AppLocalization.text("menu.quit"))
             }
         }
         .frame(width: 340)
-        .padding(12)
+        .padding(TokenSpacing.control)
+        .background {
+            if palette.usesWorkshopStyle {
+                palette.pageBackground
+            }
+        }
     }
 
     // MARK: - Data Accessors
@@ -195,7 +206,7 @@ struct MenuBarView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(AppLocalization.text("overview.summary.title"))
-                .font(.caption.weight(.semibold))
+                .font(TokenTypography.caption(weight: .bold, palette: palette))
                 .foregroundStyle(palette.subtitle)
 
             LazyVGrid(columns: [
@@ -244,24 +255,27 @@ struct MenuBarView: View {
         subtitle: String? = nil
     ) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(tint)
-                .frame(width: 12)
+            TokenDashboardSymbolMark(
+                systemImage: icon,
+                tint: tint,
+                palette: palette,
+                size: 18,
+                fontSize: 8
+            )
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(label)
-                    .font(.caption)
+                    .font(TokenTypography.caption(palette: palette))
                     .foregroundStyle(palette.subtitle)
                     .lineLimit(1)
                 Text(value ?? fallback)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(TokenTypography.metric(size: 12, palette: palette))
                     .foregroundStyle(value != nil ? palette.title : palette.subtitle)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .font(TokenTypography.metric(size: 9, weight: .medium, palette: palette))
                         .foregroundStyle(palette.accent)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
@@ -271,11 +285,20 @@ struct MenuBarView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(6)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 5 : TokenRadius.compact, style: .continuous)
                 .fill(palette.cardFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(palette.cardStroke.opacity(0.6), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 5 : TokenRadius.compact, style: .continuous)
+                        .strokeBorder(
+                            palette.cardStroke.opacity(palette.usesWorkshopStyle ? 1 : 0.6),
+                            lineWidth: palette.usesWorkshopStyle ? 1.6 : 1
+                        )
+                )
+                .shadow(
+                    color: palette.usesWorkshopStyle ? palette.cardShadow.opacity(0.5) : .clear,
+                    radius: 0,
+                    x: palette.usesWorkshopStyle ? 2 : 0,
+                    y: palette.usesWorkshopStyle ? 2 : 0
                 )
         )
     }
@@ -283,7 +306,7 @@ struct MenuBarView: View {
     private func sparklineSection(points: [SparklinePoint]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(AppLocalization.text("menu.weeklyTrend"))
-                .font(.caption.weight(.semibold))
+                .font(TokenTypography.caption(weight: .bold, palette: palette))
                 .foregroundStyle(palette.subtitle)
 
             Chart(points) { point in
@@ -291,16 +314,30 @@ struct MenuBarView: View {
                     x: .value("Date", point.date),
                     y: .value("Tokens", point.tokens)
                 )
-                .interpolationMethod(.monotone)
-                .foregroundStyle(palette.accent.opacity(0.12))
+                .interpolationMethod(palette.usesWorkshopStyle ? .linear : .monotone)
+                .foregroundStyle(palette.usesWorkshopStyle ? palette.accent.opacity(0.08) : palette.accent.opacity(0.12))
 
                 LineMark(
                     x: .value("Date", point.date),
                     y: .value("Tokens", point.tokens)
                 )
-                .interpolationMethod(.monotone)
+                .interpolationMethod(palette.usesWorkshopStyle ? .linear : .monotone)
                 .foregroundStyle(palette.accent)
-                .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                .lineStyle(
+                    palette.usesWorkshopStyle
+                        ? StrokeStyle(lineWidth: 2.5, lineCap: .butt, lineJoin: .miter)
+                        : StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
+                )
+
+                if palette.usesWorkshopStyle {
+                    PointMark(
+                        x: .value("Date", point.date),
+                        y: .value("Tokens", point.tokens)
+                    )
+                    .symbol(.square)
+                    .symbolSize(18)
+                    .foregroundStyle(palette.accentSecondary)
+                }
             }
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
@@ -322,7 +359,7 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(AppLocalization.text("balance.title"))
-                    .font(.caption.weight(.semibold))
+                    .font(TokenTypography.caption(weight: .bold, palette: palette))
                     .foregroundStyle(palette.subtitle)
                 Spacer()
                 Button {
@@ -337,7 +374,7 @@ struct MenuBarView: View {
                             .font(.system(size: 11))
                     }
                 }
-                .buttonStyle(.plain)
+                .dashboardButtonStyle(palette: palette, compact: true, fallback: .plain)
                 .foregroundStyle(balanceManager.isRefreshing ? palette.subtitle : palette.accent)
                 .disabled(balanceManager.isRefreshing)
                 .help(AppLocalization.text("menu.refreshBalance"))
@@ -367,7 +404,7 @@ struct MenuBarView: View {
                     .fill(snapshot.isAvailable ? gradientColor(for: snapshot.gradient) : Color.gray.opacity(0.5))
                     .frame(width: 5, height: 5)
                 Text(snapshot.provider.displayName)
-                    .font(.caption.weight(.semibold))
+                    .font(TokenTypography.caption(weight: .bold, palette: palette))
                     .foregroundStyle(palette.title)
                     .lineLimit(1)
                 Spacer(minLength: 4)
@@ -397,7 +434,7 @@ struct MenuBarView: View {
                     ForEach(entries) { entry in
                         VStack(alignment: .leading, spacing: 1) {
                             Text(BalanceMenuBarExtraSupport.amountText(for: entry))
-                                .font(.caption.weight(.medium))
+                                .font(TokenTypography.caption(weight: .medium, palette: palette))
                                 .foregroundStyle(palette.title)
                                 .lineLimit(1)
                             if let burnRateText = BalanceMenuBarExtraSupport.burnRateText(for: entry) {
@@ -444,11 +481,20 @@ struct MenuBarView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(6)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 5 : 8, style: .continuous)
                 .fill(palette.cardFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(palette.cardStroke.opacity(0.6), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 5 : 8, style: .continuous)
+                        .strokeBorder(
+                            palette.cardStroke.opacity(palette.usesWorkshopStyle ? 1 : 0.6),
+                            lineWidth: palette.usesWorkshopStyle ? 1.6 : 1
+                        )
+                )
+                .shadow(
+                    color: palette.usesWorkshopStyle ? palette.cardShadow.opacity(0.5) : .clear,
+                    radius: 0,
+                    x: palette.usesWorkshopStyle ? 2 : 0,
+                    y: palette.usesWorkshopStyle ? 2 : 0
                 )
         )
     }
@@ -485,15 +531,22 @@ struct MenuBarView: View {
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : 1.5, style: .continuous)
                         .fill(palette.trackBackground)
                         .frame(height: 5)
-                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : 1.5, style: .continuous)
                         .fill(cardBarColor(for: pct))
                         .frame(width: geo.size.width * CGFloat(min(pct, 1.0)), height: 5)
                 }
             }
             .frame(height: 5)
+            .overlay(
+                Rectangle()
+                    .strokeBorder(
+                        palette.usesWorkshopStyle ? palette.surfaceAccessibleStroke : .clear,
+                        lineWidth: palette.usesWorkshopStyle ? 0.8 : 0
+                    )
+            )
             .layoutPriority(-1)
             Text(pct >= 0.995 ? AppLocalization.text("balance.rate.fullShort") : "\(Int(pct * 100))")
                 .font(.caption)
@@ -555,7 +608,7 @@ struct MenuBarView: View {
                 .fill(hasPayload ? Color.green : (isBusy ? palette.accent : palette.subtitle.opacity(0.5)))
                 .frame(width: 5, height: 5)
             Text(label)
-                .font(.caption2)
+                .font(TokenTypography.caption2(palette: palette))
                 .foregroundStyle(palette.subtitle)
                 .lineLimit(1)
         }
@@ -565,11 +618,11 @@ struct MenuBarView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(CodexAppPaths.appDisplayName)
-                .font(.headline)
+                .font(TokenTypography.headline(weight: .bold, palette: palette))
                 .foregroundStyle(palette.title)
             if let cost = combinedCost {
                 Text(TokenCostFormatters.currency(cost, displayCurrency: appPreferencesModel.preferences.displayCurrency))
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .font(TokenTypography.metric(size: 22, weight: .bold, palette: palette))
                     .foregroundStyle(palette.accent)
             }
             HStack(spacing: 12) {
@@ -592,11 +645,11 @@ struct MenuBarView: View {
     private func gradientColor(for gradient: UsageGradient) -> Color {
         switch gradient {
         case .unused: return .gray
-        case .low: return .green
-        case .moderate: return .yellow
-        case .high: return .orange
-        case .critical: return .red
-        case .exceeded: return .red
+        case .low: return palette.success
+        case .moderate: return palette.warning.opacity(0.82)
+        case .high: return palette.warning
+        case .critical: return palette.danger
+        case .exceeded: return palette.danger
         case .unknown: return .gray
         }
     }

@@ -6,6 +6,7 @@ struct BalanceOverviewCard: View {
     let lastRefreshTime: Date?
     let palette: TokenCostPalette
     @ObservedObject var appPreferencesModel: AppPreferencesModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded = true
 
     private var availableSnapshots: [BalanceSnapshot] {
@@ -37,7 +38,7 @@ struct BalanceOverviewCard: View {
                 trailing: AnyView(
                     HStack(spacing: 8) {
                         Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+                            expanded.toggle()
                         } label: {
                             Image(systemName: expanded ? "chevron.up" : "chevron.down")
                                 .font(.caption.weight(.semibold))
@@ -55,9 +56,7 @@ struct BalanceOverviewCard: View {
                         HStack {
                             Spacer()
                             Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    appPreferencesModel.balanceOrderLockedBinding.wrappedValue = true
-                                }
+                                appPreferencesModel.balanceOrderLockedBinding.wrappedValue = true
                             } label: {
                                 Label(AppLocalization.text("balance.order.lock"), systemImage: "lock.fill")
                             }
@@ -99,6 +98,11 @@ struct BalanceOverviewCard: View {
                     }
                 }
             }
+            .animation(TokenMotion.resolved(TokenMotion.expand, reduceMotion: reduceMotion), value: expanded)
+            .animation(
+                TokenMotion.resolved(TokenMotion.contentSwap, reduceMotion: reduceMotion),
+                value: appPreferencesModel.preferences.balanceOrderLocked
+            )
         }
     }
 
@@ -187,16 +191,16 @@ struct BalanceOverviewCard: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: TokenRadius.compact, style: .continuous)
                         .fill(gradientColor(for: (showCostOnly || showValueEntries) ? .low : snapshot.gradient).opacity(0.12))
                 )
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: TokenRadius.row, style: .continuous)
                 .fill(palette.cardFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: TokenRadius.row, style: .continuous)
                         .strokeBorder(palette.cardStroke, lineWidth: 1)
                 )
         )
@@ -253,17 +257,7 @@ struct BalanceOverviewCard: View {
                         .foregroundStyle(palette.subtitle)
                         .frame(minWidth: 36, idealWidth: 48, alignment: .leading)
                 }
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(palette.trackBackground)
-                            .frame(height: 6)
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(color)
-                            .frame(width: geo.size.width * CGFloat(clamped), height: 6)
-                    }
-                }
-                .frame(height: 6)
+                TokenProgressBar(value: clamped, tint: color, palette: palette, height: 6)
                 Text(TokenCostFormatters.percent(clamped))
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(palette.subtitle)
@@ -328,10 +322,10 @@ struct BalanceOverviewCard: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: TokenRadius.row, style: .continuous)
                 .fill(palette.cardFill)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: TokenRadius.row, style: .continuous)
                         .strokeBorder(palette.cardStroke, lineWidth: 1)
                 )
         )
@@ -340,11 +334,11 @@ struct BalanceOverviewCard: View {
     private func gradientColor(for gradient: UsageGradient) -> Color {
         switch gradient {
         case .unused: return .gray
-        case .low: return .green
-        case .moderate: return .yellow
-        case .high: return .orange
-        case .critical: return .red
-        case .exceeded: return .red
+        case .low: return palette.success
+        case .moderate: return palette.warning.opacity(0.82)
+        case .high: return palette.warning
+        case .critical: return palette.danger
+        case .exceeded: return palette.danger
         case .unknown: return .gray
         }
     }

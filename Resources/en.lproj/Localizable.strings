@@ -41,9 +41,12 @@
 "common.noData" = "No data";
 "common.other" = "Other";
 "common.pleaseWait" = "Please wait";
+"common.progress" = "Progress";
 "common.readOnly" = "Read-only access";
 "common.ready" = "Ready";
 "common.refreshing" = "Refreshing";
+"common.selected" = "Selected";
+"common.notSelected" = "Not selected";
 "common.showMore" = "Show more";
 "common.total" = "Total";
 "common.unavailable" = "Unavailable";
@@ -229,7 +232,7 @@
 "settings.appPreferences.codexPlanSubtitle" = "Fixed subscription: %@";
 "settings.appPreferences.openCodePlan" = "OpenCode mode";
 "settings.appPreferences.openCodePlanSubtitle" = "Current selection";
-"settings.appPreferences.subtitle" = "Language, currency, and theme are saved separately";
+"settings.appPreferences.subtitle" = "Language, currency, accent color, and appearance are saved separately";
 "settings.appPreferences.title" = "Global preferences";
 "settings.codex.autoRescan" = "Auto-refresh on launch";
 "settings.codex.body" = "It automatically scans two system locations by default; add extra directories or files only when needed.";
@@ -308,6 +311,8 @@
 "settings.subtitle" = "Adjust theme, source scanning, and local snapshots. OpenCode and Codex use separate config files and support directories.";
 "settings.theme.subtitle" = "Visual style only affects the UI, not data boundaries";
 "settings.theme.title" = "Theme";
+"settings.accentPalette.title" = "Theme preset";
+"settings.appearance.title" = "Appearance";
 "settings.title" = "Settings";
 "settings.warning.subtitle" = "Safe fallback is enabled; original files are not overwritten";
 "settings.warning.title" = "Settings load warning";
@@ -395,8 +400,16 @@
 "theme.sunset.summary" = "Warmer and more noticeable";
 "theme.violet.displayName" = "Aurora Violet";
 "theme.violet.summary" = "Stronger identity and more energy";
+"theme.workshop.displayName" = "Workshop Board";
+"theme.workshop.summary" = "Bold outlines, hard shadows, and collaborative whiteboard energy";
 "theme.system.displayName" = "Follow System";
 "theme.system.summary" = "Automatically switch between light and dark mode";
+"appearance.system.displayName" = "System";
+"appearance.system.summary" = "Follow the macOS appearance";
+"appearance.light.displayName" = "Light";
+"appearance.light.summary" = "Always use the light appearance";
+"appearance.dark.displayName" = "Dark";
+"appearance.dark.summary" = "Always use the dark appearance";
 
 "unit.perMonth" = "/mo";
 
