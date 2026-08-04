@@ -152,13 +152,13 @@ public struct BalanceProviderError: Error, Codable, Hashable, Sendable {
 /// Runtime configuration for the balance subsystem.
 public struct BalanceConfiguration: Codable, Equatable, Sendable {
     /// Providers enabled for querying.
-    /// Default: OpenCode Go, Codex, OpenCode Zen (DeepSeek and Ollama are opt-in).
+    /// Default: OpenCode Go, Codex, OpenCode Zen, Ollama Cloud (DeepSeek is opt-in).
     public var enabledBalanceProviders: [BalanceProviderKind]
     /// Allow reading credentials from environment variables (off by default).
     public var allowEnvironmentCredentials: Bool
 
     public init(
-        enabledBalanceProviders: [BalanceProviderKind] = [.opencodeGo, .codex, .opencodeZen],
+        enabledBalanceProviders: [BalanceProviderKind] = [.opencodeGo, .codex, .opencodeZen, .ollama],
         allowEnvironmentCredentials: Bool = false
     ) {
         self.enabledBalanceProviders = enabledBalanceProviders

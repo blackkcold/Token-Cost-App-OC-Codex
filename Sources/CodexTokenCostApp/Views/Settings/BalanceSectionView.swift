@@ -78,6 +78,11 @@ struct BalanceSectionView: View {
                                 .accessibilityLabel("settings.balance.menuBarExtra.enable".localized)
                         }
                     }
+                    .opacity(appPreferencesModel.preferences.developerMode.isEnabled ? 1 : 0.45)
+                    .disabled(!appPreferencesModel.preferences.developerMode.isEnabled)
+                    .help(appPreferencesModel.preferences.developerMode.isEnabled
+                          ? AppLocalization.text("settings.balance.menuBarExtra.help")
+                          : AppLocalization.text("settings.balance.menuBarExtra.devModeRequired"))
 
                     SettingsControlTile(palette: palette, minHeight: 54) {
                         Toggle("settings.balance.floatingPanel.enable".localized, isOn: appPreferencesModel.balanceFloatingPanelEnabledBinding)
@@ -284,12 +289,7 @@ struct BalanceSectionView: View {
 
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(BalanceProviderKind.allCases, id: \.self) { kind in
-                            if kind == .ollama,
-                               !appPreferencesModel.preferences.developerMode.ollamaUsageTrackingEnabled {
-                                EmptyView()
-                            } else {
-                                providerToggleRow(for: kind)
-                            }
+                            providerToggleRow(for: kind)
                         }
                     }
                 }

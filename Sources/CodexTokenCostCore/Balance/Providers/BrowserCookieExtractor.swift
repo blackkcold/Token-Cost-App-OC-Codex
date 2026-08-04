@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 import SQLite3
 import CCryptoBridge
@@ -70,6 +71,13 @@ public enum BrowserKind: CaseIterable {
 
 public enum BrowserCookieExtractor {
 
+    public enum KeychainAccess: Sendable {
+        /// Reuse an already-authorized Safe Storage item, but never present UI.
+        case silent
+        /// Allow macOS to request Safe Storage access after an explicit user action.
+        case userInitiated
+    }
+
     public struct GoCredentialCandidate: Sendable {
         public let workspaceID: String?
         public let cookie: String
@@ -81,26 +89,35 @@ public enum BrowserCookieExtractor {
         public let source: String
     }
 
-    public static func extractCredentials() -> (workspaceID: String?, cookie: String?) {
-        guard let candidate = credentialCandidates().first else {
+    public static func extractCredentials(
+        keychainAccess: KeychainAccess = .silent
+    ) -> (workspaceID: String?, cookie: String?) {
+        guard let candidate = credentialCandidates(keychainAccess: keychainAccess).first else {
             return (nil, nil)
         }
         return (candidate.workspaceID, candidate.cookie)
     }
 
-    public static func credentialCandidates() -> [GoCredentialCandidate] {
+    public static func credentialCandidates(
+        keychainAccess: KeychainAccess = .silent
+    ) -> [GoCredentialCandidate] {
         var results: [GoCredentialCandidate] = []
         var seen = Set<String>()
         for browser in BrowserKind.allCases {
-            guard let encryptionKey = fetchEncryptionKey(service: browser.keychainService) else {
-                continue
-            }
-            for profileDir in browser.profileDirs {
+            let profiles = browser.profileDirs.compactMap { profileDir -> (String, URL, URL)? in
                 let cookiesURL = browser.cookiesURL(profileDir: profileDir)
-                let historyURL = browser.historyURL(profileDir: profileDir)
+                guard FileManager.default.fileExists(atPath: cookiesURL.path),
+                      cookieDatabaseContainsRecord(dbURL: cookiesURL, sql: goCookiePresenceSQL)
+                else { return nil }
+                return (profileDir, cookiesURL, browser.historyURL(profileDir: profileDir))
+            }
+            guard !profiles.isEmpty,
+                  let encryptionKey = fetchEncryptionKey(
+                    service: browser.keychainService,
+                    access: keychainAccess
+                  ) else { continue }
 
-                guard FileManager.default.fileExists(atPath: cookiesURL.path) else { continue }
-
+            for (profileDir, cookiesURL, historyURL) in profiles {
                 guard let cookie = decryptCookie(dbURL: cookiesURL, key: encryptionKey),
                       !cookie.isEmpty
                 else { continue }
@@ -120,17 +137,19 @@ public enum BrowserCookieExtractor {
 
     // MARK: - Ollama cookie extraction
 
-    public static func extractOllamaCookie() -> String? {
-        ollamaCookieCandidates().first?.cookie
+    public static func extractOllamaCookie(
+        keychainAccess: KeychainAccess = .silent
+    ) -> String? {
+        ollamaCookieCandidates(keychainAccess: keychainAccess).first?.cookie
     }
 
-    public static func ollamaCookieCandidates() -> [OllamaCookieCandidate] {
+    public static func ollamaCookieCandidates(
+        keychainAccess: KeychainAccess = .silent
+    ) -> [OllamaCookieCandidate] {
         var results: [OllamaCookieCandidate] = []
         var seen = Set<String>()
         for browser in BrowserKind.allCases {
-            guard let encryptionKey = fetchEncryptionKey(service: browser.keychainService) else {
-                continue
-            }
+            var databases: [(profileDir: String, url: URL)] = []
             for profileDir in browser.profileDirs {
                 let baseURL = browser.appSupportURL.appendingPathComponent(profileDir)
                 let dbCandidates: [URL] = [
@@ -138,15 +157,26 @@ public enum BrowserCookieExtractor {
                     baseURL.appendingPathComponent("Cookies")
                 ]
                 for dbURL in dbCandidates {
-                    guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
-                    guard let header = decryptOllamaCookie(dbURL: dbURL, key: encryptionKey)
+                    guard FileManager.default.fileExists(atPath: dbURL.path),
+                          cookieDatabaseContainsRecord(dbURL: dbURL, sql: ollamaCookiePresenceSQL)
                     else { continue }
-                    guard seen.insert(header).inserted else { continue }
-                    results.append(OllamaCookieCandidate(
-                        cookie: header,
-                        source: "\(browser.displayName)/\(profileDir)"
-                    ))
+                    databases.append((profileDir, dbURL))
                 }
+            }
+            guard !databases.isEmpty,
+                  let encryptionKey = fetchEncryptionKey(
+                    service: browser.keychainService,
+                    access: keychainAccess
+                  ) else { continue }
+
+            for database in databases {
+                guard let header = decryptOllamaCookie(dbURL: database.url, key: encryptionKey)
+                else { continue }
+                guard seen.insert(header).inserted else { continue }
+                results.append(OllamaCookieCandidate(
+                    cookie: header,
+                    source: "\(browser.displayName)/\(database.profileDir)"
+                ))
             }
         }
         return results
@@ -236,14 +266,8 @@ public enum BrowserCookieExtractor {
 
     // MARK: - Keychain
 
-    private static func fetchEncryptionKey(service: String) -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUISkip
-        ]
+    private static func fetchEncryptionKey(service: String, access: KeychainAccess) -> Data? {
+        let query = encryptionKeyQuery(service: service, access: access)
         var item: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
               let passwordData = item as? Data else {
@@ -255,6 +279,18 @@ public enum BrowserCookieExtractor {
         else { return nil }
 
         return deriveKey(password: password)
+    }
+
+    static func encryptionKeyQuery(service: String, access: KeychainAccess) -> [String: Any] {
+        let context = LAContext()
+        context.interactionNotAllowed = access == .silent
+        return [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: context
+        ]
     }
 
     // MARK: - PBKDF2
@@ -306,6 +342,43 @@ public enum BrowserCookieExtractor {
             ofItemAtPath: tempRoot.path
         )
         return tempRoot
+    }
+
+    private static let goCookiePresenceSQL = """
+        SELECT 1 FROM cookies
+        WHERE (host_key LIKE '%.opencode.ai' OR host_key = 'opencode.ai')
+        AND name IN ('__Host-auth', 'auth')
+        LIMIT 1
+        """
+
+    private static let ollamaCookiePresenceSQL = """
+        SELECT 1 FROM cookies
+        WHERE host_key LIKE '%ollama.com'
+        AND name IN ('auth', '__Host-auth', '__Secure-auth', 'session', '__Host-session', '__Secure-session', 'sid', 'token')
+        LIMIT 1
+        """
+
+    private static func cookieDatabaseContainsRecord(dbURL: URL, sql: String) -> Bool {
+        let tempURL = secureTempDirectory()
+            .appendingPathComponent("cookie_presence_\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        do {
+            try FileManager.default.copyItem(at: dbURL, to: tempURL)
+        } catch {
+            return false
+        }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(tempURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let db else { return false }
+        defer { sqlite3_close(db) }
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+              let statement else { return false }
+        defer { sqlite3_finalize(statement) }
+        return sqlite3_step(statement) == SQLITE_ROW
     }
 
     private static func decryptCookie(dbURL: URL, key: Data) -> String? {

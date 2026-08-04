@@ -10,6 +10,7 @@ struct CodexTokenCostApp: App {
     @StateObject private var codexModel: CodexSessionModel
     @StateObject private var balanceManager: BalanceManager
     @StateObject private var balanceRefreshScheduler: BalanceRefreshScheduler
+    @StateObject private var backupScheduler: BackupScheduler
     @StateObject private var updateChecker: UpdateCheckerModel
     @StateObject private var skillsModel: OpenCodeSkillsModel
     private let balanceFloatingPanelCoordinator: BalanceFloatingPanelCoordinator
@@ -28,8 +29,11 @@ struct CodexTokenCostApp: App {
         AppDelegate.balanceFloatingPanelCoordinator = balanceFloatingPanelCoordinator
         let scheduler = BalanceRefreshScheduler(balanceManager: balanceManager, preferencesModel: preferencesModel)
         scheduler.start()
+        let backupScheduler = BackupScheduler(preferencesModel: preferencesModel)
+        backupScheduler.start()
         _balanceManager = StateObject(wrappedValue: balanceManager)
         _balanceRefreshScheduler = StateObject(wrappedValue: scheduler)
+        _backupScheduler = StateObject(wrappedValue: backupScheduler)
         _updateChecker = StateObject(wrappedValue: UpdateCheckerModel())
         _skillsModel = StateObject(wrappedValue: OpenCodeSkillsModel())
     }
@@ -52,9 +56,6 @@ struct CodexTokenCostApp: App {
             }
             .onChange(of: appPreferencesModel.preferences.balanceConfig) { _, newConfig in
                 balanceManager.updateConfiguration(newConfig ?? BalanceConfiguration())
-            }
-            .onChange(of: appPreferencesModel.preferences.developerMode) { _, _ in
-                balanceManager.updateConfiguration(appPreferencesModel.effectiveBalanceConfiguration)
             }
         }
         .defaultSize(width: 1260, height: 860)
@@ -124,7 +125,7 @@ struct CodexTokenCostApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        MenuBarExtra(isInserted: appPreferencesModel.balanceMenuBarExtraEnabledBinding) {
+        MenuBarExtra(isInserted: appPreferencesModel.balanceMenuBarExtraVisibleBinding) {
             BalanceMenuBarPopoverView(
                 balanceManager: balanceManager,
                 appPreferencesModel: appPreferencesModel,

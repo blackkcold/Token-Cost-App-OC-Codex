@@ -127,13 +127,6 @@ struct DeveloperModeDocView: View {
             )
 
             featureRow(
-                icon: "cloud",
-                title: AppLocalization.text("settings.developerMode.ollama.title"),
-                description: AppLocalization.text("developerMode.doc.ollamaDesc"),
-                status: .available
-            )
-
-            featureRow(
                 icon: "brain",
                 title: AppLocalization.text("settings.developerMode.aiAnalysisDisabled"),
                 description: AppLocalization.text("developerMode.doc.aiAnalysisDesc"),

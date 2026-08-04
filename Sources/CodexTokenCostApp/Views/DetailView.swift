@@ -41,12 +41,9 @@ struct DetailView: View {
 
                             BalanceOverviewCard(
                                 snapshots: balanceManager.snapshots.filter {
-                                    let devMode = appPreferencesModel.preferences.developerMode
                                     switch $0.provider {
-                                    case .opencodeGo, .opencodeZen:
+                                    case .opencodeGo, .opencodeZen, .ollama:
                                         return true
-                                    case .ollama:
-                                        return devMode.isEnabled && devMode.ollamaUsageTrackingEnabled
                                     default:
                                         return false
                                     }

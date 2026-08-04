@@ -268,6 +268,8 @@
 "settings.balance.confirmEnable" = "确认开启";
 "settings.balance.enable" = "启用余额监控";
 "settings.balance.menuBarExtra.enable" = "显示余额菜单栏项";
+"settings.balance.menuBarExtra.help" = "切换余额菜单栏项是否显示";
+"settings.balance.menuBarExtra.devModeRequired" = "需在开发者模式中启用余额菜单栏项";
 "settings.balance.lastRefreshAt" = "上次刷新：%@";
 "settings.balance.networkAlertMessage" = "此功能将通过网络查询各 Provider 官方 API 获取实时余额。API key 从本地 auth.json 读取，仅临时使用，不存储。确认开启？";
 "settings.balance.networkAlertTitle" = "开启余额监控";
@@ -833,6 +835,21 @@
 "settings.backup.noCompletenessReport" = "尚未执行完备性检查";
 "settings.backup.noCompletenessReportHint" = "执行备份后将自动显示完备性报告，帮助您了解哪些配置已备份";
 "settings.backup.completenessHint" = "核查各配置组是否已备份";
+"settings.backup.statusOverviewTitle" = "备份状态概览";
+"settings.backup.statusOverviewSubtitle" = "备份目录摘要与配置完备性";
+"settings.backup.coveragePercent" = "覆盖率";
+"settings.backup.configStatusHint" = "配置备份由「完整分层备份」的配置快照层统一管理";
+"settings.backup.scheduledTask" = "定时任务";
+"settings.backup.scheduledTaskLoaded" = "定时任务已加载";
+"settings.backup.scheduledTaskNotLoaded" = "定时任务未加载";
+"settings.backup.layer.launchdLoaded" = "定时任务已加载（绿）";
+"settings.backup.layer.launchdNotLoaded" = "定时任务未加载（橙）";
+"settings.backup.diffSummary" = "+%d −%d";
+"settings.backup.diffNoChanges" = "与当前配置一致";
+"settings.backup.diffTargetMissing" = "目标配置不存在";
+"settings.backup.diffTarget" = "对比目标：%@";
+"settings.backup.diffAdded" = "新增 %d 行";
+"settings.backup.diffRemoved" = "删除 %d 行";
 
 
 /* Codex Models Distribution */

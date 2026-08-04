@@ -16,7 +16,6 @@ struct DeveloperSectionView: View {
             developerModeToggle
             optimizeSection
             localGovernanceSection
-            ollamaUsageTrackingSection
             forceUpdateSection
             aiAnalysisSection
             docButton
@@ -213,34 +212,6 @@ struct DeveloperSectionView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-    }
-
-    // MARK: - Ollama 用量追踪 gate
-
-    @ViewBuilder
-    private var ollamaUsageTrackingSection: some View {
-        if appPreferencesModel.preferences.developerMode.isEnabled {
-            SettingsSurfaceCard(
-                title: AppLocalization.text("settings.developerMode.ollama.title"),
-                subtitle: AppLocalization.text("settings.developerMode.ollama.subtitle"),
-                role: .secondary,
-                palette: palette
-            ) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Toggle(
-                        AppLocalization.text("settings.developerMode.ollama.toggle"),
-                        isOn: appPreferencesModel.developerModeToggleBinding(for: \.ollamaUsageTrackingEnabled)
-                    )
-                    .font(.subheadline)
-                    .foregroundStyle(palette.title)
-
-                    Text(AppLocalization.text("settings.developerMode.ollama.body"))
-                        .font(.caption)
-                        .foregroundStyle(palette.subtitle)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
     }
 
     // MARK: - 强制更新（§2.5 开发者模式例外）

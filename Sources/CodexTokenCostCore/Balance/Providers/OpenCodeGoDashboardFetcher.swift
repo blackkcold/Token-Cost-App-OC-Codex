@@ -41,8 +41,11 @@ enum OpenCodeGoDashboardFetcher {
         let session = URLSession(configuration: config)
         let (data, response) = try await session.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw BalanceFetchError.unavailable("Go API 不可用")
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BalanceFetchError.unavailable("Go Models API 响应无效")
+        }
+        guard httpResponse.statusCode == 200 else {
+            throw BalanceFetchError.unavailable("Go Models API HTTP \(httpResponse.statusCode)")
         }
 
         let object = try JSONSerialization.jsonObject(with: data)
@@ -62,7 +65,7 @@ enum OpenCodeGoDashboardFetcher {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
-        request.setValue("auth=\(cookie)", forHTTPHeaderField: "Cookie")
+        request.setValue(cookieHeaderValue(for: cookie), forHTTPHeaderField: "Cookie")
         request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
 
         let config2 = URLSessionConfiguration.ephemeral
@@ -79,7 +82,7 @@ enum OpenCodeGoDashboardFetcher {
         case 302, 401, 403:
             throw BalanceFetchError.unavailable("Cookie 已过期，请重新配置")
         default:
-            throw BalanceFetchError.unavailable("HTTP \(httpResponse.statusCode)")
+            throw BalanceFetchError.unavailable("Go Dashboard HTTP \(httpResponse.statusCode)")
         }
 
         guard let html = String(data: data, encoding: .utf8) else {
@@ -102,6 +105,11 @@ enum OpenCodeGoDashboardFetcher {
         }
 
         return usage
+    }
+
+    static func cookieHeaderValue(for cookie: String) -> String {
+        let trimmed = cookie.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.lowercased().hasPrefix("auth=") ? trimmed : "auth=\(trimmed)"
     }
 
     // MARK: - HTML Parsing (SolidJS SSR hydration)

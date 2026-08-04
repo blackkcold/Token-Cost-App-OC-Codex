@@ -17,6 +17,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- *待记录 / TBD*
+
+## [v1.1.2] - 2026-08-04
+
+> 相对 `v1.1.1` 的累计变更。**维护版本**：备份管理支持 launchd 定时任务与完整性验证、Ollama Cloud 余量检测转为正式功能默认启用、菜单栏余量显示与浮窗置顶交互修复。
+
+### Added
+
+- **备份完整性验证**：`BackupService` 新增 `verifyCompleteness()` / `layerSourceExists(_:)`，对分层备份各内容层做存在性核查，并在备份状态概览中反映完整性（`BackupService.swift`、`BackupCompletenessTests.swift`）。
+- **launchd 定时备份**：新增 `BackupScheduler` 与应用内 launchd 管理（`com.opencode.memory-backup`），支持按 `BackupInterval` 写 plist、`launchctl load/unload`；启用定时任务后由外部调度器触发，应用内调度器仅作兜底避免重复备份（`BackupScheduler.swift`、`BackupService.swift`、`BackupPreferences.swift`、`TokenCostApp.swift`）。
+
+### Changed
+
+- **Ollama Cloud 余量检测转正**：从开发者选项完全移出，作为正式余额监控功能默认启用（`enabledBalanceProviders` 默认加入 `.ollama`），移除全部 4 层开发者门控，设置与配置同步更新（`BalanceModels.swift`、`DeveloperModePreferences.swift`、`AppPreferencesModel.swift`、`BalanceSectionView.swift`、`DeveloperSectionView.swift`、`DeveloperModeDocView.swift`）。
+- **菜单栏余量显示收敛**：专用余额 MenuBarExtra gating 到开发者模式；修复固定宽度截断（`valueSlotWidth` 改为自适应 `fixedSize()`），空快照时仅显示图标、不展示会误导的 "unavailable" 文本（`BalanceMenuBarExtra.swift`）。
+
+### Fixed
+
+- **浮窗置顶交互**：`BalanceFloatingPanelCoordinator.syncPanelLevel` 修改已可见面板的 `NSWindow.level` 后立即重新排序（置顶 `orderFrontRegardless` / 取消 `orderFront`），使置顶/取消点击即刻生效，不再出现「点击两次才取消、UI 却已显示置顶」的现象；并用 Combine sink 直接发出的值而非重读模型，消除异步 `@Published` 竞态（`BalanceFloatingPanelCoordinator.swift`、`BalanceFloatingPanelWindowTests.swift`）。
+
+## [v1.1.1] - 2026-08-04
+
+> 相对 `v1.1.0` 的累计变更。**维护版本**：Safe Storage 改为两阶段访问（自动静默、手动授权），修复自动刷新启动竞态与 Go Cookie 重复前缀导致的 HTTP 500。
+
+### Changed
+
+- **Safe Storage 两阶段访问**：浏览器 Cookie 自动读取改为「先确认数据库存在目标 Cookie → 静默读取（`LAContext.interactionNotAllowed`，禁止弹窗）→ 失败后提示用户手动授权」。设置页「从浏览器导入」才允许 macOS 弹出 Safe Storage 授权框；授权成功后凭证写入本地加密存储，后续刷新不再访问 Safe Storage（`BrowserCookieExtractor.swift`、`SettingsView.swift`、`CredentialBootstrapService.swift`）。
+
+### Fixed
+
+- **自动刷新启动竞态**：`BalanceRefreshScheduler` 在凭证引导（`CredentialBootstrapService.isCachePopulated`）完成前不再发起余额刷新，避免启动期与凭证校验并发访问同一 Dashboard 导致 HTTP 500（`BalanceRefreshScheduler.swift`）。
+- **Go Cookie Header 规范化**：`OpenCodeGoDashboardFetcher` 对 Cookie 做幂等规范化，避免已含 `auth=` 前缀的 Cookie 被重复拼接成 `auth=auth=...` 导致服务端 500；并区分 Models API 与 Dashboard API 的 HTTP 错误（`OpenCodeGoDashboardFetcher.swift`）。
 - **CI flaky timeout 测试稳定化**：`BalanceManager` 的 test-only init 新增 `authTokenOverride` 参数，允许 timeout/sentinel 测试注入 token 绕过磁盘 `AuthTokenProvider` 查找，消除 CI runner 缺少本地 auth 文件导致的非确定性失败。4 个 `testRefresh*` 测试注入 `"test-token"`，本地与 CI 行为一致（`BalanceManager.swift`、`CodexTokenCostCoreTests.swift`）。
 - **Release workflow 密钥缺失降级**：`write_update_manifest` 在 `UPDATE_MANIFEST_PRIVATE_KEY_PEM` / `UPDATE_MANIFEST_PUBLIC_KEY_B64` 缺失时跳过签名 manifest 生成并输出警告（`return 0`），不再 `exit 4` 阻塞发版；`release.yml` 的 manifest 资产检查从"恰好 1 个"放宽为"0 或 1 个"。配置密钥时签名照常，未配置时降级为无签名 Release（`script/build_and_run_codex.sh`、`.github/workflows/release.yml`）。
 
@@ -626,7 +658,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.1...HEAD
+[v1.1.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.0...v1.1.1
 [v1.1.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.3...v1.1.0
 [v1.0.3]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.2...v1.0.3
 [v1.0.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.1...v1.0.2

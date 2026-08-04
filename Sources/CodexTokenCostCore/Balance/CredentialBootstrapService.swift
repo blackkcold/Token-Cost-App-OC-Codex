@@ -358,7 +358,7 @@ public final class CredentialBootstrapService: @unchecked Sendable {
         if validationUnavailable {
             return .failed(error: "凭证验证服务暂时不可用，已保留本地缓存")
         }
-        return .failed(error: "未找到有效的浏览器 Cookie")
+        return .failed(error: "自动读取浏览器 Cookie 失败。请在设置中点击“从浏览器导入”，允许访问 Safe Storage 后再手动刷新")
     }
 
     private func normalized(_ value: String?) -> String? {

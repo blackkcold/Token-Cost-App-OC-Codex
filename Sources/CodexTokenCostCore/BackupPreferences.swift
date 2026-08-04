@@ -196,6 +196,20 @@ public struct FullBackupResult: Sendable {
 
 // MARK: - BackupPreferences
 
+public struct LaunchdTaskConfiguration: Sendable {
+    public let interval: BackupInterval
+    public let backupDirectory: String
+    public let keepCount: Int
+    public let enabledLayers: Set<BackupLayer>
+
+    public init(interval: BackupInterval, backupDirectory: String, keepCount: Int, enabledLayers: Set<BackupLayer>) {
+        self.interval = interval
+        self.backupDirectory = backupDirectory
+        self.keepCount = keepCount
+        self.enabledLayers = enabledLayers
+    }
+}
+
 public struct BackupPreferences: Codable, Equatable, Sendable {
     /// 外部备份目录路径（绝对路径字符串）
     public var backupDirectory: String
@@ -217,6 +231,8 @@ public struct BackupPreferences: Codable, Equatable, Sendable {
     public var maxBackupCount: Int
     /// 分层备份启用的内容层（默认全部启用）
     public var enabledLayers: Set<BackupLayer>
+    /// 是否启用 launchd 定时任务（com.opencode.memory-backup.plist）
+    public var scheduledTaskEnabled: Bool
 
     public init(
         backupDirectory: String = defaultBackupDirectory(),
@@ -228,7 +244,8 @@ public struct BackupPreferences: Codable, Equatable, Sendable {
         lastCleanDate: Date? = nil,
         showDeprecatedFiles: Bool = false,
         maxBackupCount: Int = 4,
-        enabledLayers: Set<BackupLayer> = Set(BackupLayer.allCases)
+        enabledLayers: Set<BackupLayer> = Set(BackupLayer.allCases),
+        scheduledTaskEnabled: Bool = false
     ) {
         self.backupDirectory = backupDirectory
         self.autoBackupEnabled = autoBackupEnabled
@@ -240,6 +257,7 @@ public struct BackupPreferences: Codable, Equatable, Sendable {
         self.showDeprecatedFiles = showDeprecatedFiles
         self.maxBackupCount = max(1, min(maxBackupCount, 50))
         self.enabledLayers = enabledLayers
+        self.scheduledTaskEnabled = scheduledTaskEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -253,6 +271,7 @@ public struct BackupPreferences: Codable, Equatable, Sendable {
         case showDeprecatedFiles = "show_deprecated_files"
         case maxBackupCount = "max_backup_count"
         case enabledLayers = "enabled_layers"
+        case scheduledTaskEnabled = "scheduled_task_enabled"
     }
 
     private enum DecodingKeys: String, CodingKey {
@@ -266,6 +285,7 @@ public struct BackupPreferences: Codable, Equatable, Sendable {
         case showDeprecatedFiles = "showDeprecatedFiles"
         case maxBackupCount = "maxBackupCount"
         case enabledLayers = "enabledLayers"
+        case scheduledTaskEnabled = "scheduledTaskEnabled"
     }
 
     public init(from decoder: Decoder) throws {
@@ -301,6 +321,9 @@ public struct BackupPreferences: Codable, Equatable, Sendable {
             ?? legacyContainer?.decodeIfPresent([String].self, forKey: .enabledLayers)
         self.enabledLayers = layerRawValues.flatMap { Set($0.compactMap { BackupLayer(rawValue: $0) }) }
             ?? Set(BackupLayer.allCases)
+        self.scheduledTaskEnabled = try container.decodeIfPresent(Bool.self, forKey: .scheduledTaskEnabled)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .scheduledTaskEnabled)
+            ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -315,6 +338,7 @@ public struct BackupPreferences: Codable, Equatable, Sendable {
         try container.encode(showDeprecatedFiles, forKey: .showDeprecatedFiles)
         try container.encode(maxBackupCount, forKey: .maxBackupCount)
         try container.encode(Array(enabledLayers.map { $0.rawValue }), forKey: .enabledLayers)
+        try container.encode(scheduledTaskEnabled, forKey: .scheduledTaskEnabled)
     }
 
     /// 默认备份目录（与 backup-memory.sh 的 BACKUP_ROOT 一致）
@@ -436,4 +460,45 @@ public struct BackupOverview: Sendable {
     public var totalSizeFormatted: String {
         ByteCountFormatter.string(fromByteCount: totalByteCount, countStyle: .file)
     }
+}
+
+// MARK: - .bak 与当前配置文件对比
+
+public enum BakDiffLineKind: Sendable {
+    case added
+    case removed
+    case context
+}
+
+public struct BakDiffLine: Identifiable, Sendable {
+    public let id: Int
+    public let kind: BakDiffLineKind
+    public let text: String
+
+    public init(id: Int, kind: BakDiffLineKind, text: String) {
+        self.id = id
+        self.kind = kind
+        self.text = text
+    }
+}
+
+public struct BakDiffResult: Sendable {
+    public let bakFileName: String
+    public let targetFileName: String
+    public let targetExists: Bool
+    public let addedCount: Int
+    public let removedCount: Int
+    public let lines: [BakDiffLine]
+
+    public init(bakFileName: String, targetFileName: String, targetExists: Bool, addedCount: Int, removedCount: Int, lines: [BakDiffLine]) {
+        self.bakFileName = bakFileName
+        self.targetFileName = targetFileName
+        self.targetExists = targetExists
+        self.addedCount = addedCount
+        self.removedCount = removedCount
+        self.lines = lines
+    }
+
+    public var hasChanges: Bool { addedCount > 0 || removedCount > 0 }
+    public var changedCount: Int { addedCount + removedCount }
 }

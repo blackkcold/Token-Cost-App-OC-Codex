@@ -268,6 +268,8 @@
 "settings.balance.confirmEnable" = "Enable";
 "settings.balance.enable" = "Enable balance monitoring";
 "settings.balance.menuBarExtra.enable" = "Show balance menu bar item";
+"settings.balance.menuBarExtra.help" = "Toggle whether the balance menu bar item is shown";
+"settings.balance.menuBarExtra.devModeRequired" = "Developer mode is required to enable the balance menu bar item";
 "settings.balance.lastRefreshAt" = "Last refresh: %@";
 "settings.balance.networkAlertMessage" = "This feature queries provider APIs over the network for live balances. API keys are read from the local auth.json file only, used temporarily, and never stored. Enable it?";
 "settings.balance.networkAlertTitle" = "Enable balance monitoring";
@@ -833,6 +835,21 @@
 "settings.backup.noCompletenessReport" = "No completeness report yet";
 "settings.backup.noCompletenessReportHint" = "Run a backup to see the completeness report showing which configs are backed up";
 "settings.backup.completenessHint" = "Check which config groups are backed up";
+"settings.backup.statusOverviewTitle" = "Backup Status Overview";
+"settings.backup.statusOverviewSubtitle" = "Backup directory summary and config completeness";
+"settings.backup.coveragePercent" = "Coverage";
+"settings.backup.configStatusHint" = "Config backups are managed by the config-snapshot layer of Full Layered Backup";
+"settings.backup.scheduledTask" = "Scheduled Task";
+"settings.backup.scheduledTaskLoaded" = "Scheduled task loaded";
+"settings.backup.scheduledTaskNotLoaded" = "Scheduled task not loaded";
+"settings.backup.layer.launchdLoaded" = "Scheduled task loaded (green)";
+"settings.backup.layer.launchdNotLoaded" = "Scheduled task not loaded (orange)";
+"settings.backup.diffSummary" = "+%d −%d";
+"settings.backup.diffNoChanges" = "Matches current config";
+"settings.backup.diffTargetMissing" = "Target config not found";
+"settings.backup.diffTarget" = "Compared against: %@";
+"settings.backup.diffAdded" = "%d added";
+"settings.backup.diffRemoved" = "%d removed";
 
 
 /* Codex Models Distribution */

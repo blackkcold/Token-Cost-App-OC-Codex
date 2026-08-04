@@ -424,8 +424,6 @@ struct BalanceMenuBarExtraLabelView: View {
     let selection: BalanceMenuBarExtraSelection
     let palette: TokenCostPalette
 
-    private let valueSlotWidth: CGFloat = 58
-
     private var tint: Color {
         switch selection.tone {
         case .neutral:
@@ -453,13 +451,15 @@ struct BalanceMenuBarExtraLabelView: View {
                 .font(.system(size: 11, weight: palette.usesWorkshopStyle ? .black : .semibold))
                 .foregroundStyle(tint)
 
-            Text(selection.compactValueText)
-                .font(TokenTypography.caption(weight: .bold, palette: palette))
-                .monospacedDigit()
-                .foregroundStyle(valueForeground)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(width: valueSlotWidth, alignment: .trailing)
+            // 空快照时仅显示图标，不展示会误导的 "unavailable" 文本。
+            if selection.kind != .empty {
+                Text(selection.compactValueText)
+                    .font(TokenTypography.caption(weight: .bold, palette: palette))
+                    .monospacedDigit()
+                    .foregroundStyle(valueForeground)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
         }
         .help(selection.helpText)
         .accessibilityElement(children: .ignore)
