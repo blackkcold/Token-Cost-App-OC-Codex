@@ -20,11 +20,13 @@ struct GitHubAsset: Codable {
     let name: String
     let size: Int
     let browserDownloadUrl: String
+    let digest: String?
 
     enum CodingKeys: String, CodingKey {
         case name
         case size
         case browserDownloadUrl = "browser_download_url"
+        case digest
     }
 }
 
@@ -257,6 +259,57 @@ enum UpdateChecker {
         _ verifiedUpdate: VerifiedUpdate,
         onProgress: @Sendable (Double) -> Void
     ) async throws -> URL {
+        let expectedLength = verifiedUpdate.manifest.assetSize
+        let expectedSHA256 = verifiedUpdate.manifest.sha256.lowercased()
+        return try await performDownload(
+            assetURL: verifiedUpdate.assetURL,
+            expectedLength: expectedLength,
+            expectedSHA256: expectedSHA256,
+            onProgress: onProgress
+        )
+    }
+
+    /// Fallback download path used when a release ships a zip but no signed
+    /// `update-manifest.json` (the release pipeline skips the manifest when
+    /// signing keys are absent). Integrity is still enforced via the GitHub
+    /// API-provided `sha256:` digest and the asset size, followed by unzip and
+    /// code-sign verification. This keeps auto-update working for unsigned
+    /// releases without weakening the verified-manifest path.
+    static func downloadDirect(
+        from release: GitHubRelease,
+        onProgress: @Sendable (Double) -> Void
+    ) async throws -> URL {
+        guard let asset = findZipAsset(in: release),
+              let assetURL = URL(string: asset.browserDownloadUrl) else {
+            throw UpdateError.noReleaseAsset
+        }
+
+        let expectedLength = Int64(asset.size)
+        let expectedSHA256: String? = {
+            guard let digest = asset.digest else { return nil }
+            // GitHub returns "sha256:<hex>"; strip the prefix if present.
+            let trimmed = digest.lowercased()
+            let prefix = "sha256:"
+            if trimmed.hasPrefix(prefix) {
+                return String(trimmed.dropFirst(prefix.count))
+            }
+            return trimmed
+        }()
+
+        return try await performDownload(
+            assetURL: assetURL,
+            expectedLength: expectedLength,
+            expectedSHA256: expectedSHA256,
+            onProgress: onProgress
+        )
+    }
+
+    private static func performDownload(
+        assetURL: URL,
+        expectedLength: Int64,
+        expectedSHA256: String?,
+        onProgress: @Sendable (Double) -> Void
+    ) async throws -> URL {
         let destinationURL = stagingDirectory.appendingPathComponent("latest.zip")
         try resetStagingDirectory()
         FileManager.default.createFile(atPath: destinationURL.path, contents: nil)
@@ -270,7 +323,7 @@ enum UpdateChecker {
         }
 
         let session = URLSession(configuration: .ephemeral)
-        var request = URLRequest(url: verifiedUpdate.assetURL)
+        var request = URLRequest(url: assetURL)
         request.timeoutInterval = 60
         let (asyncBytes, response) = try await session.bytes(for: request)
 
@@ -279,7 +332,6 @@ enum UpdateChecker {
             throw UpdateError.downloadFailed
         }
 
-        let expectedLength = verifiedUpdate.manifest.assetSize
         if httpResponse.expectedContentLength > 0,
            httpResponse.expectedContentLength != expectedLength {
             throw UpdateError.downloadVerificationFailed
@@ -312,8 +364,10 @@ enum UpdateChecker {
         onProgress(1.0)
 
         let digest = Data(hasher.finalize()).map { String(format: "%02x", $0) }.joined()
-        guard receivedBytes == expectedLength,
-              digest == verifiedUpdate.manifest.sha256.lowercased() else {
+        guard receivedBytes == expectedLength else {
+            throw UpdateError.downloadVerificationFailed
+        }
+        if let expectedSHA256, digest != expectedSHA256 {
             throw UpdateError.downloadVerificationFailed
         }
 

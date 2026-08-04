@@ -916,6 +916,36 @@ private enum TokenCostPricingCatalog {
         "deepseek-reasoner": "deepseek-v4-pro"
     ]
 
+    /// Base model keys used for automatic variant categorization, sorted by length (longest first).
+    /// A model variant (e.g. "deepseek-v4-flash-0731-cloud") that starts with one of these keys is
+    /// collapsed to the base key so it is grouped and priced as that model instead of falling into
+    /// the "other" bucket.
+    private static var knownBaseModelKeys: [String] {
+        var keys = Set(zenPricing.keys)
+        for alias in modelAliases.values {
+            keys.insert(alias)
+        }
+        return keys.sorted { lhs, rhs in
+            if lhs.count == rhs.count {
+                return lhs < rhs
+            }
+            return lhs.count > rhs.count
+        }
+    }
+
+    /// Best-prefix match against known base model keys. Returns the longest known base key that is a
+    /// strict prefix of `normalized`, or nil when no known key prefixes it or the string is itself a
+    /// known base key (exact known models are never reduced to a shorter key).
+    private static func categorizableBaseModelKey(for normalized: String) -> String? {
+        guard !knownBaseModelKeys.contains(normalized) else {
+            return nil
+        }
+        for baseKey in knownBaseModelKeys where normalized.count > baseKey.count && normalized.hasPrefix(baseKey) {
+            return baseKey
+        }
+        return nil
+    }
+
     private static let zenPricing: [String: [String: Double]] = [
         "minimax-m2.7": ["input": 0.30, "output": 1.20, "cacheRead": 0.06, "cacheWrite": 0.375],
         "minimax-m2.5": ["input": 0.30, "output": 1.20, "cacheRead": 0.06, "cacheWrite": 0.375],
@@ -959,7 +989,15 @@ private enum TokenCostPricingCatalog {
             normalized = String(normalized[normalized.index(after: slashIndex)...])
         }
 
-        return modelAliases[normalized] ?? normalized
+        if let alias = modelAliases[normalized] {
+            return alias
+        }
+
+        if let baseKey = categorizableBaseModelKey(for: normalized) {
+            return baseKey
+        }
+
+        return normalized
     }
 
     static func subscriptionMonthlyCost(for provider: String) -> Double? {

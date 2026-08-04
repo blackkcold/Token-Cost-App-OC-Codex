@@ -19,6 +19,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *待记录 / TBD*
 
+## [v1.1.3] - 2026-08-04
+
+> 相对 `v1.1.2` 的累计变更。**维护版本**：修复更新下载在 Release 缺少签名 manifest 时反复「重试」、菜单栏可切换折线/矩阵图表样式、模型变体自动归入基础模型计费。
+
+### Added
+
+- **菜单栏图表样式选择**：设置新增「菜单栏」分节，可在折线图与矩阵图之间切换菜单栏速览图表（`MenuBarChartStyle`、`MenuBarSectionView.swift`、`MenuBarView.swift`、`AppPreferences.swift`、`SettingsView.swift`）。
+
+### Changed
+
+- **模型变体自动分类**：`DashboardAnalytics` 对以已知基础模型为前缀的变体（如 `deepseek-v4-flash-0731-cloud`、`deepseek-v4-pro-20260731`）自动归入基础模型计费，不再落入「其他」分类桶（`DashboardAnalytics.swift`、`ModelCategorizationTests.swift`）。
+
+### Fixed
+
+- **更新下载无 manifest 死循环**：当 Release 仅提供 zip/dmg、无签名 `update-manifest.json` 时，下载改为回退到直接下载路径，仍以 GitHub 提供的 SHA-256 digest 与资产尺寸做完整性校验并验证代码签名，解决「点击更新反复出现重试」（`UpdateChecker.swift`、`UpdateCheckerModel.swift`、`UpdateManifestTests.swift`）。
+- **「已是最新版本」浮框双框与贴边**：移除 `checkmark` 图标自带背景方框，只保留外层胶囊单一背景；补右侧间距，长版本号水平压缩不溢出（`ContentView.swift`）。
+
 ## [v1.1.2] - 2026-08-04
 
 > 相对 `v1.1.1` 的累计变更。**维护版本**：备份管理支持 launchd 定时任务与完整性验证、Ollama Cloud 余量检测转为正式功能默认启用、菜单栏余量显示与浮窗置顶交互修复。
@@ -658,7 +675,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.2...HEAD
+[v1.1.3]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.2...v1.1.3
+[v1.1.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.1...v1.1.2
 [v1.1.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.0...v1.1.1
 [v1.1.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.3...v1.1.0
 [v1.0.3]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.2...v1.0.3

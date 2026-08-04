@@ -148,6 +148,10 @@
 "menu.refreshBalance" = "刷新余额";
 "menu.weeklyTrend" = "近 7 天用量";
 "menu.opencodeCost" = "OpenCode：%@";
+"menu.monthlyMatrix" = "近 4 周用量矩阵";
+"menu.monthlyMatrix.range" = "最近 %d 周";
+"menu.monthlyMatrix.less" = "少";
+"menu.monthlyMatrix.more" = "多";
 
 "overview.codex.actualInput" = "实际输入 token";
 "overview.codex.actualInputSubtitle" = "扣除缓存输入";
@@ -234,6 +238,11 @@
 "settings.appPreferences.openCodePlanSubtitle" = "当前选项";
 "settings.appPreferences.subtitle" = "语言、币种、主题色和界面外观独立保存";
 "settings.appPreferences.title" = "全局偏好";
+"settings.menuBar.title" = "菜单栏";
+"settings.menuBar.subtitle" = "配置菜单栏弹窗的显示内容";
+"settings.menuBar.chartStyle" = "用量图表样式";
+"settings.menuBar.chartStyle.sparkline" = "折线图";
+"settings.menuBar.chartStyle.matrix" = "矩阵图";
 "settings.codex.autoRescan" = "启动时自动刷新";
 "settings.codex.body" = "默认会自动扫描两个系统位置，你只需要在需要时补充额外目录或单个文件。";
 "settings.codex.discovery.body" = "应用会自动检查 `~/.codex/sessions` 和 `~/.codex/archived_sessions`，并纳入你额外添加的目录或文件。下面列出当前确认过的位置；如果暂时不想配置，可以直接关闭这个窗口。";
