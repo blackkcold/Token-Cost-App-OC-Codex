@@ -13,6 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- *待记录 / TBD*
+
+### Fixed
+
+- *待记录 / TBD*
+
+## [v1.1.1] - 2026-08-04
+
+> 相对 `v1.1.0` 的累计变更。**维护版本**：Safe Storage 改为两阶段访问（自动静默、手动授权），修复自动刷新启动竞态与 Go Cookie 重复前缀导致的 HTTP 500。
+
+### Changed
+
 - **Safe Storage 两阶段访问**：浏览器 Cookie 自动读取改为「先确认数据库存在目标 Cookie → 静默读取（`LAContext.interactionNotAllowed`，禁止弹窗）→ 失败后提示用户手动授权」。设置页「从浏览器导入」才允许 macOS 弹出 Safe Storage 授权框；授权成功后凭证写入本地加密存储，后续刷新不再访问 Safe Storage（`BrowserCookieExtractor.swift`、`SettingsView.swift`、`CredentialBootstrapService.swift`）。
 
 ### Fixed
@@ -628,7 +640,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.1...HEAD
+[v1.1.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.0...v1.1.1
 [v1.1.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.3...v1.1.0
 [v1.0.3]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.2...v1.0.3
 [v1.0.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.0.1...v1.0.2
