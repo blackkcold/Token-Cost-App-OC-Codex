@@ -1,4 +1,5 @@
 import XCTest
+import LocalAuthentication
 import Security
 import SQLite3
 import CCryptoBridge
@@ -1360,7 +1361,42 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(usage?.monthly?.resetInSec, 1728000)
     }
 
+    func testGoCookieHeaderAddsAuthPrefixToRawValue() {
+        XCTAssertEqual(OpenCodeGoDashboardFetcher.cookieHeaderValue(for: "cookie-value"), "auth=cookie-value")
+    }
+
+    func testGoCookieHeaderPreservesExistingAuthPrefix() {
+        XCTAssertEqual(OpenCodeGoDashboardFetcher.cookieHeaderValue(for: "auth=cookie-value"), "auth=cookie-value")
+        XCTAssertEqual(OpenCodeGoDashboardFetcher.cookieHeaderValue(for: "AUTH=cookie-value"), "AUTH=cookie-value")
+    }
+
+    func testGoCookieHeaderTrimsWhitespace() {
+        XCTAssertEqual(OpenCodeGoDashboardFetcher.cookieHeaderValue(for: "  auth=cookie-value\n"), "auth=cookie-value")
+    }
+
     // MARK: - BrowserCookieExtractor
+
+    func testBrowserSafeStorageSilentQueryDisablesInteraction() throws {
+        let query = BrowserCookieExtractor.encryptionKeyQuery(
+            service: "Microsoft Edge Safe Storage",
+            access: .silent
+        )
+
+        let context = try XCTUnwrap(query[kSecUseAuthenticationContext as String] as? LAContext)
+        XCTAssertTrue(context.interactionNotAllowed)
+        XCTAssertNil(query[kSecUseAuthenticationUI as String])
+    }
+
+    func testBrowserSafeStorageUserInitiatedQueryAllowsInteraction() throws {
+        let query = BrowserCookieExtractor.encryptionKeyQuery(
+            service: "Microsoft Edge Safe Storage",
+            access: .userInitiated
+        )
+
+        let context = try XCTUnwrap(query[kSecUseAuthenticationContext as String] as? LAContext)
+        XCTAssertFalse(context.interactionNotAllowed)
+        XCTAssertNil(query[kSecUseAuthenticationUI as String])
+    }
 
     func testExtractWorkspaceIDFromHistoryURL() {
         let url = "https://opencode.ai/workspace/wrk_01ABCDEF0123456789/go"

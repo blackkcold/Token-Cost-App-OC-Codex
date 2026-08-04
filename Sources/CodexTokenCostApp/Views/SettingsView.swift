@@ -182,7 +182,7 @@ struct SettingsView: View {
                 showBrowserImportAlert = false
                 isImportingFromBrowser = true
                 Task.detached(priority: .userInitiated) {
-                    let result = BrowserCookieExtractor.extractCredentials()
+                    let result = BrowserCookieExtractor.extractCredentials(keychainAccess: .userInitiated)
                     await MainActor.run {
                         let browserWorkspaceID = result.workspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
                         let browserCookie = result.cookie?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -225,7 +225,7 @@ struct SettingsView: View {
                 showOllamaBrowserImportAlert = false
                 isImportingOllamaFromBrowser = true
                 Task.detached(priority: .userInitiated) {
-                    let cookie = BrowserCookieExtractor.extractOllamaCookie()
+                    let cookie = BrowserCookieExtractor.extractOllamaCookie(keychainAccess: .userInitiated)
                     await MainActor.run {
                         if let cookie = cookie?.trimmingCharacters(in: .whitespacesAndNewlines), !cookie.isEmpty {
                             appPreferencesModel.saveLocalOllamaCookie(cookie)

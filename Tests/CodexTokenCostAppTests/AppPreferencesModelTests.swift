@@ -105,6 +105,19 @@ final class AppPreferencesModelTests: XCTestCase {
         XCTAssertEqual(model.effectiveBalanceConfiguration, BalanceConfiguration())
     }
 
+    func testBalanceRefreshSchedulerWaitsForCredentialBootstrap() {
+        XCTAssertFalse(BalanceRefreshScheduler.shouldAttemptRefresh(
+            balanceEnabled: true,
+            credentialBootstrapComplete: false,
+            intervalElapsed: true
+        ))
+        XCTAssertTrue(BalanceRefreshScheduler.shouldAttemptRefresh(
+            balanceEnabled: true,
+            credentialBootstrapComplete: true,
+            intervalElapsed: true
+        ))
+    }
+
     func testUpdateBalanceConfigurationPersistsImmediately() {
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("app_preferences_model_balance_\(UUID().uuidString)", isDirectory: true)

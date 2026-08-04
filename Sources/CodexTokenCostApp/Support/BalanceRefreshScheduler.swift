@@ -47,16 +47,27 @@ final class BalanceRefreshScheduler: ObservableObject {
                 let balanceEnabled = await MainActor.run {
                     self.preferencesModel.preferences.balanceEnabled
                 }
-                guard balanceEnabled else { continue }
                 let shouldRefresh = await MainActor.run {
                     self.balanceManager.shouldRefresh(
                         intervalSeconds: self.preferencesModel.preferences.balanceRefreshSeconds
                     )
                 }
-                guard shouldRefresh else { continue }
+                guard Self.shouldAttemptRefresh(
+                    balanceEnabled: balanceEnabled,
+                    credentialBootstrapComplete: CredentialBootstrapService.shared.isCachePopulated,
+                    intervalElapsed: shouldRefresh
+                ) else { continue }
                 await self.balanceManager.refresh()
             }
         }
+    }
+
+    nonisolated static func shouldAttemptRefresh(
+        balanceEnabled: Bool,
+        credentialBootstrapComplete: Bool,
+        intervalElapsed: Bool
+    ) -> Bool {
+        balanceEnabled && credentialBootstrapComplete && intervalElapsed
     }
 
     func stop() {
