@@ -45,11 +45,12 @@ final class UpdateManifestTests: XCTestCase {
             htmlUrl: "https://example.com/release",
             name: "v1.2.3",
             assets: [
-                GitHubAsset(name: "app.zip", size: 10, browserDownloadUrl: "https://example.com/app.zip"),
+                GitHubAsset(name: "app.zip", size: 10, browserDownloadUrl: "https://example.com/app.zip", digest: nil),
                 GitHubAsset(
                     name: "app.update-manifest.json",
                     size: 100,
-                    browserDownloadUrl: "https://example.com/app.update-manifest.json"
+                    browserDownloadUrl: "https://example.com/app.update-manifest.json",
+                    digest: nil
                 )
             ]
         )

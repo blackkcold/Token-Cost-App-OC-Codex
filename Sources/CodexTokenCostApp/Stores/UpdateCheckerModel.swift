@@ -111,10 +111,22 @@ final class UpdateCheckerModel: ObservableObject {
                 }
                 self.pendingRelease = release
                 self.releasePageURL = URL(string: release.htmlUrl)
-                let verifiedUpdate = try await UpdateChecker.prepareVerifiedUpdate(from: release)
-                let _ = try await UpdateChecker.downloadUpdate(verifiedUpdate) { progress in
-                    Task { @MainActor [weak self] in
-                        self?.state = .downloading(progress: progress)
+                do {
+                    let verifiedUpdate = try await UpdateChecker.prepareVerifiedUpdate(from: release)
+                    let _ = try await UpdateChecker.downloadUpdate(verifiedUpdate) { progress in
+                        Task { @MainActor [weak self] in
+                            self?.state = .downloading(progress: progress)
+                        }
+                    }
+                } catch UpdateError.manifestMissing {
+                    // Release ships a zip but no signed update manifest (the
+                    // release pipeline skips it when signing keys are absent).
+                    // Fall back to the direct download path, which still
+                    // verifies SHA-256, size, and code signature.
+                    let _ = try await UpdateChecker.downloadDirect(from: release) { progress in
+                        Task { @MainActor [weak self] in
+                            self?.state = .downloading(progress: progress)
+                        }
                     }
                 }
                 self.state = .downloadComplete

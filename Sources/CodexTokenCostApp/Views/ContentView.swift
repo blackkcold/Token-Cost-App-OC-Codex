@@ -257,21 +257,24 @@ struct ContentView: View {
             }
 
         case .upToDate(let version):
-            HStack(spacing: 4) {
-                TokenDashboardSymbolMark(
-                    systemImage: "checkmark",
-                    tint: palette.success,
-                    palette: palette,
-                    size: 20,
-                    fontSize: 9
-                )
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(palette.success)
+                    .frame(width: 20, height: 20)
                 Text(AppLocalization.format("update.upToDate", version))
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.success)
+                    .multilineTextAlignment(.leading)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .allowsTightening(true)
+                    .minimumScaleFactor(0.85)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(palette.success.opacity(0.08)))
+            .overlay(Capsule().stroke(palette.success.opacity(0.15)))
+            .padding(.trailing, 8)
+            .fixedSize(horizontal: false, vertical: true)
 
         case .updateAvailable(let version):
             HStack(spacing: 6) {

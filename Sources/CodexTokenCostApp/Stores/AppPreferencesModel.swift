@@ -740,6 +740,17 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
+    var menuBarChartStyleBinding: Binding<MenuBarChartStyle> {
+        Binding(
+            get: { self.preferences.menuBarChartStyle },
+            set: { newValue in
+                self.updatePreferences { prefs in
+                    prefs.menuBarChartStyle = newValue
+                }
+            }
+        )
+    }
+
     func normalizedBalanceProviderOrder() -> [BalanceProviderKind] {
         let defaultOrder = BalanceProviderKind.allCases.sorted { $0.sortOrder < $1.sortOrder }
         let defaultProviders = Set(defaultOrder)

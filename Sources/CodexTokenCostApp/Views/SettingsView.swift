@@ -43,6 +43,7 @@ struct SettingsView: View {
     private enum SettingsSection: String, CaseIterable, Identifiable {
         case overview
         case preferences
+        case menuBar
         case opencode
         case codex
         case skills
@@ -349,6 +350,11 @@ struct SettingsView: View {
                 appPreferencesModel: appPreferencesModel,
                 palette: palette
             )
+        case .menuBar:
+            MenuBarSectionView(
+                appPreferencesModel: appPreferencesModel,
+                palette: palette
+            )
         case .billing:
             BillingSectionView(
                 appPreferencesModel: appPreferencesModel,
@@ -419,6 +425,7 @@ struct SettingsView: View {
         switch section {
         case .overview: return AppLocalization.text("overview.settings.title")
         case .preferences: return AppLocalization.text("settings.appPreferences.title")
+        case .menuBar: return AppLocalization.text("settings.menuBar.title")
         case .billing: return AppLocalization.text("settings.billing.title")
         case .balance: return AppLocalization.text("settings.balance.title")
         case .opencode: return AppLocalization.text("settings.opencode.title")
@@ -434,6 +441,7 @@ struct SettingsView: View {
         switch section {
         case .overview: return AppLocalization.text("overview.settings.subtitle")
         case .preferences: return AppLocalization.text("settings.appPreferences.subtitle")
+        case .menuBar: return AppLocalization.text("settings.menuBar.subtitle")
         case .billing: return AppLocalization.text("settings.billing.subtitle")
         case .balance: return AppLocalization.text("settings.balance.subtitle")
         case .opencode: return AppLocalization.text("settings.opencode.subtitle")
@@ -449,6 +457,7 @@ struct SettingsView: View {
         switch section {
         case .overview: return "square.grid.2x2"
         case .preferences: return "slider.horizontal.3"
+        case .menuBar: return "menubar.rectangle"
         case .billing: return "creditcard"
         case .balance: return "chart.bar.xaxis"
         case .opencode: return "externaldrive"
@@ -464,6 +473,9 @@ struct SettingsView: View {
         switch section {
         case .overview: return warningMessages.isEmpty ? nil : "\(warningMessages.count)"
         case .preferences: return appPreferencesModel.preferences.accentPalette.displayName
+        case .menuBar: return appPreferencesModel.preferences.menuBarChartStyle == .matrix
+            ? AppLocalization.text("settings.menuBar.chartStyle.matrix")
+            : AppLocalization.text("settings.menuBar.chartStyle.sparkline")
         case .billing: return "\(billingProviderCount)"
         case .balance: return appPreferencesModel.preferences.balanceEnabled ? AppLocalization.text("common.ready") : AppLocalization.text("common.unavailable")
         case .opencode: return "\(openCodeModel.settings.scanRoots.count + openCodeModel.settings.manualDatabasePaths.count)"
@@ -479,6 +491,7 @@ struct SettingsView: View {
         switch section {
         case .overview: return warningMessages.isEmpty ? palette.accent : .orange
         case .preferences: return palette.accent
+        case .menuBar: return palette.accent
         case .billing: return palette.accentSecondary
         case .balance: return appPreferencesModel.preferences.balanceEnabled ? .green : .orange
         case .opencode: return palette.accent

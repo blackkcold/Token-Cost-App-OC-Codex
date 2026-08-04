@@ -59,6 +59,17 @@ Codex 的 JSONL 日志中 `inputTokens` **包含缓存部分**。因此：
 | DetailView 明细表 | 全量原始行（含排序/分页） | `sortedDetailRows(sortField:direction:)` 基于 `rawRows` 全量过滤后数据集排序，分页在 UI 层截取 |
 | 堆叠条形图 | 每日各模型 total token 堆叠 | `stackedSeries` 取 top-8 模型 + Other，覆盖全量 `rawData` 日期范围 |
 
+### 3.1 模型归组（Model Categorization）
+
+模型维度（饼图 `modelSlices`、模型对比 `modelComparisonRows`、堆叠图 `stackedSeries`、每模型定价 `apiCost`/`cacheSavedCost`）统一以 `TokenCostPricingCatalog.normalizeModelName` 的标准化结果为 key 归组。标准化顺序：
+
+1. 小写 + 去空白 + 空格转连字符
+2. 去除 `provider/` 前缀（取最后一个 `/` 之后）
+3. 精确 alias 匹配（`modelAliases`，如 `deepseek-chat` → `deepseek-v4-flash`）
+4. **最长前缀归类**：若标准化串本身不是已知 base model key，且以某个已知 key（`zenPricing` 的 key 与 alias 目标值集合）为严格前缀，则折叠为该 base key。例如 `deepseek-v4-flash-0731-cloud` → `deepseek-v4-flash`、`gpt-5.4-mini-2026` → `gpt-5.4-mini`
+
+> 该规则使新出现的模型变体（如带日期/后缀的 snapshot 名）**自动**归并到对应基础模型，从而正确进入模型用量排行与定价，而无需落入「其他」桶或逐个硬编码。精确已知模型（本身就是 base key）不会被缩短。
+
 ---
 
 ## 4. Ollama Cloud 缓存读估算（Cache-Read Estimation）

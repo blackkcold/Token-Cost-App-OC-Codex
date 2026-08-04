@@ -18,7 +18,9 @@ struct MenuBarView: View {
         let messages = openCodePayload?.summary.totalMessages
         let sessions = codexPayload?.summary.sessionCount
         let points = sparklinePoints
+        let matrixCells = matrixCells
         let hasSummary = cost != nil || tokens != nil
+        let chartStyle = appPreferencesModel.preferences.menuBarChartStyle
 
         VStack(alignment: .leading, spacing: 12) {
             header
@@ -28,11 +30,18 @@ struct MenuBarView: View {
                 summaryOverview(cost: cost, tokens: tokens, messages: messages, sessions: sessions)
             }
 
-            if points.count >= 2 {
-                TokenThemedDivider(palette: palette)
-                sparklineSection(points: points)
+            switch chartStyle {
+            case .sparkline:
+                if points.count >= 2 {
+                    TokenThemedDivider(palette: palette)
+                    sparklineSection(points: points)
+                }
+            case .matrix:
+                if !matrixCells.isEmpty {
+                    TokenThemedDivider(palette: palette)
+                    matrixSection(cells: matrixCells)
+                }
             }
-
             if appPreferencesModel.preferences.balanceEnabled,
                !balanceManager.snapshots.isEmpty {
                 TokenThemedDivider(palette: palette)
@@ -343,6 +352,107 @@ struct MenuBarView: View {
             .chartYAxis(.hidden)
             .frame(height: 60)
         }
+    }
+
+    // MARK: - 4-Week Matrix
+
+    private struct MatrixCell: Identifiable {
+        let id: String
+        let date: Date
+        let tokens: Double
+        var intensity: Double
+    }
+
+    private var matrixCells: [MatrixCell] {
+        guard let rawData = openCodePayload?.rawData, !rawData.isEmpty else { return [] }
+
+        var dailyTotals: [String: Double] = [:]
+        for row in rawData {
+            dailyTotals[row.date, default: 0] += (row.input + row.output + row.reasoning)
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        let calendar = Calendar(identifier: .gregorian)
+        let today = calendar.startOfDay(for: Date())
+        guard let windowStart = calendar.date(byAdding: .day, value: -27, to: today) else { return [] }
+
+        var cells: [MatrixCell] = []
+        var maxTokens: Double = 1
+        for dayOffset in 0..<28 {
+            guard let date = calendar.date(byAdding: .day, value: dayOffset, to: windowStart) else { continue }
+            if date > today { continue }
+            let dateString = formatter.string(from: date)
+            let tokens = dailyTotals[dateString] ?? 0
+            maxTokens = max(maxTokens, tokens)
+            cells.append(
+                MatrixCell(
+                    id: dateString,
+                    date: date,
+                    tokens: tokens,
+                    intensity: 0
+                )
+            )
+        }
+        for index in cells.indices {
+            cells[index].intensity = cells[index].tokens / maxTokens
+        }
+        return cells
+    }
+
+    private func matrixSection(cells: [MatrixCell]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(AppLocalization.text("menu.monthlyMatrix"))
+                    .font(TokenTypography.caption(weight: .bold, palette: palette))
+                    .foregroundStyle(palette.subtitle)
+                Spacer()
+                Text(AppLocalization.format("menu.monthlyMatrix.range", 4))
+                    .font(TokenTypography.caption2(palette: palette))
+                    .foregroundStyle(palette.subtitle)
+            }
+
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 3), count: 7)
+            LazyVGrid(columns: columns, spacing: 3) {
+                ForEach(cells) { cell in
+                    RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : 3, style: .continuous)
+                        .fill(matrixColor(intensity: cell.intensity))
+                        .aspectRatio(1, contentMode: .fit)
+                        .help("\(cell.id): \(Int(cell.tokens)) tokens")
+                }
+            }
+
+            HStack(spacing: 4) {
+                Text(AppLocalization.text("menu.monthlyMatrix.less"))
+                    .font(TokenTypography.caption2(palette: palette))
+                    .foregroundStyle(palette.subtitle)
+                ForEach([0.0, 0.25, 0.5, 0.75, 1.0], id: \.self) { lvl in
+                    RoundedRectangle(cornerRadius: palette.usesWorkshopStyle ? 0 : 2, style: .continuous)
+                        .fill(matrixColor(intensity: lvl))
+                        .frame(width: 8, height: 8)
+                }
+                Text(AppLocalization.text("menu.monthlyMatrix.more"))
+                    .font(TokenTypography.caption2(palette: palette))
+                    .foregroundStyle(palette.subtitle)
+            }
+        }
+    }
+
+    private func matrixColor(intensity: Double) -> Color {
+        guard intensity > 0 else {
+            return palette.usesWorkshopStyle
+                ? palette.surfaceSecondarySolidFill
+                : palette.accent.opacity(0.06)
+        }
+        let clamped = min(max(intensity, 0), 1)
+        if palette.usesWorkshopStyle {
+            return clamped < 0.5
+                ? palette.accentSecondary.opacity(0.30 + clamped)
+                : palette.accent.opacity(0.35 + clamped * 0.65)
+        }
+        return palette.accent.opacity(0.10 + clamped * 0.90)
     }
 
     private func activateMainWindow() {

@@ -148,6 +148,10 @@
 "menu.refreshBalance" = "Refresh Balance";
 "menu.weeklyTrend" = "Last 7 Days";
 "menu.opencodeCost" = "OpenCode: %@";
+"menu.monthlyMatrix" = "Last 4 Weeks Matrix";
+"menu.monthlyMatrix.range" = "Last %d weeks";
+"menu.monthlyMatrix.less" = "Less";
+"menu.monthlyMatrix.more" = "More";
 
 "overview.codex.actualInput" = "Actual input token";
 "overview.codex.actualInputSubtitle" = "Cached input removed";
@@ -234,6 +238,11 @@
 "settings.appPreferences.openCodePlanSubtitle" = "Current selection";
 "settings.appPreferences.subtitle" = "Language, currency, accent color, and appearance are saved separately";
 "settings.appPreferences.title" = "Global preferences";
+"settings.menuBar.title" = "Menu Bar";
+"settings.menuBar.subtitle" = "Configure the content shown in the menu bar popover";
+"settings.menuBar.chartStyle" = "Usage chart style";
+"settings.menuBar.chartStyle.sparkline" = "Line chart";
+"settings.menuBar.chartStyle.matrix" = "Matrix";
 "settings.codex.autoRescan" = "Auto-refresh on launch";
 "settings.codex.body" = "It automatically scans two system locations by default; add extra directories or files only when needed.";
 "settings.codex.discovery.body" = "The app automatically checks `~/.codex/sessions` and `~/.codex/archived_sessions`, and includes any additional directories or files you add. The confirmed locations are listed below; if you do not want to configure anything yet, just close this window.";

@@ -43,6 +43,13 @@ public struct SkillsPanelPreferences: Codable, Equatable, Sendable {
     }
 }
 
+public enum MenuBarChartStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case sparkline
+    case matrix
+
+    public var id: String { rawValue }
+}
+
 public enum ReportingRangeMode: String, Codable, CaseIterable, Sendable {
     case allAvailable
     case currentMonth
@@ -91,6 +98,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var periodTotalCostEnabled: Bool
     public var reportingRangeMode: ReportingRangeMode
     public var reportingRangeCustomBounds: ReportingRangeCustomBounds
+    public var menuBarChartStyle: MenuBarChartStyle
 
     public init(
         language: AppDisplayLanguage = .zhHans,
@@ -120,7 +128,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         credentialSourceMode: CredentialSourceMode = .autoBrowser,
         periodTotalCostEnabled: Bool = false,
         reportingRangeMode: ReportingRangeMode = .allAvailable,
-        reportingRangeCustomBounds: ReportingRangeCustomBounds = ReportingRangeCustomBounds()
+        reportingRangeCustomBounds: ReportingRangeCustomBounds = ReportingRangeCustomBounds(),
+        menuBarChartStyle: MenuBarChartStyle = .sparkline
     ) {
         self.language = language
         self.billingSelectionsByProvider = billingSelectionsByProvider
@@ -150,6 +159,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.periodTotalCostEnabled = periodTotalCostEnabled
         self.reportingRangeMode = reportingRangeMode
         self.reportingRangeCustomBounds = reportingRangeCustomBounds
+        self.menuBarChartStyle = menuBarChartStyle
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -183,6 +193,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case periodTotalCostEnabled = "period_total_cost_enabled"
         case reportingRangeMode = "reporting_range_mode"
         case reportingRangeCustomBounds = "reporting_range_custom_bounds"
+        case menuBarChartStyle = "menu_bar_chart_style"
     }
 
     private enum DecodingKeys: String, CodingKey {
@@ -216,6 +227,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case periodTotalCostEnabled
         case reportingRangeMode
         case reportingRangeCustomBounds
+        case menuBarChartStyle
     }
 
     public init(from decoder: Decoder) throws {
@@ -324,6 +336,9 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.reportingRangeCustomBounds = try container.decodeIfPresent(ReportingRangeCustomBounds.self, forKey: .reportingRangeCustomBounds)
             ?? legacyContainer?.decodeIfPresent(ReportingRangeCustomBounds.self, forKey: .reportingRangeCustomBounds)
             ?? ReportingRangeCustomBounds()
+        self.menuBarChartStyle = try container.decodeIfPresent(MenuBarChartStyle.self, forKey: .menuBarChartStyle)
+            ?? legacyContainer?.decodeIfPresent(MenuBarChartStyle.self, forKey: .menuBarChartStyle)
+            ?? .sparkline
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -356,6 +371,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(periodTotalCostEnabled, forKey: .periodTotalCostEnabled)
         try container.encode(reportingRangeMode, forKey: .reportingRangeMode)
         try container.encode(reportingRangeCustomBounds, forKey: .reportingRangeCustomBounds)
+        try container.encode(menuBarChartStyle, forKey: .menuBarChartStyle)
     }
 
     /// Returns a copy of preferences with the given balanceConfig applied.
