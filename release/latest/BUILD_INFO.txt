@@ -1,8 +1,0 @@
-# Build Info — Token Cost App — OC Codex
-# This file is written only for non-release (development) builds.
-# Release builds use the official versioned directory structure instead.
-
-Version:     v1.1.2
-Mode:        build
-Arch:        arm64
-Built:       2026-08-04T12:12:54Z
