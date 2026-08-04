@@ -551,6 +551,23 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
+    /// 专用余额 MenuBarExtra 的可见性：需同时开启余额菜单栏项与开发者模式。
+    /// 写入仍落到 balanceMenuBarExtraEnabled，避免在开发者模式关闭时丢失用户偏好。
+    var balanceMenuBarExtraVisibleBinding: Binding<Bool> {
+        Binding(
+            get: {
+                self.preferences.balanceMenuBarExtraEnabled
+                    && self.preferences.developerMode.isEnabled
+            },
+            set: { newValue in
+                guard newValue != self.preferences.balanceMenuBarExtraEnabled else { return }
+                self.updatePreferences { preferences in
+                    preferences.balanceMenuBarExtraEnabled = newValue
+                }
+            }
+        )
+    }
+
     var balanceRefreshSecondsBinding: Binding<Int> {
         Binding(
             get: { self.preferences.balanceRefreshSeconds },
@@ -576,15 +593,7 @@ final class AppPreferencesModel: ObservableObject {
     }
 
     var effectiveBalanceConfiguration: BalanceConfiguration {
-        var config = preferences.balanceConfig ?? BalanceConfiguration()
-        let ollamaEnabled = preferences.developerMode.ollamaUsageTrackingEnabled
-        let hasOllama = config.enabledBalanceProviders.contains(.ollama)
-        if ollamaEnabled, !hasOllama {
-            config.enabledBalanceProviders.append(.ollama)
-        } else if !ollamaEnabled, hasOllama {
-            config.enabledBalanceProviders.removeAll { $0 == .ollama }
-        }
-        return config
+        preferences.balanceConfig ?? BalanceConfiguration()
     }
 
     var taskClassificationEnabledBinding: Binding<Bool> {
@@ -883,6 +892,8 @@ final class AppPreferencesModel: ObservableObject {
     @Published var backupLayerResults: [BackupLayerResult] = []
     @Published var selectedBakFiles: Set<String> = []
     @Published var bakFileSortOrder: BakFileSortOrder = .newestFirst
+    @Published var launchdTaskLoaded: Bool = false
+    @Published var bakDiffResults: [String: BakDiffResult] = [:]
 
     var backupDirectoryBinding: Binding<String> {
         Binding(
@@ -1079,7 +1090,7 @@ final class AppPreferencesModel: ObservableObject {
             get: { self.preferences.backup.showDeprecatedFiles },
             set: { newValue in
                 self.updatePreferences { $0.backup.showDeprecatedFiles = newValue }
-                self.refreshConfigFileGroups()
+                self.refreshBackupState()
             }
         )
     }
@@ -1091,6 +1102,54 @@ final class AppPreferencesModel: ObservableObject {
                 self.updatePreferences { $0.backup.maxBackupCount = max(1, min(newValue, 50)) }
             }
         )
+    }
+
+    var scheduledTaskEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.backup.scheduledTaskEnabled },
+            set: { newValue in
+                self.updatePreferences { $0.backup.scheduledTaskEnabled = newValue }
+                self.applyLaunchdTaskState(newValue)
+            }
+        )
+    }
+
+    func refreshLaunchdTaskState() {
+        launchdTaskLoaded = backupService.isLaunchdTaskLoaded()
+    }
+
+    private func applyLaunchdTaskState(_ enabled: Bool) {
+        backupIsWorking = true
+        backupLastError = nil
+        Task {
+            do {
+                let backup = preferences.backup
+                try backupService.setLaunchdTaskEnabled(
+                    enabled,
+                    config: LaunchdTaskConfiguration(
+                        interval: backup.autoBackupInterval,
+                        backupDirectory: backup.backupDirectory,
+                        keepCount: backup.autoCleanKeepCount,
+                        enabledLayers: backup.enabledLayers
+                    )
+                )
+                await MainActor.run {
+                    refreshLaunchdTaskState()
+                }
+            } catch {
+                await MainActor.run {
+                    backupLastError = error.localizedDescription
+                    updatePreferences { $0.backup.scheduledTaskEnabled = !enabled }
+                }
+            }
+            await MainActor.run { backupIsWorking = false }
+        }
+    }
+
+    func diffBakFile(_ bak: BakFileInfo) -> BakDiffResult {
+        let result = backupService.diffBakFile(bak)
+        bakDiffResults[bak.id] = result
+        return result
     }
 
     func refreshConfigFileGroups() {
@@ -1158,11 +1217,16 @@ final class AppPreferencesModel: ObservableObject {
         let dir = preferences.backup.backupDirectory
         backupRecords = backupService.listBackups(in: dir)
         backupOverview = backupService.overview(in: dir)
-        backupCompleteness = backupService.verifyCompleteness(in: dir)
+        backupCompleteness = backupService.verifyCompleteness(
+            in: dir,
+            showDeprecated: preferences.backup.showDeprecatedFiles
+        )
         refreshConfigFileGroups()
+        refreshLaunchdTaskState()
     }
 
     func refreshUnmanagedBakFiles() {
         unmanagedBakFiles = backupService.listUnmanagedBakFiles(sortOrder: bakFileSortOrder)
+        bakDiffResults.removeAll()
     }
 }

@@ -9,15 +9,15 @@ struct BackupSectionView: View {
     @State private var showTrashConfirmation = false
     @State private var bakFilesToTrash: [BakFileInfo] = []
     @State private var showBakViewer = false
+    @State private var selectedBakForDiff: BakFileInfo?
+    @State private var showBakDiff = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             configFileGroupCards
             deprecatedToggle
-            backupOverviewSection
-            completenessSection
+            backupStatusOverviewSection
             layeredStatusDisclosureGroup
-            backupFileListDisclosureGroup
             unmanagedBakSection
             externalBackupSection
         }
@@ -27,6 +27,11 @@ struct BackupSectionView: View {
         }
         .sheet(isPresented: $showBakViewer) {
             bakViewerSheet
+        }
+        .sheet(isPresented: $showBakDiff) {
+            if let bak = selectedBakForDiff {
+                bakDiffSheet(bak)
+            }
         }
         .alert("settings.backup.cleanBakConfirm".localized, isPresented: $showBakCleanConfirmation) {
             Button("settings.action.cancel".localized, role: .cancel) {}
@@ -105,14 +110,14 @@ struct BackupSectionView: View {
                             .foregroundStyle(palette.subtitle)
                     }
                     Spacer()
-                    if file.sourceExists {
-                        Button("settings.backup.backupThisFile".localized) {
-                            appPreferencesModel.performBackupConfig(file.fileName)
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.caption2)
-                        .foregroundStyle(palette.accent)
-                        .disabled(appPreferencesModel.backupIsWorking)
+                    if file.hasBackup {
+                        Image(systemName: "checkmark.circle")
+                            .font(.caption2)
+                            .foregroundStyle(palette.success)
+                    } else if file.sourceExists {
+                        Image(systemName: "circle.dashed")
+                            .font(.caption2)
+                            .foregroundStyle(palette.warning)
                     }
                 }
                 .padding(.horizontal, 4)
@@ -120,19 +125,9 @@ struct BackupSectionView: View {
 
             HStack {
                 Spacer()
-                if group.files.contains(where: { $0.sourceExists }) {
-                    Button("settings.backup.backupGroup".localized) {
-                        appPreferencesModel.performBackupConfigGroup(group)
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(palette.accentSecondary)
-                    .disabled(appPreferencesModel.backupIsWorking)
-                } else {
-                    Text("settings.backup.noSourceAvailable".localized)
-                        .font(.caption2)
-                        .foregroundStyle(palette.subtitle)
-                }
+                Text("settings.backup.configStatusHint".localized)
+                    .font(.caption2)
+                    .foregroundStyle(palette.subtitle)
             }
         }
         .padding(10)
@@ -256,17 +251,31 @@ struct BackupSectionView: View {
             .buttonStyle(.borderless)
             .accessibilityLabel("Select backup file \(bak.fileName)")
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(verbatim: bak.fileName)
-                    .font(.caption2)
-                    .foregroundStyle(palette.title)
-                    .lineLimit(1)
-                if let date = bak.displayDate {
-                    Text(formattedDate(date))
-                        .font(.caption)
-                        .foregroundStyle(palette.subtitle)
+            Button {
+                selectedBakForDiff = bak
+                showBakDiff = true
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: bak.fileName)
+                        .font(.caption2)
+                        .foregroundStyle(palette.title)
+                        .lineLimit(1)
+                    if let date = bak.displayDate {
+                        Text(formattedDate(date))
+                            .font(.caption)
+                            .foregroundStyle(palette.subtitle)
+                    }
                 }
             }
+            .buttonStyle(.plain)
+
+            if let diff = appPreferencesModel.bakDiffResults[bak.id] {
+                Text(diffSummaryLabel(diff))
+                    .font(.caption2)
+                    .foregroundStyle(diff.hasChanges ? palette.accent : palette.subtitle)
+                    .lineLimit(1)
+            }
+
             Spacer()
             Text(verbatim: bak.sizeFormatted)
                 .font(.caption2)
@@ -275,6 +284,100 @@ struct BackupSectionView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: 4).fill(.secondary.opacity(0.05)))
+    }
+
+    private func diffSummaryLabel(_ diff: BakDiffResult) -> String {
+        if !diff.targetExists {
+            return AppLocalization.text("settings.backup.diffTargetMissing")
+        }
+        if !diff.hasChanges {
+            return AppLocalization.text("settings.backup.diffNoChanges")
+        }
+        return AppLocalization.format("settings.backup.diffSummary", diff.addedCount, diff.removedCount)
+    }
+
+    private func bakDiffSheet(_ bak: BakFileInfo) -> some View {
+        let diff = appPreferencesModel.diffBakFile(bak)
+        return VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: bak.fileName)
+                        .font(.headline)
+                        .foregroundStyle(palette.title)
+                    Text(AppLocalization.format("settings.backup.diffTarget", diff.targetFileName))
+                        .font(.caption)
+                        .foregroundStyle(palette.subtitle)
+                }
+                Spacer()
+                Button("settings.action.close".localized) {
+                    showBakDiff = false
+                }
+                .buttonStyle(.borderless)
+            }
+            .padding()
+
+            HStack(spacing: 12) {
+                if diff.targetExists {
+                    Text(AppLocalization.format("settings.backup.diffAdded", diff.addedCount))
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                    Text(AppLocalization.format("settings.backup.diffRemoved", diff.removedCount))
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                } else {
+                    Text("settings.backup.diffTargetMissing".localized)
+                        .font(.caption2)
+                        .foregroundStyle(palette.warning)
+                }
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            if diff.targetExists && diff.hasChanges {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(diff.lines) { line in
+                            diffLineRow(line)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: diff.targetExists ? "checkmark.circle" : "questionmark.circle")
+                        .font(.title2)
+                        .foregroundStyle(palette.subtitle)
+                    Text(diff.targetExists ? "settings.backup.diffNoChanges".localized : "settings.backup.diffTargetMissing".localized)
+                        .font(.caption)
+                        .foregroundStyle(palette.subtitle)
+                }
+                .frame(maxWidth: .infinity, minHeight: 200)
+            }
+        }
+        .frame(minWidth: 560, minHeight: 420)
+    }
+
+    private func diffLineRow(_ line: BakDiffLine) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(line.kind == .added ? "+" : (line.kind == .removed ? "−" : " "))
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(line.kind == .added ? .green : (line.kind == .removed ? .red : palette.subtitle))
+                .frame(width: 14)
+            Text(verbatim: line.text)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(line.kind == .context ? palette.subtitle : palette.title)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 3)
+                .fill(line.kind == .added ? Color.green.opacity(0.08) : (line.kind == .removed ? Color.red.opacity(0.08) : .clear))
+        )
     }
 
     // MARK: - .bak 查看器 Sheet
@@ -383,6 +486,24 @@ struct BackupSectionView: View {
                     }
                 }
 
+                SettingsControlGrid(minimumWidth: 220) {
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        Toggle("settings.backup.scheduledTask".localized, isOn: appPreferencesModel.scheduledTaskEnabledBinding)
+                    }
+                    SettingsControlTile(palette: palette, minHeight: 54) {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(appPreferencesModel.launchdTaskLoaded ? .green : .orange)
+                                .frame(width: 6, height: 6)
+                            Text(appPreferencesModel.launchdTaskLoaded
+                                 ? "settings.backup.scheduledTaskLoaded".localized
+                                 : "settings.backup.scheduledTaskNotLoaded".localized)
+                                .font(.caption2)
+                                .foregroundStyle(palette.subtitle)
+                        }
+                    }
+                }
+
                 HStack(spacing: 12) {
                     Button {
                         appPreferencesModel.performFullLayeredBackup()
@@ -419,6 +540,8 @@ struct BackupSectionView: View {
                 }
 
                 layerSelectionSection
+
+                backupFileListDisclosureGroup
 
                 if let error = appPreferencesModel.backupLastError {
                     Text(verbatim: error)
@@ -476,14 +599,28 @@ struct BackupSectionView: View {
                         appPreferencesModel.toggleBackupLayer(layer)
                     } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: layer.iconName)
-                                .font(.caption2)
-                                .foregroundStyle(palette.accent)
-                                .frame(width: 16)
+                            if layer == .launchd {
+                                // 定时任务层：用与其它状态一致的状态符号（绿=已加载 / 橙=未加载）
+                                Image(systemName: appPreferencesModel.launchdTaskLoaded ? "checkmark.circle.fill" : "clock.badge.exclamationmark")
+                                    .font(.caption2)
+                                    .foregroundStyle(appPreferencesModel.launchdTaskLoaded ? .green : .orange)
+                                    .frame(width: 16)
+                                    .help(appPreferencesModel.launchdTaskLoaded
+                                          ? "settings.backup.layer.launchdLoaded".localized
+                                          : "settings.backup.layer.launchdNotLoaded".localized)
+                            } else {
+                                Image(systemName: layer.iconName)
+                                    .font(.caption2)
+                                    .foregroundStyle(palette.accent)
+                                    .frame(width: 16)
+                            }
                             Text(layer.displayName)
                                 .font(.caption2)
                                 .foregroundStyle(palette.title)
                             Spacer()
+                            Circle()
+                                .fill(appPreferencesModel.backupService.layerSourceExists(layer) ? .green : .orange)
+                                .frame(width: 6, height: 6)
                             Image(systemName: appPreferencesModel.preferences.backup.enabledLayers.contains(layer)
                                   ? "checkmark.circle.fill" : "circle")
                                 .font(.caption2)
@@ -576,63 +713,21 @@ struct BackupSectionView: View {
         }
     }
 
-    // MARK: - 备份概览
+    // MARK: - 备份状态概览（概览 + 完备性整合）
 
     @ViewBuilder
-    private var backupOverviewSection: some View {
-        if let overview = appPreferencesModel.backupOverview {
-            SettingsSurfaceCard(
-                title: "settings.backup.overviewTitle".localized,
-                subtitle: "settings.backup.overviewSubtitle".localized,
-                role: .secondary,
-                palette: palette
-            ) {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)],
-                    alignment: .leading,
-                    spacing: 10
-                ) {
-                    SettingsSummaryCard(
-                        title: "settings.backup.fullBackupCount".localized,
-                        value: "\(overview.layeredBackupCount)",
-                        subtitle: "",
-                        systemImage: "folder",
-                        tint: palette.accentSecondary,
-                        palette: palette
-                    )
-                    SettingsSummaryCard(
-                        title: "settings.backup.configBackupCount".localized,
-                        value: "\(overview.flatFileCount)",
-                        subtitle: "",
-                        systemImage: "doc.on.doc",
-                        tint: palette.accent,
-                        palette: palette
-                    )
-                    SettingsSummaryCard(
-                        title: "settings.backup.totalSize".localized,
-                        value: overview.totalSizeFormatted,
-                        subtitle: "",
-                        systemImage: "externaldrive",
-                        tint: palette.accentSecondary,
-                        palette: palette
-                    )
-                    SettingsSummaryCard(
-                        title: "settings.backup.lastBackupTime".localized,
-                        value: overview.lastBackupDate.map { formattedDate($0) } ?? "settings.backup.never".localized,
-                        subtitle: "",
-                        systemImage: "clock",
-                        tint: .green,
-                        palette: palette
-                    )
-                }
-            }
-        } else {
-            SettingsSurfaceCard(
-                title: "settings.backup.overviewTitle".localized,
-                subtitle: "settings.backup.overviewSubtitle".localized,
-                role: .secondary,
-                palette: palette
-            ) {
+    private var backupStatusOverviewSection: some View {
+        let overview = appPreferencesModel.backupOverview
+        let report = appPreferencesModel.backupCompleteness
+        let hasData = overview != nil || report != nil
+
+        SettingsSurfaceCard(
+            title: "settings.backup.statusOverviewTitle".localized,
+            subtitle: "settings.backup.statusOverviewSubtitle".localized,
+            role: (report?.isComplete == false) ? .warning : .secondary,
+            palette: palette
+        ) {
+            if !hasData {
                 VStack(alignment: .leading, spacing: 8) {
                     Image(systemName: "externaldrive.badge.questionmark")
                         .font(.title2)
@@ -645,84 +740,110 @@ struct BackupSectionView: View {
                         .foregroundStyle(palette.accent)
                 }
                 .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-            }
-        }
-    }
-
-    // MARK: - 完备性测验
-
-    @ViewBuilder
-    private var completenessSection: some View {
-        if let report = appPreferencesModel.backupCompleteness {
-            SettingsSurfaceCard(
-                title: "settings.backup.completenessTitle".localized,
-                subtitle: "\("settings.backup.coverage".localized): \(report.coveragePercent) (\(report.expectedFiles.count)/\("settings.backup.fileCount".localized))",
-                role: report.isComplete ? .secondary : .warning,
-                palette: palette
-            ) {
-                VStack(spacing: 6) {
-                    if !report.groupReports.isEmpty {
-                        ForEach(Array(report.groupReports.keys.sorted()), id: \.self) { groupId in
-                            let isComplete = report.groupReports[groupId] ?? false
-                            let groupName = groupDisplayName(groupId)
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(isComplete ? .green : .orange)
-                                    .frame(width: 6, height: 6)
-                                Text(verbatim: groupName)
-                                    .font(.caption)
-                                    .foregroundStyle(palette.title)
-                                Spacer()
-                                Text(isComplete ? "settings.backup.groupBackedUp".localized : "settings.backup.groupNotBackedUp".localized)
-                                    .font(.caption2)
-                                    .foregroundStyle(isComplete ? .green : .orange)
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(.secondary.opacity(0.04)))
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let overview {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)],
+                            alignment: .leading,
+                            spacing: 10
+                        ) {
+                            SettingsSummaryCard(
+                                title: "settings.backup.fullBackupCount".localized,
+                                value: "\(overview.layeredBackupCount)",
+                                subtitle: "",
+                                systemImage: "folder",
+                                tint: palette.accentSecondary,
+                                palette: palette
+                            )
+                            SettingsSummaryCard(
+                                title: "settings.backup.configBackupCount".localized,
+                                value: "\(overview.flatFileCount)",
+                                subtitle: "",
+                                systemImage: "doc.on.doc",
+                                tint: palette.accent,
+                                palette: palette
+                            )
+                            SettingsSummaryCard(
+                                title: "settings.backup.totalSize".localized,
+                                value: overview.totalSizeFormatted,
+                                subtitle: "",
+                                systemImage: "externaldrive",
+                                tint: palette.accentSecondary,
+                                palette: palette
+                            )
+                            SettingsSummaryCard(
+                                title: "settings.backup.lastBackupTime".localized,
+                                value: overview.lastBackupDate.map { formattedDate($0) } ?? "settings.backup.never".localized,
+                                subtitle: "",
+                                systemImage: "clock",
+                                tint: .green,
+                                palette: palette
+                            )
                         }
-                    } else {
-                        ForEach(report.expectedFiles, id: \.self) { file in
-                            let isBackedUp = report.backedUpFiles.contains(file)
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(isBackedUp ? .green : .red)
-                                    .frame(width: 6, height: 6)
-                                Text(verbatim: file)
-                                    .font(.caption)
-                                    .foregroundStyle(palette.title)
-                                Spacer()
-                                Text(isBackedUp ? "✓" : "✗")
-                                    .font(.caption)
-                                    .foregroundStyle(isBackedUp ? .green : .red)
+                    }
+
+                    if let report {
+                        Divider().opacity(0.3)
+                        coverageRow(report)
+                        if !report.groupReports.isEmpty {
+                            ForEach(Array(report.groupReports.keys.sorted()), id: \.self) { groupId in
+                                let isComplete = report.groupReports[groupId] ?? false
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(isComplete ? .green : .orange)
+                                        .frame(width: 6, height: 6)
+                                    Text(verbatim: groupDisplayName(groupId))
+                                        .font(.caption)
+                                        .foregroundStyle(palette.title)
+                                    Spacer()
+                                    Text(isComplete ? "settings.backup.groupBackedUp".localized : "settings.backup.groupNotBackedUp".localized)
+                                        .font(.caption2)
+                                        .foregroundStyle(isComplete ? .green : .orange)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(RoundedRectangle(cornerRadius: 4).fill(.secondary.opacity(0.04)))
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(.secondary.opacity(0.04)))
+                        } else {
+                            ForEach(report.expectedFiles, id: \.self) { file in
+                                let isBackedUp = report.backedUpFiles.contains(file)
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(isBackedUp ? .green : .red)
+                                        .frame(width: 6, height: 6)
+                                    Text(verbatim: file)
+                                        .font(.caption)
+                                        .foregroundStyle(palette.title)
+                                    Spacer()
+                                    Text(isBackedUp ? "✓" : "✗")
+                                        .font(.caption)
+                                        .foregroundStyle(isBackedUp ? .green : .red)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(RoundedRectangle(cornerRadius: 4).fill(.secondary.opacity(0.04)))
+                            }
                         }
                     }
                 }
             }
-        } else {
-            SettingsSurfaceCard(
-                title: "settings.backup.completenessTitle".localized,
-                subtitle: "settings.backup.completenessHint".localized,
-                role: .secondary,
-                palette: palette
-            ) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Image(systemName: "checklist")
-                        .font(.title2)
-                        .foregroundStyle(palette.subtitle)
-                    Text("settings.backup.noCompletenessReport".localized)
-                        .font(.caption)
-                        .foregroundStyle(palette.subtitle)
-                    Text("settings.backup.noCompletenessReportHint".localized)
-                        .font(.caption2)
-                        .foregroundStyle(palette.accent)
-                }
-                .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+        }
+    }
+
+    private func coverageRow(_ report: BackupCompletenessReport) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("settings.backup.coverage".localized)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(palette.title)
+                Spacer()
+                Text("\("settings.backup.coveragePercent".localized): \(report.coveragePercent) (\(report.expectedFiles.count)/\("settings.backup.fileCount".localized))")
+                    .font(.caption2)
+                    .foregroundStyle(palette.subtitle)
             }
+            ProgressView(value: report.coverage)
+                .tint(report.isComplete ? palette.success : palette.warning)
         }
     }
 

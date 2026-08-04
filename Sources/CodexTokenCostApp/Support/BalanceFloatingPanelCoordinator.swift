@@ -8,7 +8,7 @@ final class BalanceFloatingPanelCoordinator: NSObject, NSWindowDelegate {
     private let balanceManager: BalanceManager
     private let appPreferencesModel: AppPreferencesModel
 
-    private var panel: BalanceFloatingPanelWindow?
+    var panel: BalanceFloatingPanelWindow?
     private var hostingView: NSHostingView<BalanceFloatingPanelView>?
     private var cancellables: Set<AnyCancellable> = []
     private var didPerformInitialPresentation = false
@@ -104,8 +104,8 @@ final class BalanceFloatingPanelCoordinator: NSObject, NSWindowDelegate {
         appPreferencesModel.$preferences
             .map(\.balanceFloatingPanelAlwaysOnTop)
             .removeDuplicates()
-            .sink { [weak self] _ in
-                self?.syncPanelLevel()
+            .sink { [weak self] alwaysOnTop in
+                self?.syncPanelLevel(alwaysOnTop: alwaysOnTop)
             }
             .store(in: &cancellables)
 
@@ -201,8 +201,28 @@ final class BalanceFloatingPanelCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func syncPanelLevel() {
+        syncPanelLevel(alwaysOnTop: appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop)
+    }
+
+    private func syncPanelLevel(alwaysOnTop: Bool) {
         guard let panel else { return }
-        panel.level = appPreferencesModel.preferences.balanceFloatingPanelAlwaysOnTop ? .floating : .normal
+        let targetLevel: NSWindow.Level = alwaysOnTop ? .floating : .normal
+
+        // Changing a visible window's level does not re-stack it in AppKit:
+        // the window keeps its current visual ordering until it is re-ordered.
+        // So when the panel is already on screen we must re-order it to its new
+        // level's front, otherwise the pin/unpin would only take effect on the
+        // next show/hide and appear to "require two clicks".
+        guard panel.level != targetLevel || !panel.isVisible else { return }
+
+        panel.level = targetLevel
+        if panel.isVisible {
+            if alwaysOnTop {
+                panel.orderFrontRegardless()
+            } else {
+                panel.orderFront(nil)
+            }
+        }
     }
 
     private func syncPanelAppearance() {

@@ -86,7 +86,9 @@ public final class BackupService: @unchecked Sendable {
             let flatRecord = backupRecords.first {
                 $0.sourceFileName == fileName && $0.backupType == .flat
             }
-            // 2) 其次检查最新 layered 备份目录
+            // 2) 其次检查最新 layered 备份目录（文件系统存在性为准，
+            //    不依赖传入数组是否包含 layered 记录——verifyCompleteness 传的是 flat-only）
+            var layeredExists = false
             var layeredRecord: BackupFileRecord?
             if let layeredDir = latestLayeredDir {
                 let configSnapshotDir = URL(fileURLWithPath: layeredDir).appendingPathComponent("config-snapshot")
@@ -94,6 +96,7 @@ public final class BackupService: @unchecked Sendable {
                 let layeredFile = configSnapshotDir.appendingPathComponent(fileName)
                 let entryFile = globalEntryDir.appendingPathComponent(fileName)
                 if fm.fileExists(atPath: layeredFile.path) || fm.fileExists(atPath: entryFile.path) {
+                    layeredExists = true
                     layeredRecord = backupRecords.first { $0.backupType == .layered }
                 }
             }
@@ -102,7 +105,7 @@ public final class BackupService: @unchecked Sendable {
                 fileName: fileName,
                 sourcePath: sourceURL.path,
                 sourceExists: sourceExists,
-                hasBackup: matchedRecord != nil,
+                hasBackup: (flatRecord != nil) || layeredExists,
                 lastBackupDate: matchedRecord?.createdAt,
                 backupRecordPath: matchedRecord?.path
             )
@@ -621,7 +624,10 @@ public final class BackupService: @unchecked Sendable {
         )
     }
 
-    public func verifyCompleteness(in backupDir: String) -> BackupCompletenessReport {
+    public func verifyCompleteness(
+        in backupDir: String,
+        showDeprecated: Bool = false
+    ) -> BackupCompletenessReport {
         let records = listBackups(in: backupDir)
         let flatRecords = records.filter { $0.backupType == .flat }
         var backedUpSourceNames = Set(flatRecords.map { $0.sourceFileName })
@@ -645,7 +651,11 @@ public final class BackupService: @unchecked Sendable {
         let existingFiles = nonDeprecated.filter { file in
             fm.fileExists(atPath: opencodeConfigDir.appendingPathComponent(file).path)
         }
-        let groups = Self.configFileGroups(showDeprecated: true, backupRecords: flatRecords, latestLayeredDir: latestLayeredDir)
+        let groups = Self.configFileGroups(
+            showDeprecated: showDeprecated,
+            backupRecords: records,
+            latestLayeredDir: latestLayeredDir
+        )
         var groupReports: [String: Bool] = [:]
         for group in groups {
             groupReports[group.id] = group.anyBackedUp
@@ -671,6 +681,237 @@ public final class BackupService: @unchecked Sendable {
             return bakBaseName.localizedCaseInsensitiveContains(recordBase)
                 || recordBase.localizedCaseInsensitiveContains(bakBaseName)
         }
+    }
+
+    // MARK: - 备份内容层源状态
+
+    public func layerSourceExists(_ layer: BackupLayer) -> Bool {
+        switch layer {
+        case .globalEntry:
+            return fm.fileExists(atPath: opencodeConfigDir.appendingPathComponent("AGENTS.md").path)
+        case .globalMemory:
+            return fm.fileExists(atPath: opencodeMemoryDir.path)
+        case .commandsSnapshot:
+            return fm.fileExists(atPath: opencodeCommandsDir.path)
+        case .configSnapshot:
+            return Self.allKnownConfigFiles.contains {
+                fm.fileExists(atPath: opencodeConfigDir.appendingPathComponent($0).path)
+            }
+        case .skillsSnapshot:
+            return fm.fileExists(atPath: opencodeSkillsDir.path)
+        case .scripts:
+            return fm.fileExists(atPath: opencodeScriptsDir.path)
+        case .launchd:
+            return fm.fileExists(atPath: launchdPlistURL.path)
+        }
+    }
+
+    // MARK: - launchd 定时任务管理
+
+    public static let launchdLabel = "com.opencode.memory-backup"
+
+    public var launchdPlistPath: String {
+        launchdPlistURL.path
+    }
+
+    public func isLaunchdTaskLoaded() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["list"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            return output.contains(Self.launchdLabel)
+        } catch {
+            return false
+        }
+    }
+
+    public func writeLaunchdPlist(
+        interval: BackupInterval,
+        backupDirectory: String,
+        keepCount: Int,
+        enabledLayers: Set<BackupLayer>
+    ) throws {
+        let parentDir = launchdPlistURL.deletingLastPathComponent()
+        if !fm.fileExists(atPath: parentDir.path) {
+            try fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+        }
+
+        var environment: [String: String] = [
+            "OPENCODE_BACKUP_ROOT": backupDirectory,
+            "MAX_BACKUPS": String(max(1, keepCount)),
+        ]
+        let layerValues = BackupLayer.allCases
+            .filter { enabledLayers.contains($0) }
+            .map { $0.rawValue }
+        environment["OPENCODE_BACKUP_LAYERS"] = layerValues.joined(separator: ",")
+
+        let scriptPath = opencodeScriptsDir.appendingPathComponent("backup-memory.sh").path
+
+        let plist: [String: Any] = [
+            "Label": Self.launchdLabel,
+            "ProgramArguments": ["/bin/bash", scriptPath],
+            "StartInterval": interval.timeInterval,
+            "RunAtLoad": false,
+            "StandardOutPath": opencodeConfigDir.appendingPathComponent("scripts/backup.log").path,
+            "StandardErrorPath": opencodeConfigDir.appendingPathComponent("scripts/backup.log").path,
+            "EnvironmentVariables": environment,
+        ]
+
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: plist,
+            format: .xml,
+            options: 0
+        )
+        try data.write(to: launchdPlistURL, options: .atomic)
+    }
+
+    public func setLaunchdTaskEnabled(_ enabled: Bool, config: LaunchdTaskConfiguration) throws {
+        let plistExists = fm.fileExists(atPath: launchdPlistURL.path)
+        if enabled {
+            try writeLaunchdPlist(
+                interval: config.interval,
+                backupDirectory: config.backupDirectory,
+                keepCount: config.keepCount,
+                enabledLayers: config.enabledLayers
+            )
+            try runLaunchctl(["load", launchdPlistURL.path])
+        } else {
+            if plistExists {
+                try runLaunchctl(["unload", launchdPlistURL.path])
+            }
+        }
+    }
+
+    private func runLaunchctl(_ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = arguments
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            throw BackupServiceError.backupWriteFailed("launchctl failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - .bak 与当前配置文件对比
+
+    public func diffBakFile(_ bakFile: BakFileInfo) -> BakDiffResult {
+        let targetName = inferTargetFileName(from: bakFile.fileName)
+        let targetURL = opencodeConfigDir.appendingPathComponent(targetName)
+        let targetExists = fm.fileExists(atPath: targetURL.path)
+
+        guard targetExists,
+              let bakData = try? Data(contentsOf: URL(fileURLWithPath: bakFile.path)),
+              let targetData = try? Data(contentsOf: targetURL),
+              let bakText = String(data: bakData, encoding: .utf8),
+              let targetText = String(data: targetData, encoding: .utf8)
+        else {
+            return BakDiffResult(
+                bakFileName: bakFile.fileName, targetFileName: targetName,
+                targetExists: targetExists, addedCount: 0, removedCount: 0, lines: []
+            )
+        }
+
+        let oldLines = bakText.components(separatedBy: .newlines)
+        let newLines = targetText.components(separatedBy: .newlines)
+        let diff = Self.computeLineDiff(oldLines, newLines)
+
+        var added = 0
+        var removed = 0
+        var lines: [BakDiffLine] = []
+        for (index, entry) in diff.enumerated() {
+            switch entry {
+            case .added(let text):
+                added += 1
+                lines.append(BakDiffLine(id: index, kind: .added, text: text))
+            case .removed(let text):
+                removed += 1
+                lines.append(BakDiffLine(id: index, kind: .removed, text: text))
+            case .context(let text):
+                lines.append(BakDiffLine(id: index, kind: .context, text: text))
+            }
+        }
+
+        return BakDiffResult(
+            bakFileName: bakFile.fileName, targetFileName: targetName,
+            targetExists: true, addedCount: added, removedCount: removed, lines: lines
+        )
+    }
+
+    private func inferTargetFileName(from bakName: String) -> String {
+        var base = bakName
+        for suffix in [".original", ".backup", ".bak"] {
+            if base.hasSuffix(suffix) {
+                base = String(base.dropLast(suffix.count))
+                break
+            }
+        }
+        if let range = base.range(of: "-20") {
+            base = String(base[..<range.lowerBound])
+        }
+        for known in Self.allKnownConfigFiles {
+            if base == URL(fileURLWithPath: known).deletingPathExtension().lastPathComponent {
+                return known
+            }
+        }
+        return base
+    }
+
+    private enum DiffEntry {
+        case added(String)
+        case removed(String)
+        case context(String)
+    }
+
+    private static func computeLineDiff(_ oldLines: [String], _ newLines: [String]) -> [DiffEntry] {
+        let n = oldLines.count
+        let m = newLines.count
+        var dp = Array(repeating: Array(repeating: 0, count: m + 1), count: n + 1)
+        for i in stride(from: n - 1, through: 0, by: -1) {
+            for j in stride(from: m - 1, through: 0, by: -1) {
+                if oldLines[i] == newLines[j] {
+                    dp[i][j] = dp[i + 1][j + 1] + 1
+                } else {
+                    dp[i][j] = max(dp[i + 1][j], dp[i][j + 1])
+                }
+            }
+        }
+
+        var result: [DiffEntry] = []
+        var i = 0
+        var j = 0
+        while i < n && j < m {
+            if oldLines[i] == newLines[j] {
+                result.append(.context(oldLines[i]))
+                i += 1
+                j += 1
+            } else if dp[i + 1][j] >= dp[i][j + 1] {
+                result.append(.removed(oldLines[i]))
+                i += 1
+            } else {
+                result.append(.added(newLines[j]))
+                j += 1
+            }
+        }
+        while i < n {
+            result.append(.removed(oldLines[i]))
+            i += 1
+        }
+        while j < m {
+            result.append(.added(newLines[j]))
+            j += 1
+        }
+        return result
     }
 }
 

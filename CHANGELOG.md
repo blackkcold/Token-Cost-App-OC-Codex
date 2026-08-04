@@ -19,6 +19,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *待记录 / TBD*
 
+## [v1.1.2] - 2026-08-04
+
+> 相对 `v1.1.1` 的累计变更。**维护版本**：备份管理支持 launchd 定时任务与完整性验证、Ollama Cloud 余量检测转为正式功能默认启用、菜单栏余量显示与浮窗置顶交互修复。
+
+### Added
+
+- **备份完整性验证**：`BackupService` 新增 `verifyCompleteness()` / `layerSourceExists(_:)`，对分层备份各内容层做存在性核查，并在备份状态概览中反映完整性（`BackupService.swift`、`BackupCompletenessTests.swift`）。
+- **launchd 定时备份**：新增 `BackupScheduler` 与应用内 launchd 管理（`com.opencode.memory-backup`），支持按 `BackupInterval` 写 plist、`launchctl load/unload`；启用定时任务后由外部调度器触发，应用内调度器仅作兜底避免重复备份（`BackupScheduler.swift`、`BackupService.swift`、`BackupPreferences.swift`、`TokenCostApp.swift`）。
+
+### Changed
+
+- **Ollama Cloud 余量检测转正**：从开发者选项完全移出，作为正式余额监控功能默认启用（`enabledBalanceProviders` 默认加入 `.ollama`），移除全部 4 层开发者门控，设置与配置同步更新（`BalanceModels.swift`、`DeveloperModePreferences.swift`、`AppPreferencesModel.swift`、`BalanceSectionView.swift`、`DeveloperSectionView.swift`、`DeveloperModeDocView.swift`）。
+- **菜单栏余量显示收敛**：专用余额 MenuBarExtra gating 到开发者模式；修复固定宽度截断（`valueSlotWidth` 改为自适应 `fixedSize()`），空快照时仅显示图标、不展示会误导的 "unavailable" 文本（`BalanceMenuBarExtra.swift`）。
+
+### Fixed
+
+- **浮窗置顶交互**：`BalanceFloatingPanelCoordinator.syncPanelLevel` 修改已可见面板的 `NSWindow.level` 后立即重新排序（置顶 `orderFrontRegardless` / 取消 `orderFront`），使置顶/取消点击即刻生效，不再出现「点击两次才取消、UI 却已显示置顶」的现象；并用 Combine sink 直接发出的值而非重读模型，消除异步 `@Published` 竞态（`BalanceFloatingPanelCoordinator.swift`、`BalanceFloatingPanelWindowTests.swift`）。
+
 ## [v1.1.1] - 2026-08-04
 
 > 相对 `v1.1.0` 的累计变更。**维护版本**：Safe Storage 改为两阶段访问（自动静默、手动授权），修复自动刷新启动竞态与 Go Cookie 重复前缀导致的 HTTP 500。
