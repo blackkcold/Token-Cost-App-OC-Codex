@@ -38,6 +38,12 @@ release/v*.*.*-*/*.zip
 release/v*.*.*-*/*.dmg
 release/release-notes/
 
+# Local dev build info (regenerates on every build; not tracked remotely)
+release/latest/BUILD_INFO.txt
+
+# Extracted provider logo source archive (contents live in Resources/ProviderLogos/)
+docs/five_logos_svg.zip
+
 # Keep these release metadata files
 !release/versions.json
 !release/.gitkeep
