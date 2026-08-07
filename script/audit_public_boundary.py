@@ -34,7 +34,9 @@ for relative in tracked:
     if name in forbidden_names or name.endswith(forbidden_suffixes):
         violations.append(f"forbidden tracked secret file: {relative}")
 
-absolute_path = re.compile(r"(?:/Users/|C:\\\\Users\\\\)(?!<)[^\s`\"']+")
+absolute_path = re.compile(
+    r"(?:/Users/|C:\\\\Users\\\\)(?=[A-Za-z0-9._-])[^\s`\"']+"
+)
 for relative in tracked:
     path = ROOT / relative
     if not path.is_file() or path.stat().st_size > 1_000_000:
