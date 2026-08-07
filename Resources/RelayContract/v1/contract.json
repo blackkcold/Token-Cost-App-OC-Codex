@@ -1,0 +1,59 @@
+{
+  "protocolVersion": 1,
+  "contractVersion": "1.0.0-draft",
+  "pairingFields": [
+    "version",
+    "deviceID",
+    "pairCode",
+    "e2eKey",
+    "expiresAtMilliseconds"
+  ],
+  "envelopeFields": [
+    "v",
+    "nonce",
+    "ciphertext",
+    "tag"
+  ],
+  "webSocket": {
+    "path": "/ws/pc",
+    "requestType": "relay.request",
+    "responseType": "relay.response"
+  },
+  "deviceRoutes": [
+    "POST /api/v1/devices/register",
+    "POST /api/v1/pair/start",
+    "POST /api/v1/pair/claim",
+    "POST /api/v1/devices/revoke",
+    "DELETE /api/v1/devices",
+    "POST /api/v1/device/registration-status",
+    "GET /api/v1/device/status",
+    "GET /api/v1/device/pairing-status",
+    "POST /api/v1/relay/query"
+  ],
+  "errorCodes": [
+    "ALREADY_PAIRED",
+    "DEVICE_NOT_FOUND",
+    "DEVICE_RATE_LIMITED",
+    "DUPLICATE_REQUEST",
+    "INTERNAL_ERROR",
+    "INVALID_APP_CREDENTIALS",
+    "INVALID_CREDENTIALS",
+    "INVALID_DEVICE_CREDENTIALS",
+    "INVALID_PAIRING_PAYLOAD",
+    "INVALID_PC_CREDENTIALS",
+    "INVALID_RELAY_ENVELOPE",
+    "INVALID_REQUEST",
+    "IP_BLOCKED",
+    "NOT_FOUND",
+    "PAIRING_INVALID_OR_EXPIRED",
+    "PAIRING_RATE_LIMITED",
+    "PC_DISCONNECTED",
+    "PC_OFFLINE",
+    "PC_RESPONSE_TIMEOUT",
+    "PC_SEND_FAILED",
+    "REGISTRATION_RATE_LIMITED",
+    "RELAY_INTERNAL_ERROR",
+    "SERVER_SHUTDOWN",
+    "TOO_MANY_REQUESTS"
+  ]
+}

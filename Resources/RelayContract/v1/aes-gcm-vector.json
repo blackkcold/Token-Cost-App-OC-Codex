@@ -1,0 +1,10 @@
+{
+  "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "plaintext": "eyJhY3Rpb24iOiJiYWxhbmNlLnJlZnJlc2giLCJpc3N1ZWRBdE1pbGxpc2Vjb25kcyI6MTcwMDAwMDAwMDAwMCwibm9uY2UiOiJjb250cmFjdC1xdWVyeS1ub25jZS0wMDAxIn0=",
+  "envelope": {
+    "v": 1,
+    "nonce": "AAECAwQFBgcICQoL",
+    "ciphertext": "PCC3eLGMrXWve7Xp0IUZA+CzqUaVHS0ZSw/HqT8Ac8F0dcq924x79BjNDIjr6EZcnXtavG3mk+oPpxopKNPF3tweqBW9skNDJnbJAYH7fIlb/uQTAwYhEdCT8aIblZS9+8hoxNk=",
+    "tag": "z+uXO6QzKDenROAAhloQHw=="
+  }
+}
