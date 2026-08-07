@@ -46,7 +46,9 @@ public final class BalanceManager: ObservableObject {
     }
 
     /// Maximum time the overall refresh may take before returning partial results.
-    private static let refreshTimeout: UInt64 = 45_000_000_000  // 45s
+    /// 30s，低于中继服务器 QUERY_TIMEOUT_SECONDS（45s），为心跳/响应留出缓冲，
+    /// 避免刷新耗时逼近服务器超时窗口导致连接被判定为无响应。
+    private static let refreshTimeout: UInt64 = 30_000_000_000  // 30s
 
     /// Status each provider task reports back so the collector can distinguish
     /// real snapshots from cancellation/timeout signals.
