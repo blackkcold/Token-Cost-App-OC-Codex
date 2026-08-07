@@ -13,10 +13,34 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
+      - name: Audit Public Repository Boundary
+        run: python3 script/audit_public_boundary.py
+      - name: Validate Relay Contract Snapshot
+        run: python3 script/check_relay_contract_snapshot.py
       - name: Check Developer Mode Banned Symbols
         run: bash script/check_developer_mode_banned_symbols.sh
       - name: Build
         run: swift build
       - name: Test
         run: swift test
+
+  android:
+    name: Android (Flutter)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install dependencies
+        working-directory: android
+        run: flutter pub get
+      - name: Analyze
+        working-directory: android
+        run: flutter analyze
+      - name: Test
+        working-directory: android
+        run: flutter test

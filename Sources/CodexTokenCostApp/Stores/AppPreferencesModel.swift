@@ -579,6 +579,17 @@ final class AppPreferencesModel: ObservableObject {
         )
     }
 
+    var relayLoggingEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { self.preferences.relayLoggingEnabled },
+            set: { newValue in
+                self.updatePreferences { preferences in
+                    preferences.relayLoggingEnabled = newValue
+                }
+            }
+        )
+    }
+
     var opencodeGoWorkspaceIDBinding: Binding<String> {
         Binding(
             get: {

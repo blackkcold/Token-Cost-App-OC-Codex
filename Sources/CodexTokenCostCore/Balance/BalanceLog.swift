@@ -13,4 +13,5 @@ enum BalanceLog {
     static let calculator = Logger(subsystem: "com.token-cost-app.oc-codex", category: "balance.calculator")
     static let amountCalculator = Logger(subsystem: "com.token-cost-app.oc-codex", category: "balance.amount-calculator")
     static let provider = Logger(subsystem: "com.token-cost-app.oc-codex", category: "balance.provider")
+    static let relay = Logger(subsystem: "com.token-cost-app.oc-codex", category: "relay")
 }

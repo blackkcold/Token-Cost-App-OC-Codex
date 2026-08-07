@@ -5,19 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v1.2.0] - 2026-08-07
+
+> **功能版本**：新增 macOS/Android Relay Client、E2EE Protocol v1 Contract、固定 Production Endpoint 与跨端安全发布链路。
 
 ### Added
 
-- *待记录 / TBD*
+- 新增 macOS/Android Relay Client、Protocol v1 contract snapshots 与 AES-GCM cross-platform vectors。
+- 新增 Android Release Endpoint 注入、混淆、split-debug-info 与正式签名 fail-closed 门禁。
 
 ### Changed
 
-- *待记录 / TBD*
+- Pairing QR 移除 `serverBaseURL`；Release 两端只接受构建时固定 HTTPS Endpoint。
+- Relay Client-facing 错误升级为稳定 `{code,error}`，Android 不再依赖自由文本判断。
+- Production Relay 服务端、Admin、Database 与部署边界迁移到独立 Private Repository。
 
 ### Fixed
 
-- *待记录 / TBD*
+- 清理 Public Source、UI 与日志中的 Production Relay URL 暴露和 QR Endpoint override。
 
 ## [v1.1.3] - 2026-08-04
 
@@ -675,7 +680,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.2.0...HEAD
+[v1.2.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.3...v1.2.0
 [v1.1.3]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.2...v1.1.3
 [v1.1.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.1...v1.1.2
 [v1.1.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.0...v1.1.1

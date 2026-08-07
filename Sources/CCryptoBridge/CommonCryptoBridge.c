@@ -21,6 +21,16 @@ int cc_pbkdf2_sha1(
         salt, saltLen, kCCPRFHmacAlgSHA1, rounds, dk, dkLen);
 }
 
+int cc_pbkdf2_sha256(
+    const char *pw, size_t pwLen,
+    const uint8_t *salt, size_t saltLen,
+    int rounds,
+    uint8_t *dk, size_t dkLen)
+{
+    return CCKeyDerivationPBKDF(kCCPBKDF2, pw, pwLen,
+        salt, saltLen, kCCPRFHmacAlgSHA256, rounds, dk, dkLen);
+}
+
 int cc_aescbc_decrypt(
     const void *key, size_t keyLen,
     const void *iv,

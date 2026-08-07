@@ -29,7 +29,7 @@
 - 本地化资源只读加载，不会向网络或外部服务传输文案
 - 内置计费文档只从 app bundle 资源读取，不开放任意本地文件路径，也不联网更新价格
 - 不收集、不上传任何使用数据
-- 余额监控功能默认关闭 (`balanceEnabled=false`)。开启后通过 HTTPS 直接调用各 Provider 官方端点；API key 从已有本地 auth 文件按需读取，浏览器 Cookie 优先从内存缓存读取；所有网络请求使用 ephemeral URLSession，不经过第三方服务器，余额快照仅驻留内存。
+- 余额监控功能默认关闭 (`balanceEnabled=false`)。开启后通过 HTTPS 直接调用各 Provider 官方端点；API key 从已有本地 auth 文件按需读取，浏览器 Cookie 优先从内存缓存读取；所有 Provider 请求使用 ephemeral URLSession。可选 Relay 功能会把余额快照封装为 E2EE 信封后转发给已配对 Android，不传输 Provider Credential。
 - OpenCode Go 与 Ollama Cookie 写入 App 专用目录中的 AES-256-GCM 加密文件；随机主密钥与密文分别以 `0600` 权限保存，目录权限为 `0700`。该方案避免日常访问 App 自身 Keychain 项目，但无法防御以同一 macOS 用户身份运行且已获得文件读取权限的恶意进程。
 - 浏览器凭证自动导入仅读取 Edge / Chrome / Brave / Arc 中目标域名的 Cookie/History 数据库。浏览器 Safe Storage 查询使用“禁止认证 UI”模式，无法静默读取时直接跳过，不触发系统授权弹窗；SQLite 副本只读打开并在操作后清理。
 - 凭证自动引导：余额监控启用后先验证 App 的本地加密缓存；缓存有效时不读取浏览器。缓存无效或缺失时，按浏览器/Profile 顺序逐个验证候选 Cookie，认证失败才继续下一项；网络不可用时保留本地缓存。成功候选写入内存与本地加密缓存；全部耗尽时 UI 显示未找到 Cookie，OSLog 只记录来源与失败类别，不记录 Cookie、密钥或完整路径。
@@ -46,6 +46,20 @@
 - Keychain 静默读取（v0.6.0+）：`SecItemCopyMatching` 使用 `kSecUseAuthenticationUI = kSecUseAuthenticationUISkip`，已有"Always Allow"授权静默返回，无授权不弹窗；`discoverCredentials()` 添加内存缓存避免同 session 重复 Keychain 访问；自动刷新链路只读凭证，不自动写入 Keychain，不触发浏览器 Cookie 导入
 - Keychain 设备锁定（v0.6.0+）：`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`，凭证不跨设备 iCloud 同步
 - Ollama Cloud 用量监控：Cookie 从内存缓存读取，并可由本地 AES-256-GCM 加密缓存或经过验证的浏览器候选补充；通过 ephemeral URLSession 访问 `ollama.com/settings`，不写入日志、不上传第三方服务。旧版明文 Cookie 文件回退已移除。
+
+## Relay 安全边界
+
+- Production Relay 服务端、Admin、Database、Rate-limit 与部署配置位于独立 Private Repository，不进入 Public App。
+- Pairing QR 只包含 `version/deviceID/pairCode/e2eKey/expiresAtMilliseconds`，明确拒绝 `serverBaseURL` 等 Endpoint override。
+- macOS 与 Android Release 只使用构建时注入的固定 HTTPS Endpoint；缺失或非法配置时 fail closed。Debug 必须显式注入 Development Endpoint。
+- Relay 只转发 `{v, nonce, ciphertext, tag}` E2EE 信封，不持有 Provider Credential 或 E2EE Key。
+- Client-facing API 使用稳定 `{code,error}`；客户端程序逻辑只依赖 `code`，UI 文案不作为协议。
+- 日志和诊断禁止输出完整 Endpoint、Pair Code、E2EE Key、Bearer Token、完整 QR 或业务密文。
+- Relay 地址不是 Secret，仍可能通过 APK、DNS 或流量分析获知；系统安全依赖 E2EE、认证、授权、防重放和安全部署。
+
+## Relay 与 Credential Sync
+
+Relay 只传输余额查询与 E2EE 快照；`Balance/Sync` 是独立 Credential Sync 安全域，会在用户明确配置后把凭证以独立加密信封发送到其 Sync Endpoint。两者不得共享协议、文档或“凭证永不离开 Mac”的笼统表述。
 
 ## 开发者模式安全边界（v0.9.0+）
 

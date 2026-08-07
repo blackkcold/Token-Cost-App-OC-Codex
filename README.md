@@ -11,14 +11,26 @@
 
 ## English
 
-A native macOS dashboard for visualizing token usage and cost across AI coding tools. Supports **OpenCode** (SQLite) and **Codex** (JSONL session) as dual data sources — all local, read-only, and privacy-first.
+A native macOS dashboard for visualizing token usage and cost across AI coding tools. OpenCode/Codex source analysis is local and read-only; the optional Relay feature sends only end-to-end encrypted balance snapshots between paired clients.
+
+### System Architecture
+
+This public repository contains two clients that can optionally use a separately maintained Private Relay:
+
+| System | Directory | Role |
+|--------|-----------|------|
+| **macOS desktop app** | `Sources/` | Local data aggregation, provider balance querying, relay client, local state |
+| **Android companion app** | `android/` | Pairing UX, relay client, balance display and state recovery |
+| **Private Relay** | Separate private repository | Opaque device-to-device forwarding; server implementation and deployment are not public |
+
+The macOS app is the data owner. The optional Android companion pairs through Protocol v1 and a Private Relay that forwards opaque E2EE envelopes. Production Relay source, deployment configuration and hostname are not part of this repository. The public protocol is maintained separately as **Token-Cost-Relay-Contract**; this repository vendors its test-vector snapshot under `Resources/RelayContract/v1/`.
 
 ### Why Token Cost App?
 
 AI coding tools charge by token — but most developers have no idea what they're actually spending. This app gives you:
 - **Unified cost view** across OpenCode, Codex/ChatGPT, MiniMax, and Xiaomi MiMo
 - **Real subscription cost tracking** — not just API estimates, but what you actually pay
-- **Local-only, zero telemetry** — no data leaves your machine
+- **Local source analysis** — OpenCode/Codex source files stay local; optional Relay traffic is explicitly E2EE
 
 ### Features
 
@@ -34,7 +46,7 @@ AI coding tools charge by token — but most developers have no idea what they'r
 - **Responsive Settings Panel** — Module-based collapsible settings with adaptive horizontal layout for faster desktop scanning
 - **Desktop-Friendly Window Behavior** — Closing the main window hides the Dock icon while keeping the MenuBar workflow active
 - **Update Checker** — Silent check on launch + manual trigger; auto-downloads updates
-- **Offline & Local** — Runs entirely on your machine; update checks only anonymously pull GitHub's public Release API
+- **Offline-first** — Core analysis runs locally; update checks and explicitly enabled Provider/Relay features use documented network paths
 - **Read-Only Safe** — Never modifies your source data
 
 ### Quick Start
@@ -62,6 +74,24 @@ bash script/build_and_run_codex.sh run
 # Swift compile only
 swift build
 ```
+
+#### Android Companion App
+
+The repo also contains an Android companion app (`android/`) — a Flutter-based **Balance Monitor** that pairs with the macOS app via QR code and shows AI-provider balances on your phone.
+
+```bash
+cd android
+flutter pub get
+flutter analyze
+flutter test
+
+# Package release artifacts (APK + AAB) into android/release/
+export JAVA_HOME="$(/usr/libexec/java_home -v 17)"  # 脚本会自动回退识别已安装的 JDK 17
+export RELAY_BASE_URL="${RELAY_BASE_URL:?Set the protected HTTPS Relay endpoint}"
+bash script/build_android_release.sh
+```
+
+See [android/README.md](android/README.md) for details.
 
 ### Configuration
 
@@ -97,13 +127,19 @@ Token-Cost-App-OC-Codex/
 │   ├── CodexTokenCostCore/    # Core module (models, analytics, discovery)
 │   ├── CodexTokenCostApp/     # Main app (SwiftUI views, stores, entry)
 │   └── CodexTokenCostHelper/  # Helper process (CLI Codex session collector)
+├── android/                   # Android companion app (Flutter Balance Monitor)
+│   └── release/               # Android release artifacts (APK + AAB)
 ├── docs/                      # Architecture docs & dev manual
 ├── script/                    # Build & run scripts
-├── release/                   # Release artifacts + versions.json
+├── release/                   # macOS release artifacts + versions.json
 └── .github/workflows/         # CI/CD
 ```
 
 See [dev manual](docs/开发手册.md) and [architecture diagram](docs/架构逻辑链图.md) for details.
+
+#### Relay Development
+
+Production Relay implementation and deployment remain private. Public builds and tests do not depend on the Private Relay repository. Internal development uses sibling Public App, Private Relay and Public Contract repositories; both Debug clients must be launched with the same explicit `RELAY_BASE_URL`.
 
 ### License
 
@@ -113,14 +149,26 @@ MIT License — see [LICENSE](LICENSE)
 
 ## 中文
 
-一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。支持 **OpenCode** (SQLite) 和 **Codex** (JSONL Session) 双数据源，纯本地运行，只读安全。
+一款原生 macOS 仪表盘应用，用于可视化 AI 编程工具的 token 用量与费用。OpenCode/Codex 源数据分析保持本地只读；可选 Relay 功能只在已配对客户端之间传输端到端加密的余额快照。
+
+### 系统架构
+
+本 Public Repository 包含两个客户端，并可选连接独立维护的 Private Relay：
+
+| 系统 | 目录 | 职责 |
+|------|------|------|
+| **macOS 桌面端** | `Sources/` | 本地数据聚合、Provider 余额查询、中继客户端、本地状态 |
+| **安卓配套 App** | `android/` | 配对交互、中继客户端、余额展示与状态恢复 |
+| **Private Relay** | 独立 Private Repository | 不透明设备转发；服务端实现和部署不公开 |
+
+macOS 桌面端是数据所有者。Android 通过 Protocol v1 和 Private Relay 完成配对及余额展示；Relay 只转发 E2EE 不透明信封。Production Relay 源码、部署配置和真实地址不在本仓库。Public Protocol 单独维护为 **Token-Cost-Relay-Contract**，本仓库仅在 `Resources/RelayContract/v1/` 保存测试向量快照。
 
 ### 为什么需要它？
 
 AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花了多少钱。这个 App 帮你：
 - **统一费用视图** — OpenCode、Codex/ChatGPT、MiniMax、小米 MiMo 一目了然
 - **真实订阅成本追踪** — 不是 API 估算，而是你实际支付的订阅费
-- **纯本地，零遥测** — 所有数据不出你的电脑
+- **本地源数据分析** — OpenCode/Codex 源文件不离开电脑；可选 Relay 流量明确使用 E2EE
 
 ### 功能特性
 
@@ -136,7 +184,7 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 - **响应式设置页** — 模块化折叠设置面板，短控件采用横向自适应布局，桌面端浏览更高效
 - **桌面窗口行为优化** — 关闭主窗口后自动隐藏 Dock 图标，保留 MenuBar 工作流
 - **版本更新检查** — 启动时静默检查 + 手动触发，自动下载更新包
-- **本地离线** — 纯本地运行；版本更新检查仅匿名拉取 GitHub 公开 Release API，不上传数据
+- **离线优先** — 核心分析本地运行；更新检查及显式启用的 Provider/Relay 功能使用文档列明的网络路径
 - **只读安全** — 源数据只读访问，不修改任何源数据
 
 ### 快速开始
@@ -164,6 +212,24 @@ bash script/build_and_run_codex.sh run
 # 仅编译
 swift build
 ```
+
+#### 安卓配套 App
+
+仓库还包含一个安卓配套 App（`android/`）——一个基于 Flutter 的**余额监控**应用，通过扫描二维码与 macOS 桌面端配对，在手机上查看各 AI Provider 的余额。
+
+```bash
+cd android
+flutter pub get
+flutter analyze
+flutter test
+
+# 打包 release 产物（APK + AAB）到 android/release/
+export JAVA_HOME="$(/usr/libexec/java_home -v 17)"  # 脚本会自动回退识别已安装的 JDK 17
+export RELAY_BASE_URL="${RELAY_BASE_URL:?请先设置受保护的 HTTPS Relay Endpoint}"
+bash script/build_android_release.sh
+```
+
+详见 [android/README.md](android/README.md)。
 
 ### 配置说明
 
@@ -199,13 +265,19 @@ Token-Cost-App-OC-Codex/
 │   ├── CodexTokenCostCore/    # 核心模块
 │   ├── CodexTokenCostApp/     # 主应用
 │   └── CodexTokenCostHelper/  # 辅助进程
+├── android/                   # 安卓配套 App（Flutter 余额监控）
+│   └── release/               # 安卓发布产物（APK + AAB）
 ├── docs/                      # 文档
 ├── script/                    # 构建脚本
-├── release/                   # 发布产物 + versions.json
+├── release/                   # macOS 发布产物 + versions.json
 └── .github/workflows/         # CI/CD
 ```
 
 详见 [开发手册](docs/开发手册.md) 和 [架构逻辑链图](docs/架构逻辑链图.md)。
+
+#### Relay 开发
+
+Production Relay 实现与部署保持私有，Public App 的构建和测试不依赖 Private Relay Repository。内部开发采用 Public App、Private Relay、Public Contract 三个 sibling repositories；两个 Debug 客户端必须显式注入同一个 `RELAY_BASE_URL`。
 
 ### 许可证
 
