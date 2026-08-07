@@ -6,6 +6,7 @@ struct SettingsView: View {
     @ObservedObject var codexModel: CodexSessionModel
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     @ObservedObject var balanceManager: BalanceManager
+    @ObservedObject var relayCoordinator: BalanceRelayCoordinator
     @ObservedObject var updateCheckerModel: UpdateCheckerModel
     @Environment(\.dismiss) private var dismiss
 
@@ -364,6 +365,7 @@ struct SettingsView: View {
             BalanceSectionView(
                 appPreferencesModel: appPreferencesModel,
                 balanceManager: balanceManager,
+                relayCoordinator: relayCoordinator,
                 palette: palette,
                 showBalanceNetworkAlert: $showBalanceNetworkAlert,
                 goWorkspaceIDInput: $goWorkspaceIDInput,

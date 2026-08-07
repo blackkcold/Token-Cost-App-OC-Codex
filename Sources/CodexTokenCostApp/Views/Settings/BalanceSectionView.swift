@@ -4,6 +4,7 @@ import CodexTokenCostCore
 struct BalanceSectionView: View {
     @ObservedObject var appPreferencesModel: AppPreferencesModel
     @ObservedObject var balanceManager: BalanceManager
+    @ObservedObject var relayCoordinator: BalanceRelayCoordinator
     let palette: TokenCostPalette
     @Binding var showBalanceNetworkAlert: Bool
     @Binding var goWorkspaceIDInput: String
@@ -29,6 +30,11 @@ struct BalanceSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             balanceToggleCard
+            BalanceRelaySettingsCard(
+                relayCoordinator: relayCoordinator,
+                palette: palette,
+                relayLoggingBinding: appPreferencesModel.relayLoggingEnabledBinding
+            )
             balanceOrderCard
             providerStatusCard
         }
