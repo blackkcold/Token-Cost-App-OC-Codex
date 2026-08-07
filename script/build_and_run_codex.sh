@@ -124,6 +124,7 @@ APP_DMG_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.dmg"
 UPDATE_MANIFEST_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.update-manifest.json"
 APP_VOLUME_NAME="Token Cost App - OC Codex"
 UPDATE_MANIFEST_PUBLIC_KEY_B64="${UPDATE_MANIFEST_PUBLIC_KEY_B64:-}"
+RELAY_BASE_URL="${RELAY_BASE_URL:-}"
 
 case "$MODE" in
   release)
@@ -139,6 +140,22 @@ case "$MODE" in
     exit 2
     ;;
 esac
+
+if [[ "$MODE" == "release" ]]; then
+  if [[ ! "$RELAY_BASE_URL" =~ ^https://[^[:space:]?#]+(/[^[:space:]?#]*)?$ ]]; then
+    echo "release mode requires a valid HTTPS RELAY_BASE_URL without query or fragment" >&2
+    exit 4
+  fi
+elif [[ -n "$RELAY_BASE_URL" ]] && [[ ! "$RELAY_BASE_URL" =~ ^https?://[^[:space:]?#]+(/[^[:space:]?#]*)?$ ]]; then
+  echo "RELAY_BASE_URL must be an HTTP(S) URL without query or fragment" >&2
+  exit 4
+fi
+
+RELAY_PLIST_ENTRY=""
+if [[ -n "$RELAY_BASE_URL" ]]; then
+  RELAY_PLIST_ENTRY="  <key>RelayBaseURL</key>
+  <string>$RELAY_BASE_URL</string>"
+fi
 
 APP_BUNDLE="$RELEASE_DIR/$APP_DISPLAY_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -236,6 +253,7 @@ stage_bundle() {
   <string>NSApplication</string>
   <key>UpdateManifestPublicKey</key>
   <string>$UPDATE_MANIFEST_PUBLIC_KEY_B64</string>
+$RELAY_PLIST_ENTRY
 </dict>
 </plist>
 PLIST
