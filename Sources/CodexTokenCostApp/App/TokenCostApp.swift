@@ -10,6 +10,7 @@ struct CodexTokenCostApp: App {
     @StateObject private var codexModel: CodexSessionModel
     @StateObject private var balanceManager: BalanceManager
     @StateObject private var balanceRefreshScheduler: BalanceRefreshScheduler
+    @StateObject private var relayCoordinator: BalanceRelayCoordinator
     @StateObject private var backupScheduler: BackupScheduler
     @StateObject private var updateChecker: UpdateCheckerModel
     @StateObject private var skillsModel: OpenCodeSkillsModel
@@ -29,10 +30,13 @@ struct CodexTokenCostApp: App {
         AppDelegate.balanceFloatingPanelCoordinator = balanceFloatingPanelCoordinator
         let scheduler = BalanceRefreshScheduler(balanceManager: balanceManager, preferencesModel: preferencesModel)
         scheduler.start()
+        let relayCoordinator = BalanceRelayCoordinator(balanceManager: balanceManager)
+        AppDelegate.relayCoordinator = relayCoordinator
         let backupScheduler = BackupScheduler(preferencesModel: preferencesModel)
         backupScheduler.start()
         _balanceManager = StateObject(wrappedValue: balanceManager)
         _balanceRefreshScheduler = StateObject(wrappedValue: scheduler)
+        _relayCoordinator = StateObject(wrappedValue: relayCoordinator)
         _backupScheduler = StateObject(wrappedValue: backupScheduler)
         _updateChecker = StateObject(wrappedValue: UpdateCheckerModel())
         _skillsModel = StateObject(wrappedValue: OpenCodeSkillsModel())
@@ -74,6 +78,7 @@ struct CodexTokenCostApp: App {
                 codexModel: codexModel,
                 appPreferencesModel: appPreferencesModel,
                 balanceManager: balanceManager,
+                relayCoordinator: relayCoordinator,
                 updateCheckerModel: updateChecker
             )
             .preferredColorScheme(appPreferencesModel.preferences.appearanceMode.preferredColorScheme)
