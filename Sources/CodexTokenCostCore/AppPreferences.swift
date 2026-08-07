@@ -99,6 +99,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var reportingRangeMode: ReportingRangeMode
     public var reportingRangeCustomBounds: ReportingRangeCustomBounds
     public var menuBarChartStyle: MenuBarChartStyle
+    public var relayLoggingEnabled: Bool
 
     public init(
         language: AppDisplayLanguage = .zhHans,
@@ -129,7 +130,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         periodTotalCostEnabled: Bool = false,
         reportingRangeMode: ReportingRangeMode = .allAvailable,
         reportingRangeCustomBounds: ReportingRangeCustomBounds = ReportingRangeCustomBounds(),
-        menuBarChartStyle: MenuBarChartStyle = .sparkline
+        menuBarChartStyle: MenuBarChartStyle = .sparkline,
+        relayLoggingEnabled: Bool = false
     ) {
         self.language = language
         self.billingSelectionsByProvider = billingSelectionsByProvider
@@ -160,6 +162,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.reportingRangeMode = reportingRangeMode
         self.reportingRangeCustomBounds = reportingRangeCustomBounds
         self.menuBarChartStyle = menuBarChartStyle
+        self.relayLoggingEnabled = relayLoggingEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -194,6 +197,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case reportingRangeMode = "reporting_range_mode"
         case reportingRangeCustomBounds = "reporting_range_custom_bounds"
         case menuBarChartStyle = "menu_bar_chart_style"
+        case relayLoggingEnabled = "relay_logging_enabled"
     }
 
     private enum DecodingKeys: String, CodingKey {
@@ -228,6 +232,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         case reportingRangeMode
         case reportingRangeCustomBounds
         case menuBarChartStyle
+        case relayLoggingEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -339,6 +344,9 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.menuBarChartStyle = try container.decodeIfPresent(MenuBarChartStyle.self, forKey: .menuBarChartStyle)
             ?? legacyContainer?.decodeIfPresent(MenuBarChartStyle.self, forKey: .menuBarChartStyle)
             ?? .sparkline
+        self.relayLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .relayLoggingEnabled)
+            ?? legacyContainer?.decodeIfPresent(Bool.self, forKey: .relayLoggingEnabled)
+            ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -372,6 +380,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         try container.encode(reportingRangeMode, forKey: .reportingRangeMode)
         try container.encode(reportingRangeCustomBounds, forKey: .reportingRangeCustomBounds)
         try container.encode(menuBarChartStyle, forKey: .menuBarChartStyle)
+        try container.encode(relayLoggingEnabled, forKey: .relayLoggingEnabled)
     }
 
     /// Returns a copy of preferences with the given balanceConfig applied.
