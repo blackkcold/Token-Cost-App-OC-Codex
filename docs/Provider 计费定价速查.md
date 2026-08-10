@@ -58,7 +58,7 @@ Ollama Cloud 代理的 DeepSeek 模型在 token 报告中**不返回 cacheRead**
 | 层级 | 模型 | Input | Output | 缓存读 | 缓存写 |
 |---|---|---|---|---|---|
 | Nano | GPT-4.1 Nano | $0.10 | $0.40 | $0.025 (75% off) | 不存在 |
-| Nano | GPT-5.4 Nano | $0.20 | $1.20 | $0.02 (90% off) | 不存在 |
+| Nano | GPT-5.4 Nano | $0.20 | $1.25 | $0.02 (90% off) | 不存在 |
 | Mini | GPT-4.1 Mini | $0.40 | $1.60 | $0.10 (75% off) | 不存在 |
 | Mini | GPT-5.4 Mini | $0.75 | $4.50 | $0.075 (90% off) | 不存在 |
 | Standard | GPT-4.1 (1M ctx) | $2.00 | $8.00 | $0.50 (75% off) | 不存在 |
@@ -170,7 +170,10 @@ actualInputTokens(OpenCode) = input
 actualInputTokens(Codex) = max(inputTokens - cachedInputTokens, 0)
 actualTokens = input + output + reasoning
 totalTokens = actualTokens + cacheRead + cacheWrite
-cacheHitRate = cacheRead / (actualTokens + cacheRead)
+// 聚合命中率：分母 = 实际输入 + 展示缓存读（不含 output，避免高输出稀释命中率）
+// displayedCacheRead = 真实 cacheRead + Ollama 估算 cacheRead（含估算时）
+// 与 DashboardAnalytics.cacheHitRate（displayedCacheRead / (totalInputTokens + displayedCacheRead)）一致
+cacheHitRate = cacheRead / (totalInputTokens + cacheRead)
 
 ### 缓存节省费用（cacheSavedCost）
 
