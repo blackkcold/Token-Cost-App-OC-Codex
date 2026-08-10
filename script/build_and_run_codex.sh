@@ -274,7 +274,7 @@ package_release_zip() {
 write_update_manifest() {
   local zip_path="$RELEASE_DIR/$APP_ZIP_NAME"
   local manifest_path="$RELEASE_DIR/$UPDATE_MANIFEST_NAME"
-  local asset_size sha256 signature
+  local asset_size sha256 signature signing_payload
 
   if [[ -z "${UPDATE_MANIFEST_PRIVATE_KEY_PEM:-}" ]] || [[ -z "$UPDATE_MANIFEST_PUBLIC_KEY_B64" ]]; then
     echo "warning: UPDATE_MANIFEST_PRIVATE_KEY_PEM or UPDATE_MANIFEST_PUBLIC_KEY_B64 not set; skipping signed update manifest" >&2
@@ -283,12 +283,19 @@ write_update_manifest() {
 
   asset_size="$(stat -f '%z' "$zip_path")"
   sha256="$(shasum -a 256 "$zip_path" | cut -d ' ' -f 1)"
+  signing_payload="$(mktemp)"
+  trap 'rm -f "$signing_payload"' RETURN
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
+    "$RELEASE_TAG" "$BUNDLE_ID" "$APP_ARCH" "$APP_ZIP_NAME" "$asset_size" "$sha256" \
+    >"$signing_payload"
   signature="$(
-    printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
-      "$RELEASE_TAG" "$BUNDLE_ID" "$APP_ARCH" "$APP_ZIP_NAME" "$asset_size" "$sha256" \
-      | openssl pkeyutl -sign -rawin -inkey <(printf '%s' "$UPDATE_MANIFEST_PRIVATE_KEY_PEM") \
+    openssl pkeyutl -sign -rawin \
+      -inkey <(printf '%s' "$UPDATE_MANIFEST_PRIVATE_KEY_PEM") \
+      -in "$signing_payload" \
       | openssl base64 -A
   )"
+  rm -f "$signing_payload"
+  trap - RETURN
 
   python3 - "$manifest_path" "$RELEASE_TAG" "$BUNDLE_ID" "$APP_ARCH" "$APP_ZIP_NAME" "$asset_size" "$sha256" "$signature" <<'PY'
 import json
