@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.3.0] - 2026-08-24
+
 ### Added
 
 - Relay Contract `1.1.0` analytics 支持：macOS 生成 `overview/cache/cost/usage/modelDistribution/trend/heatmap` 七类 section，Android 按需请求、RFC 1950 zlib 解压并展示摘要。
@@ -705,7 +707,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.3.0...HEAD
+[v1.3.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.2.0...v1.3.0
 [v1.2.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.3...v1.2.0
 [v1.1.3]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.2...v1.1.3
 [v1.1.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.1...v1.1.2
