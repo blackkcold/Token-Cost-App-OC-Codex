@@ -8,6 +8,7 @@ import '../models/relay_models.dart';
 import '../services/diagnostic_log.dart';
 import '../services/relay_client.dart';
 import '../services/relay_identity_store.dart';
+import '../services/relay_section_cache.dart';
 import 'balance_card.dart';
 import 'diagnostic_view.dart';
 import 'pair_scanner_view.dart';
@@ -44,8 +45,10 @@ class DashboardView extends StatefulWidget {
 class _DashboardViewState extends State<DashboardView> {
   late final RelayIdentityStore _store;
   late final RelayClient _client;
+  late final RelaySectionCache _sectionCache;
   RelayIdentity? _identity;
   List<BalanceSnapshot> _snapshots = const [];
+  Map<String, dynamic> _sections = const {};
   bool _loading = true;
   bool _isFetching = false;
   bool _pcOnline = false;
@@ -58,6 +61,7 @@ class _DashboardViewState extends State<DashboardView> {
     super.initState();
     _store = RelayIdentityStore(expectedServerBaseUrl: widget.relayEndpoint);
     _client = RelayClient(_store, serverBaseUrl: widget.relayEndpoint);
+    _sectionCache = RelaySectionCache();
     _initialize();
   }
 
@@ -76,6 +80,10 @@ class _DashboardViewState extends State<DashboardView> {
       _statusMessage = identity == null ? '请扫描 Mac 端生成的安全配对二维码' : null;
     });
     if (identity != null) {
+      final cached = await _sectionCache.load(identity.deviceId);
+      if (mounted && cached != null) {
+        setState(() => _sections = cached.sections);
+      }
       DiagnosticLog.instance.record(
         '[init] 已加载配对身份 device=${_shortId(identity.deviceId)}',
         category: DiagnosticCategory.connection,
@@ -231,11 +239,13 @@ class _DashboardViewState extends State<DashboardView> {
           if (!mounted) return;
           setState(() {
             _snapshots = response.snapshots;
+            _sections = response.sections;
             _pcOnline = true;
             _statusMessage = response.snapshots.isEmpty
                 ? 'Mac 未返回可用 Provider 数据'
                 : null;
           });
+          await _sectionCache.save(current.deviceId, response);
           if (response.snapshots.isEmpty) {
             DiagnosticLog.instance.record(
               '[query] 刷新成功但 snapshots 为空',
@@ -324,6 +334,7 @@ class _DashboardViewState extends State<DashboardView> {
       }
     }
     await _store.delete();
+    await _sectionCache.delete();
     DiagnosticLog.instance.record(
       '[forget] 已忘记设备并清除本地配对',
       category: DiagnosticCategory.device,
@@ -332,6 +343,7 @@ class _DashboardViewState extends State<DashboardView> {
     setState(() {
       _identity = null;
       _snapshots = const [];
+      _sections = const {};
       _pcOnline = false;
       _statusMessage = '请扫描 Mac 端生成的安全配对二维码';
     });
@@ -385,12 +397,18 @@ class _DashboardViewState extends State<DashboardView> {
 
   Widget _buildBody() {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_snapshots.isNotEmpty) {
+    if (_snapshots.isNotEmpty || _sections.isNotEmpty) {
       return RefreshIndicator(
         onRefresh: _refresh,
         child: ListView.builder(
-          itemCount: _snapshots.length,
-          itemBuilder: (_, index) => BalanceCard(snapshot: _snapshots[index]),
+          itemCount: _snapshots.length + (_sections.isEmpty ? 0 : 1),
+          itemBuilder: (_, index) {
+            if (_sections.isNotEmpty && index == 0) {
+              return _RelayAnalyticsSummary(sections: _sections);
+            }
+            final snapshotIndex = index - (_sections.isEmpty ? 0 : 1);
+            return BalanceCard(snapshot: _snapshots[snapshotIndex]);
+          },
         ),
       );
     }
@@ -413,6 +431,73 @@ class _DashboardViewState extends State<DashboardView> {
       ),
     );
   }
+}
+
+class _RelayAnalyticsSummary extends StatelessWidget {
+  final Map<String, dynamic> sections;
+
+  const _RelayAnalyticsSummary({required this.sections});
+
+  @override
+  Widget build(BuildContext context) {
+    final overview = sections['overview'] as Map<String, dynamic>?;
+    final cache = sections['cache'] as Map<String, dynamic>?;
+    String number(Object? value) =>
+        value is num ? value.toStringAsFixed(0) : '—';
+    String money(Object? value) =>
+        value is num ? '\$${value.toStringAsFixed(2)}' : '—';
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '使用分析',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 18,
+              runSpacing: 10,
+              children: [
+                _metric('总 Token', number(overview?['totalTokens'])),
+                _metric('实际 Token', number(overview?['totalActualTokens'])),
+                _metric('总成本', money(overview?['totalCostUSD'])),
+                _metric('活跃天数', number(overview?['activeDays'])),
+                _metric(
+                  '缓存命中率',
+                  cache?['hitRate'] is num
+                      ? '${((cache!['hitRate'] as num) * 100).toStringAsFixed(1)}%'
+                      : '—',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              sections.keys.join(' · '),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _metric(String label, String value) => SizedBox(
+    width: 120,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12)),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+        ),
+      ],
+    ),
+  );
 }
 
 class _ConnectionBadge extends StatelessWidget {

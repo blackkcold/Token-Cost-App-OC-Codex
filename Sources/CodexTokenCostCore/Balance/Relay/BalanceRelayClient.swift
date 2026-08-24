@@ -43,6 +43,7 @@ public actor BalanceRelayClient {
         let deviceId: String
         let pairCode: String
         let expiresAt: Int64
+        let requiresApproval: Bool?
     }
 
     private struct ServerMessage: Decodable {
@@ -71,7 +72,10 @@ public actor BalanceRelayClient {
     private var connectionGeneration: UInt64 = 0
     private var queryHandler: QueryHandler?
     private var stateHandler: StateHandler?
-    private var seenQueryNonces: Set<String> = []
+    private var replayCache = BalanceRelayReplayCache()
+    private var queryLimiter = BalanceRelayQueryLimiter()
+    private static let maxTransportBytes = 65_536
+    private static let queryTimeoutSeconds: Double = 10
 
     /// 是否输出详细中继日志（连接/断连/心跳/查询事件）。
     /// 由设置面板的"中继日志"开关控制，默认关闭；关闭时仍保留 error 级日志以利排查。
@@ -211,7 +215,7 @@ public actor BalanceRelayClient {
         try identityStore.delete()
         self.identity = nil
         e2eKey = nil
-        seenQueryNonces.removeAll()
+        replayCache.removeAll()
         await stateHandler?(.unconfigured)
     }
 
@@ -244,16 +248,27 @@ public actor BalanceRelayClient {
                 path: "/api/v1/pair/start",
                 method: "POST",
                 body: Data("{}".utf8),
-                identity: identity
+                identity: identity,
+                additionalHeaders: ["X-Relay-Contract": "1.1.0"]
             )
         } catch BalanceRelayClientError.server(let status, let code, _)
             where status == 409 && (code == nil || code == "ALREADY_PAIRED") {
             throw BalanceRelayClientError.alreadyPaired
         }
         let response = try JSONDecoder().decode(PairingResponse.self, from: data)
+        if response.requiresApproval == true {
+            _ = try await request(
+                baseURL: identity.serverBaseURL,
+                path: "/api/v1/pair/approve",
+                method: "POST",
+                body: Data("{}".utf8),
+                identity: identity,
+                additionalHeaders: ["X-Relay-Contract": "1.1.0"]
+            )
+        }
         let key = BalanceRelayCrypto.generateKey()
         e2eKey = key
-        seenQueryNonces.removeAll(keepingCapacity: true)
+        replayCache.removeAll()
         // 持久化 e2eKey，使 App 重启后能自动重连中继，无需重新扫码配对。
         try? identityStore.save(BalanceRelayStoredIdentity(identity: identity, e2eKey: key))
         return BalanceRelayPairingPayload(
@@ -300,7 +315,7 @@ public actor BalanceRelayClient {
         try identityStore.delete()
         identity = nil
         e2eKey = nil
-        seenQueryNonces.removeAll()
+        replayCache.removeAll()
         await stateHandler?(.unconfigured)
     }
 
@@ -330,7 +345,7 @@ public actor BalanceRelayClient {
         try identityStore.delete()
         self.identity = nil
         e2eKey = nil
-        seenQueryNonces.removeAll()
+        replayCache.removeAll()
         await stateHandler?(.unconfigured)
     }
 
@@ -429,35 +444,56 @@ public actor BalanceRelayClient {
     }
 
     private func handleMessage(_ data: Data, task: URLSessionWebSocketTask) async throws {
-        guard data.count <= 65_536, let key = e2eKey, let queryHandler else {
+        guard data.count <= Self.maxTransportBytes, let key = e2eKey, let queryHandler else {
             throw BalanceRelayClientError.invalidServerResponse
         }
         let message = try JSONDecoder().decode(ServerMessage.self, from: data)
-        guard message.type == "relay.request" else { throw BalanceRelayClientError.invalidServerResponse }
+        guard message.type == "relay.request", (16...100).contains(message.requestId.count) else {
+            throw BalanceRelayClientError.invalidServerResponse
+        }
         let query = try BalanceRelayCrypto.open(message.envelope, keyData: key, as: BalanceRelayQuery.self)
-        try BalanceRelayQueryValidator.validate(query, seenNonces: &seenQueryNonces)
+        do {
+            try BalanceRelayQueryValidator.validate(query, replayCache: &replayCache)
+            try queryLimiter.acquire()
+        } catch {
+            try await sendError(for: query, requestID: message.requestId, error: error, key: key, task: task)
+            return
+        }
+        defer { queryLimiter.release() }
         logInfo("relay received query requestId=\(message.requestId)")
         // queryHandler（业务查询）异常必须隔离，不能因此关闭 WS 连接；
         // 否则服务器会 detach 本设备，后续手机端请求全部返回 "PC offline"。
         let response: BalanceRelayResponse
         do {
-            response = try await queryHandler(query)
+            response = try await withThrowingTaskGroup(of: BalanceRelayResponse.self) { group in
+                group.addTask { try await queryHandler(query) }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(Self.queryTimeoutSeconds))
+                    throw BalanceRelayQueryProcessingError.timeout
+                }
+                guard let result = try await group.next() else { throw BalanceRelayQueryProcessingError.timeout }
+                group.cancelAll()
+                return result
+            }
         } catch {
-            let failure = BalanceRelayResponse(snapshots: [BalanceSnapshot.unavailable(
-                .opencodeGo,
-                reason: "Mac 端查询失败：\(error.localizedDescription)"
-            )])
-            let failureEnvelope = try BalanceRelayCrypto.seal(failure, keyData: key)
-            let failureText = try Self.encodeResponseText(
-                requestID: message.requestId,
-                envelope: failureEnvelope
-            )
-            try await task.send(.string(failureText))
+            try await sendError(for: query, requestID: message.requestId, error: error, key: key, task: task)
             logError("relay query failed for requestId=\(message.requestId)")
             return
         }
         let envelope = try BalanceRelayCrypto.seal(response, keyData: key)
-        let replyText = try Self.encodeResponseText(requestID: message.requestId, envelope: envelope)
+        let replyText: String
+        do {
+            replyText = try Self.encodeResponseText(requestID: message.requestId, envelope: envelope)
+        } catch {
+            try await sendError(
+                for: query,
+                requestID: message.requestId,
+                error: BalanceRelayQueryProcessingError.responseTooLarge,
+                key: key,
+                task: task
+            )
+            return
+        }
         try await task.send(.string(replyText))
         logInfo("relay sent response requestId=\(message.requestId) snapshots=\(response.snapshots.count)")
     }
@@ -469,6 +505,9 @@ public actor BalanceRelayClient {
         let data = try JSONEncoder().encode(
             ClientMessage(type: "relay.response", requestId: requestID, envelope: envelope)
         )
+        guard data.count <= maxTransportBytes else {
+            throw BalanceRelayQueryProcessingError.responseTooLarge
+        }
         guard let text = String(data: data, encoding: .utf8) else {
             throw BalanceRelayClientError.invalidServerResponse
         }
@@ -480,7 +519,8 @@ public actor BalanceRelayClient {
         path: String,
         method: String,
         body: Data,
-        identity: BalanceRelayIdentity? = nil
+        identity: BalanceRelayIdentity? = nil,
+        additionalHeaders: [String: String] = [:]
     ) async throws -> Data {
         var request = URLRequest(url: apiURL(baseURL: baseURL, path: path))
         request.httpMethod = method
@@ -490,8 +530,11 @@ public actor BalanceRelayClient {
             request.setValue("Bearer \(identity.pcToken)", forHTTPHeaderField: "Authorization")
             request.setValue(identity.deviceID, forHTTPHeaderField: "X-Device-Id")
         }
+        for (name, value) in additionalHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         let (data, response) = try await session.data(for: request)
-        guard data.count <= 65_536, let http = response as? HTTPURLResponse else {
+        guard data.count <= Self.maxTransportBytes, let http = response as? HTTPURLResponse else {
             throw BalanceRelayClientError.invalidServerResponse
         }
         guard (200..<300).contains(http.statusCode) else {
@@ -505,6 +548,44 @@ public actor BalanceRelayClient {
         return data
     }
 
+    private func sendError(
+        for query: BalanceRelayQuery,
+        requestID: String,
+        error: Error,
+        key: Data,
+        task: URLSessionWebSocketTask
+    ) async throws {
+        let wireError = Self.wireError(for: error)
+        let response = BalanceRelayResponse(
+            requestNonce: query.nonce,
+            snapshots: [],
+            error: wireError
+        )
+        let envelope = try BalanceRelayCrypto.seal(response, keyData: key)
+        let text = try Self.encodeResponseText(requestID: requestID, envelope: envelope)
+        try await task.send(.string(text))
+    }
+
+    private static func wireError(for error: Error) -> BalanceRelayWireError {
+        switch error {
+        case BalanceRelayQueryValidationError.replay:
+            return BalanceRelayWireError(code: "REQUEST_REPLAYED", message: "Request nonce was already used")
+        case BalanceRelayQueryValidationError.unknownSection:
+            return BalanceRelayWireError(code: "INVALID_SECTION", message: "Unknown analytics section")
+        case BalanceRelayQueryValidationError.invalidSectionParams,
+             BalanceRelayQueryValidationError.duplicateSection:
+            return BalanceRelayWireError(code: "INVALID_SECTION_PARAMS", message: "Invalid analytics section parameters")
+        case BalanceRelayQueryProcessingError.rateLimited:
+            return BalanceRelayWireError(code: "REQUEST_RATE_LIMITED", message: "Too many relay queries")
+        case BalanceRelayQueryProcessingError.timeout:
+            return BalanceRelayWireError(code: "REQUEST_TIMEOUT", message: "Relay query timed out")
+        case BalanceRelayQueryProcessingError.responseTooLarge:
+            return BalanceRelayWireError(code: "RESPONSE_TOO_LARGE", message: "Relay response exceeds the transport limit")
+        default:
+            return BalanceRelayWireError(code: "INVALID_REQUEST", message: "Relay query was rejected")
+        }
+    }
+
     private func apiURL(baseURL: URL, path: String) -> URL {
         baseURL.appending(path: path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
     }
@@ -514,4 +595,32 @@ public actor BalanceRelayClient {
         components.scheme = components.scheme == "https" ? "wss" : "ws"
         return components.url!
     }
+}
+
+struct BalanceRelayQueryLimiter {
+    private var recentQueryMilliseconds: [Int64] = []
+    private var inFlightQueries = 0
+
+    mutating func acquire(
+        nowMilliseconds: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
+    ) throws {
+        recentQueryMilliseconds.removeAll { nowMilliseconds - $0 >= 10_000 }
+        let lastSecond = recentQueryMilliseconds.filter { nowMilliseconds - $0 < 1_000 }.count
+        guard lastSecond < 2, recentQueryMilliseconds.count < 10, inFlightQueries < 2 else {
+            throw BalanceRelayQueryProcessingError.rateLimited
+        }
+        recentQueryMilliseconds.append(nowMilliseconds)
+        inFlightQueries += 1
+    }
+
+    mutating func release() {
+        precondition(inFlightQueries > 0)
+        inFlightQueries -= 1
+    }
+}
+
+enum BalanceRelayQueryProcessingError: Error {
+    case rateLimited
+    case timeout
+    case responseTooLarge
 }

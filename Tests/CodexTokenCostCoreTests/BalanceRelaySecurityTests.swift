@@ -134,6 +134,78 @@ final class BalanceRelaySecurityTests: XCTestCase {
         XCTAssertEqual(query.nonce, "contract-query-nonce-0001")
     }
 
+    func testContractV11RequestResponseVectors() throws {
+        let decoder = JSONDecoder()
+        let requestData = try Data(contentsOf: contractFixtureRoot.appendingPathComponent("request-v1.1.json"))
+        let query = try decoder.decode(BalanceRelayQuery.self, from: requestData)
+        XCTAssertEqual(query.action, "balance.refresh")
+        XCTAssertEqual(query.nonce, "contract-query-nonce-0001")
+        XCTAssertEqual(Set(try XCTUnwrap(query.requestedSections)), BalanceRelayQueryValidator.allowedSections)
+        XCTAssertEqual(query.sectionParams?.trend?.days, 30)
+        XCTAssertEqual(query.sectionParams?.heatmap?.weeks, 52)
+
+        var replayCache = BalanceRelayReplayCache()
+        XCTAssertNoThrow(try BalanceRelayQueryValidator.validate(
+            query,
+            nowMilliseconds: query.issuedAtMilliseconds,
+            replayCache: &replayCache
+        ))
+
+        let responseData = try Data(contentsOf: contractFixtureRoot.appendingPathComponent("response-v1.1.json"))
+        let response = try decoder.decode(BalanceRelayResponse.self, from: responseData)
+        XCTAssertEqual(response.requestNonce, query.nonce)
+        let encodedOverview = try XCTUnwrap(response.sections?["overview"])
+        let compressed = try XCTUnwrap(Data(base64Encoded: encodedOverview.data))
+        let overviewData = try RelayCompression.zlibDecompress(compressed)
+        XCTAssertEqual(overviewData.count, encodedOverview.uncompressedBytes)
+        XCTAssertEqual(overviewData.count, 143)
+
+        let overview = try decoder.decode(RelayOverviewSection.self, from: overviewData)
+        XCTAssertEqual(overview.totalTokens, 2_000)
+        XCTAssertEqual(overview.totalActualTokens, 1_500)
+        XCTAssertEqual(overview.totalCostUSD, 1.25)
+        XCTAssertEqual(overview.dailyAverageTokens, 750)
+        XCTAssertEqual(overview.monthlyEstimateTokens, 22_500)
+        XCTAssertEqual(overview.activeDays, 2)
+
+        let overviewObject = try XCTUnwrap(JSONSerialization.jsonObject(with: overviewData) as? [String: Any])
+        XCTAssertEqual(Set(overviewObject.keys), [
+            "totalTokens",
+            "totalActualTokens",
+            "totalCostUSD",
+            "dailyAverageTokens",
+            "monthlyEstimateTokens",
+            "activeDays",
+        ])
+    }
+
+    func testContractZlibVectorDecompresses() throws {
+        let data = try Data(contentsOf: contractFixtureRoot.appendingPathComponent("section-zlib-vector.json"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let compressed = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(object["data"] as? String)))
+        let plaintext = try XCTUnwrap((object["plaintext"] as? String)?.data(using: .utf8))
+        XCTAssertEqual(try RelayCompression.zlibDecompress(compressed), plaintext)
+        XCTAssertEqual(try RelayCompression.zlibDecompress(try RelayCompression.zlibCompress(plaintext)), plaintext)
+    }
+
+    func testAllAnalyticsSectionsBuildAndRoundTrip() throws {
+        let analytics = TokenCostDashboardAnalytics(payload: .empty())
+        let requested = ["overview", "cache", "cost", "usage", "modelDistribution", "trend", "heatmap"]
+        let sections = try RelaySectionBuilder.build(
+            requestedSections: requested,
+            params: .init(trend: .init(days: 30), heatmap: .init(weeks: 52)),
+            analytics: analytics,
+            timeZoneIdentifier: "UTC"
+        )
+        XCTAssertEqual(Set(sections.keys), Set(requested))
+        for section in sections.values {
+            let compressed = try XCTUnwrap(Data(base64Encoded: section.data))
+            let plaintext = try RelayCompression.zlibDecompress(compressed)
+            XCTAssertEqual(plaintext.count, section.uncompressedBytes)
+            XCTAssertNoThrow(try JSONSerialization.jsonObject(with: plaintext))
+        }
+    }
+
     func testContractPairingFieldsExcludeServerOverride() throws {
         let data = try Data(contentsOf: contractFixtureRoot.appendingPathComponent("contract.json"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -144,13 +216,13 @@ final class BalanceRelaySecurityTests: XCTestCase {
 
     func testQueryValidationRejectsReplayStaleAndUnsupportedRequests() throws {
         let now: Int64 = 1_700_000_000_000
-        var seen: Set<String> = []
+        var replayCache = BalanceRelayReplayCache()
         let valid = BalanceRelayQuery(
             issuedAtMilliseconds: now,
             nonce: "security-query-nonce-0002"
         )
-        XCTAssertNoThrow(try BalanceRelayQueryValidator.validate(valid, nowMilliseconds: now, seenNonces: &seen))
-        XCTAssertThrowsError(try BalanceRelayQueryValidator.validate(valid, nowMilliseconds: now, seenNonces: &seen)) {
+        XCTAssertNoThrow(try BalanceRelayQueryValidator.validate(valid, nowMilliseconds: now, replayCache: &replayCache))
+        XCTAssertThrowsError(try BalanceRelayQueryValidator.validate(valid, nowMilliseconds: now, replayCache: &replayCache)) {
             XCTAssertEqual($0 as? BalanceRelayQueryValidationError, .replay)
         }
 
@@ -158,7 +230,7 @@ final class BalanceRelaySecurityTests: XCTestCase {
             issuedAtMilliseconds: now - 300_001,
             nonce: "security-query-nonce-0003"
         )
-        XCTAssertThrowsError(try BalanceRelayQueryValidator.validate(stale, nowMilliseconds: now, seenNonces: &seen)) {
+        XCTAssertThrowsError(try BalanceRelayQueryValidator.validate(stale, nowMilliseconds: now, replayCache: &replayCache)) {
             XCTAssertEqual($0 as? BalanceRelayQueryValidationError, .staleRequest)
         }
 
@@ -167,9 +239,75 @@ final class BalanceRelaySecurityTests: XCTestCase {
             issuedAtMilliseconds: now,
             nonce: "security-query-nonce-0004"
         )
-        XCTAssertThrowsError(try BalanceRelayQueryValidator.validate(unsupported, nowMilliseconds: now, seenNonces: &seen)) {
+        XCTAssertThrowsError(try BalanceRelayQueryValidator.validate(unsupported, nowMilliseconds: now, replayCache: &replayCache)) {
             XCTAssertEqual($0 as? BalanceRelayQueryValidationError, .unsupportedAction)
         }
+    }
+
+    func testReplayCacheExpiresAndEvictsWithoutClearingAllEntries() throws {
+        var cache = BalanceRelayReplayCache(capacity: 2, ttlMilliseconds: 100)
+        try cache.insert("nonce-000000000001", nowMilliseconds: 1_000)
+        try cache.insert("nonce-000000000002", nowMilliseconds: 1_010)
+        try cache.insert("nonce-000000000003", nowMilliseconds: 1_020)
+        XCTAssertEqual(cache.count, 2)
+        XCTAssertThrowsError(try cache.insert("nonce-000000000002", nowMilliseconds: 1_030))
+        XCTAssertNoThrow(try cache.insert("nonce-000000000002", nowMilliseconds: 1_111))
+    }
+
+    func testQueryLimiterEnforcesBurstWindowAndConcurrencyCaps() throws {
+        var perSecond = BalanceRelayQueryLimiter()
+        try perSecond.acquire(nowMilliseconds: 10_000)
+        perSecond.release()
+        try perSecond.acquire(nowMilliseconds: 10_001)
+        perSecond.release()
+        XCTAssertThrowsError(try perSecond.acquire(nowMilliseconds: 10_002)) {
+            XCTAssertEqual($0 as? BalanceRelayQueryProcessingError, .rateLimited)
+        }
+
+        var tenSecond = BalanceRelayQueryLimiter()
+        for index in 0..<10 {
+            try tenSecond.acquire(nowMilliseconds: 20_000 + Int64(index * 1_000))
+            tenSecond.release()
+        }
+        XCTAssertThrowsError(try tenSecond.acquire(nowMilliseconds: 29_999)) {
+            XCTAssertEqual($0 as? BalanceRelayQueryProcessingError, .rateLimited)
+        }
+
+        var concurrent = BalanceRelayQueryLimiter()
+        try concurrent.acquire(nowMilliseconds: 40_000)
+        try concurrent.acquire(nowMilliseconds: 41_001)
+        XCTAssertThrowsError(try concurrent.acquire(nowMilliseconds: 42_002)) {
+            XCTAssertEqual($0 as? BalanceRelayQueryProcessingError, .rateLimited)
+        }
+        concurrent.release()
+        concurrent.release()
+    }
+
+    func testSectionValidationRejectsUnknownDuplicateAndOutOfRangeParams() throws {
+        let now: Int64 = 1_700_000_000_000
+        func validate(_ query: BalanceRelayQuery) throws {
+            var cache = BalanceRelayReplayCache()
+            try BalanceRelayQueryValidator.validate(query, nowMilliseconds: now, replayCache: &cache)
+        }
+
+        XCTAssertThrowsError(try validate(BalanceRelayQuery(
+            issuedAtMilliseconds: now,
+            nonce: "section-query-nonce-0001",
+            requestedSections: ["overview", "unknown"]
+        ))) { XCTAssertEqual($0 as? BalanceRelayQueryValidationError, .unknownSection) }
+
+        XCTAssertThrowsError(try validate(BalanceRelayQuery(
+            issuedAtMilliseconds: now,
+            nonce: "section-query-nonce-0002",
+            requestedSections: ["overview", "overview"]
+        ))) { XCTAssertEqual($0 as? BalanceRelayQueryValidationError, .duplicateSection) }
+
+        XCTAssertThrowsError(try validate(BalanceRelayQuery(
+            issuedAtMilliseconds: now,
+            nonce: "section-query-nonce-0003",
+            requestedSections: ["trend"],
+            sectionParams: .init(trend: .init(days: 91))
+        ))) { XCTAssertEqual($0 as? BalanceRelayQueryValidationError, .invalidSectionParams) }
     }
 
     func testIdentityStoreEncryptsTokenAndUsesRestrictivePermissions() throws {

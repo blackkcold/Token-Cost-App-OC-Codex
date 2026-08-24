@@ -19,7 +19,8 @@ struct CodexTokenCostApp: App {
     init() {
         let preferencesModel = AppPreferencesModel()
         _appPreferencesModel = StateObject(wrappedValue: preferencesModel)
-        _openCodeModel = StateObject(wrappedValue: TokenCostModel())
+        let openCodeModel = TokenCostModel()
+        _openCodeModel = StateObject(wrappedValue: openCodeModel)
         _codexModel = StateObject(wrappedValue: CodexSessionModel())
         let balanceManager = BalanceManager(configuration: preferencesModel.effectiveBalanceConfiguration)
         let balanceFloatingPanelCoordinator = BalanceFloatingPanelCoordinator(
@@ -30,7 +31,14 @@ struct CodexTokenCostApp: App {
         AppDelegate.balanceFloatingPanelCoordinator = balanceFloatingPanelCoordinator
         let scheduler = BalanceRefreshScheduler(balanceManager: balanceManager, preferencesModel: preferencesModel)
         scheduler.start()
-        let relayCoordinator = BalanceRelayCoordinator(balanceManager: balanceManager)
+        let relayAnalyticsProvider = RelayDashboardAnalyticsProvider(
+            openCodeModel: openCodeModel,
+            preferencesModel: preferencesModel
+        )
+        let relayCoordinator = BalanceRelayCoordinator(
+            balanceManager: balanceManager,
+            analyticsProvider: relayAnalyticsProvider
+        )
         AppDelegate.relayCoordinator = relayCoordinator
         let backupScheduler = BackupScheduler(preferencesModel: preferencesModel)
         backupScheduler.start()

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Relay Contract `1.1.0` analytics 支持：macOS 生成 `overview/cache/cost/usage/modelDistribution/trend/heatmap` 七类 section，Android 按需请求、RFC 1950 zlib 解压并展示摘要。
+- Android analytics section 使用设备隔离的 AES-GCM 缓存，密钥保存在 secure storage，缓存 TTL 为 5 分钟。
+- Contract `1.1.0` 的 `request-v1.1.json` / `response-v1.1.json` 向量接入 Swift 与 Android 测试，验证 requestNonce 绑定、section 解码与请求 round-trip。
+
+### Changed
+
+- Relay query/response 绑定内部 `requestNonce`；macOS、Android 与 Private Relay 同步使用 Contract `1.1.0` vectors。
+- `RelaySectionBuilder` 遇到超出明文上限的 section 时跳过该 section 并继续构建其余内容；非法数值改为返回 `INVALID_SECTION_DATA` 结构化错误。
+- Android section 缓存 TTL 改为基于本地写入时间，缓存密钥初始化使用 single-flight + 写后重读，避免跨端时钟偏差与并发生成竞态。
+- Android analytics 查询在 batch 仍超限时单层降级为逐 section 请求；即使 snapshots 为空，只要 sections 可用仍展示分析摘要。
+- Credential Sync 的 passphrase 与 token 从偏好 JSON 迁移到 `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` Keychain 项目。
+- 发布产物归档迁移到工作区级 `App-Builds/` 约定：正式产物使用 `App-Builds/<platform-version>-<UTC minute>/<platform>`，本地开发快照保留秒级时间戳 + PID，`App-Builds/latest/<platform>` 按平台隔离；`release/versions.json` 保留为仓库元数据而非打包产物目的地。
+- 拆分双平台版本体系：macOS 保持纯 SemVer tag/manifest 并在目录、资产与 Info.plist 追加统一 UTC 分钟；Android 改用独立 `A.BCD.E+code` 强校验，CI 两平台共享同一 `RELEASE_TS` 并按脚本实际输出目录上传。
+- Android 发布改为本地签名与手动上传：CI 仅在 `.github/workflows/ci.yml` 中运行 Android `flutter analyze` / `flutter test`，不再构建或上传 Android 产物；Android 正式签名使用本地 `key.properties` + 被 `.gitignore` 忽略的 `.jks`，官方构建用 `bash script/build_android_release.sh release`，产物手动 `gh release upload` 到 macOS 的 tag Release，Android `A.BCD.E+code` 仍独立于 macOS `vX.Y.Z`。
+
+### Security
+
+- macOS 增加 query replay TTL/容量淘汰、2/秒与 10/10 秒窗口、并发 2、10 秒业务超时及 65,536-byte transport 限制。
+- Android 改为流式读取 Relay 响应，超出 65,536 bytes 立即取消；zlib 解压按 section 131,072 bytes、总计 524,288 bytes fail closed。
+- Contract `1.1.0` 配对要求 Mac 显式批准；Android backup/device-transfer 明确排除全部应用数据。
+
 ## [v1.2.0] - 2026-08-07
 
 > **功能版本**：新增 macOS/Android Relay Client、E2EE Protocol v1 Contract、固定 Production Endpoint 与跨端安全发布链路。

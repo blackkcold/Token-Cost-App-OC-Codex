@@ -1,9 +1,31 @@
 #!/usr/bin/env bash
+# =============================================================================
+# build_and_run_codex.sh — macOS 端（Swift/SPM）构建、运行与打包脚本
+#
+# 打包策略（重要）：
+#   本脚本不打包 QA 或 Debug 版。归档到 App-Builds/ 的产物均为带签名正式版
+#   （release 模式），供正式环境手动测试。build/run/debug/logs/telemetry/verify
+#   等模式仅用于本地开发，不产生分发产物。
+#
+# 用法：
+#   bash script/build_and_run_codex.sh [run|build|release|--debug|--logs|--telemetry|--verify]
+#
+# 环境变量：
+#   RELEASE_VERSION   指定版本号（如 v1.0.0 或 1.0.0），默认取最近 git tag
+#   RELEASE_TS        发布批次时间戳（YYYYMMDD-HHMM），默认取当前 UTC 分钟
+#   APP_BUILDS_DIR    覆盖产物根目录（默认仓库同级 ../App-Builds，CI 可覆盖）
+#   RELAY_BASE_URL    Production Relay HTTPS 地址（release 必需，不写入仓库）
+#   UPDATE_MANIFEST_PRIVATE_KEY_PEM / UPDATE_MANIFEST_PUBLIC_KEY_B64
+#                     签名 update manifest 密钥（缺失时降级为无签名 Release）
+# =============================================================================
 set -euo pipefail
 
 MODE="${1:-run}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RELEASE_BASE_DIR="$ROOT_DIR/release"
+# Workspace-level artifact root. Defaults to the sibling App-Builds directory
+# (exact casing) next to this repo; CI can override via APP_BUILDS_DIR.
+APP_BUILDS_DIR="${APP_BUILDS_DIR:-$ROOT_DIR/../App-Builds}"
+RELEASE_BASE_DIR="$APP_BUILDS_DIR"
 APP_DISPLAY_NAME="Token Cost App - OC Codex"
 APP_EXECUTABLE_NAME="CodexTokenCostApp"
 HELPER_EXECUTABLE_NAME="CodexTokenCostHelper"
@@ -80,11 +102,11 @@ semver_greater() {
   IFS=. read -r left_major left_minor left_patch <<<"$left"
   IFS=. read -r right_major right_minor right_patch <<<"$right"
 
-  (( left_major > right_major )) && return 0
-  (( left_major < right_major )) && return 1
-  (( left_minor > right_minor )) && return 0
-  (( left_minor < right_minor )) && return 1
-  (( left_patch > right_patch )) && return 0
+  (( 10#$left_major > 10#$right_major )) && return 0
+  (( 10#$left_major < 10#$right_major )) && return 1
+  (( 10#$left_minor > 10#$right_minor )) && return 0
+  (( 10#$left_minor < 10#$right_minor )) && return 1
+  (( 10#$left_patch > 10#$right_patch )) && return 0
   return 1
 }
 
@@ -97,9 +119,10 @@ resolve_latest_release_tag() {
   for dir in "$RELEASE_BASE_DIR"/v[0-9]*.[0-9]*.[0-9]*; do
     [[ -d "$dir" ]] || continue
     candidate="$(basename "$dir")"
-    if [[ ! "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if [[ ! "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
       continue
     fi
+    candidate="${BASH_REMATCH[0]}"
     if [[ -z "$latest" ]] || semver_greater "$candidate" "$latest"; then
       latest="$candidate"
     fi
@@ -111,17 +134,25 @@ resolve_latest_release_tag() {
 
 RELEASE_TAG="$(resolve_release_tag)"
 RELEASE_VERSION_NUMBER="${RELEASE_TAG#v}"
+RELEASE_TS="${RELEASE_TS:-$(date -u +%Y%m%d-%H%M)}"
+if [[ ! "$RELEASE_TS" =~ ^[0-9]{8}-[0-9]{4}$ ]]; then
+  echo "ERROR: RELEASE_TS 必须匹配 YYYYMMDD-HHMM" >&2
+  exit 4
+fi
+RELEASE_FULL_VERSION="${RELEASE_TAG}-${RELEASE_TS}"
+RELEASE_FULL_NUMBER="${RELEASE_VERSION_NUMBER}-${RELEASE_TS}"
 BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 stripped="${BUILD_TIMESTAMP//[-:TZ]/}"
 RELEASE_STAMP="${stripped:0:8}-${stripped:8:6}-$$"
-LOCAL_RELEASE_DIR="$RELEASE_BASE_DIR/${RELEASE_TAG}-${RELEASE_STAMP}"
-OFFICIAL_RELEASE_DIR="$RELEASE_BASE_DIR/$RELEASE_TAG"
+LOCAL_RELEASE_DIR="$RELEASE_BASE_DIR/${RELEASE_TAG}-${RELEASE_STAMP}/macos"
+OFFICIAL_RELEASE_DIR="$RELEASE_BASE_DIR/$RELEASE_FULL_VERSION/macos"
+LATEST_RELEASE_DIR="$RELEASE_BASE_DIR/latest/macos"
 BUILD_CONFIGURATION="debug"
 RELEASE_DIR="$LOCAL_RELEASE_DIR"
 APP_ARCH="$(uname -m)"
-APP_ZIP_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.zip"
-APP_DMG_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.dmg"
-UPDATE_MANIFEST_NAME="Token-Cost-App-OC-Codex-${RELEASE_TAG}-macOS-${APP_ARCH}.update-manifest.json"
+APP_ZIP_NAME="Token-Cost-App-OC-Codex-${RELEASE_FULL_VERSION}-macOS-${APP_ARCH}.zip"
+APP_DMG_NAME="Token-Cost-App-OC-Codex-${RELEASE_FULL_VERSION}-macOS-${APP_ARCH}.dmg"
+UPDATE_MANIFEST_NAME="Token-Cost-App-OC-Codex-${RELEASE_FULL_VERSION}-macOS-${APP_ARCH}.update-manifest.json"
 APP_VOLUME_NAME="Token Cost App - OC Codex"
 UPDATE_MANIFEST_PUBLIC_KEY_B64="${UPDATE_MANIFEST_PUBLIC_KEY_B64:-}"
 RELAY_BASE_URL="${RELAY_BASE_URL:-}"
@@ -151,6 +182,16 @@ elif [[ -n "$RELAY_BASE_URL" ]] && [[ ! "$RELAY_BASE_URL" =~ ^https?://[^[:space
   exit 4
 fi
 
+# Reject XML metacharacters before the URL is interpolated into Info.plist.
+if [[ -n "$RELAY_BASE_URL" ]]; then
+  case "$RELAY_BASE_URL" in
+    *'<'*|*'>'*|*'"'*|*'&'*)
+      echo "RELAY_BASE_URL must not contain XML metacharacters (<, >, \", &)" >&2
+      exit 4
+      ;;
+  esac
+fi
+
 RELAY_PLIST_ENTRY=""
 if [[ -n "$RELAY_BASE_URL" ]]; then
   RELAY_PLIST_ENTRY="  <key>RelayBaseURL</key>
@@ -173,6 +214,24 @@ kill_running() {
   sleep 1
 }
 
+# Move a pre-existing platform-scoped destination into App-Builds/.archive with
+# a collision-safe name before it is recreated, instead of deleting it.
+archive_existing() {
+  local target="$1"
+  [[ -e "$target" ]] || return 0
+  local archive_root="$RELEASE_BASE_DIR/.archive"
+  local base
+  base="$(basename "$target")"
+  local dest="$archive_root/$base"
+  local n=1
+  while [[ -e "$dest" ]]; do
+    dest="$archive_root/${base}.${n}"
+    n=$((n + 1))
+  done
+  mkdir -p "$archive_root"
+  mv "$target" "$dest"
+}
+
 stage_bundle() {
   local swift_build_flags=(
     --disable-sandbox
@@ -181,7 +240,7 @@ stage_bundle() {
   )
   local build_binary_dir
 
-  rm -rf "$RELEASE_DIR"
+  archive_existing "$RELEASE_DIR"
   mkdir -p "$RELEASE_DIR"
 
   HOME=/private/tmp swift build "${swift_build_flags[@]}"
@@ -244,9 +303,9 @@ stage_bundle() {
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>$RELEASE_VERSION_NUMBER</string>
+  <string>$RELEASE_FULL_NUMBER</string>
   <key>CFBundleVersion</key>
-  <string>$RELEASE_VERSION_NUMBER</string>
+  <string>$RELEASE_FULL_NUMBER</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key>
@@ -264,7 +323,7 @@ PLIST
 package_release_zip() {
   local zip_path="$RELEASE_DIR/$APP_ZIP_NAME"
 
-  rm -f "$zip_path"
+  archive_existing "$zip_path"
   (
     cd "$RELEASE_DIR"
     ditto -c -k --sequesterRsrc --keepParent "$APP_DISPLAY_NAME.app" "$APP_ZIP_NAME"
@@ -274,7 +333,7 @@ package_release_zip() {
 write_update_manifest() {
   local zip_path="$RELEASE_DIR/$APP_ZIP_NAME"
   local manifest_path="$RELEASE_DIR/$UPDATE_MANIFEST_NAME"
-  local asset_size sha256 signature signing_payload
+  local asset_size sha256 signature
 
   if [[ -z "${UPDATE_MANIFEST_PRIVATE_KEY_PEM:-}" ]] || [[ -z "$UPDATE_MANIFEST_PUBLIC_KEY_B64" ]]; then
     echo "warning: UPDATE_MANIFEST_PRIVATE_KEY_PEM or UPDATE_MANIFEST_PUBLIC_KEY_B64 not set; skipping signed update manifest" >&2
@@ -283,19 +342,14 @@ write_update_manifest() {
 
   asset_size="$(stat -f '%z' "$zip_path")"
   sha256="$(shasum -a 256 "$zip_path" | cut -d ' ' -f 1)"
-  signing_payload="$(mktemp)"
-  trap 'rm -f "$signing_payload"' RETURN
-  printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
-    "$RELEASE_TAG" "$BUNDLE_ID" "$APP_ARCH" "$APP_ZIP_NAME" "$asset_size" "$sha256" \
-    >"$signing_payload"
   signature="$(
-    openssl pkeyutl -sign -rawin \
-      -inkey <(printf '%s' "$UPDATE_MANIFEST_PRIVATE_KEY_PEM") \
-      -in "$signing_payload" \
+    printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
+      "$RELEASE_TAG" "$BUNDLE_ID" "$APP_ARCH" "$APP_ZIP_NAME" "$asset_size" "$sha256" \
+      | openssl pkeyutl -sign -rawin \
+        -inkey <(printf '%s' "$UPDATE_MANIFEST_PRIVATE_KEY_PEM") \
+        -in /dev/stdin \
       | openssl base64 -A
   )"
-  rm -f "$signing_payload"
-  trap - RETURN
 
   python3 - "$manifest_path" "$RELEASE_TAG" "$BUNDLE_ID" "$APP_ARCH" "$APP_ZIP_NAME" "$asset_size" "$sha256" "$signature" <<'PY'
 import json
@@ -316,35 +370,55 @@ with open(path, "w", encoding="utf-8") as output:
 PY
 }
 
+# Reversibly discard a private staging directory: move it to the user's Trash
+# when available, otherwise into App-Builds/.archive with a collision-safe name.
+discard_temp() {
+  local target="$1"
+  [[ -e "$target" ]] || return 0
+  if [[ -d "$HOME/.Trash" ]]; then
+    local trash_dest="$HOME/.Trash/$(basename "$target")"
+    local n=1
+    while [[ -e "$trash_dest" ]]; do
+      trash_dest="$HOME/.Trash/$(basename "$target").${n}"
+      n=$((n + 1))
+    done
+    mv "$target" "$trash_dest"
+    return 0
+  fi
+  archive_existing "$target"
+}
+
 package_release_dmg() {
   local dmg_path="$RELEASE_DIR/$APP_DMG_NAME"
-  local temp_dir
+  # Global so the EXIT trap still sees it after this function returns on error.
   temp_dir="$(mktemp -d)"
+  trap 'discard_temp "$temp_dir"' EXIT
   ditto "$APP_BUNDLE" "$temp_dir/$APP_DISPLAY_NAME.app"
   ln -s /Applications "$temp_dir/Applications"
-  rm -f "$dmg_path"
+  archive_existing "$dmg_path"
   hdiutil create -volname "$APP_VOLUME_NAME" \
     -srcfolder "$temp_dir" \
     -ov -format UDZO \
     "$dmg_path"
-  rm -rf "$temp_dir"
+  discard_temp "$temp_dir"
+  trap - EXIT
 }
 
 update_latest() {
-  rm -rf "$RELEASE_BASE_DIR/latest"
-  mkdir -p "$RELEASE_BASE_DIR/latest"
-  touch "$RELEASE_BASE_DIR/latest/.gitkeep"
-  ditto "$APP_BUNDLE" "$RELEASE_BASE_DIR/latest/$APP_DISPLAY_NAME.app"
+  archive_existing "$LATEST_RELEASE_DIR"
+  mkdir -p "$LATEST_RELEASE_DIR"
+  touch "$LATEST_RELEASE_DIR/.gitkeep"
+  ditto "$APP_BUNDLE" "$LATEST_RELEASE_DIR/$APP_DISPLAY_NAME.app"
   if [[ "$MODE" == "release" ]] && [[ -f "$RELEASE_DIR/$APP_ZIP_NAME" ]]; then
-    cp "$RELEASE_DIR/$APP_ZIP_NAME" "$RELEASE_BASE_DIR/latest/$APP_ZIP_NAME"
+    cp "$RELEASE_DIR/$APP_ZIP_NAME" "$LATEST_RELEASE_DIR/$APP_ZIP_NAME"
   fi
   if [[ "$MODE" == "release" ]] && [[ -f "$RELEASE_DIR/$APP_DMG_NAME" ]]; then
-    cp "$RELEASE_DIR/$APP_DMG_NAME" "$RELEASE_BASE_DIR/latest/$APP_DMG_NAME"
+    cp "$RELEASE_DIR/$APP_DMG_NAME" "$LATEST_RELEASE_DIR/$APP_DMG_NAME"
   fi
 }
 
 write_build_info() {
-  local info_file="$RELEASE_BASE_DIR/latest/BUILD_INFO.txt"
+  local info_file="$LATEST_RELEASE_DIR/BUILD_INFO.txt"
   cat >"$info_file" <<INFO
 # Build Info — Token Cost App — OC Codex
 # This file is written only for non-release (development) builds.
@@ -358,7 +432,7 @@ INFO
 }
 
 update_versions_json() {
-  local versions_file="$RELEASE_BASE_DIR/versions.json"
+  local versions_file="$ROOT_DIR/release/versions.json"
   local today
   today="$(date +%Y-%m-%d)"
 
@@ -390,17 +464,16 @@ launch_bundle() {
 
 kill_running
 stage_bundle
-update_latest
-
-if [[ "$MODE" != "release" ]]; then
-  write_build_info
-fi
 
 case "$MODE" in
   run)
+    update_latest
+    write_build_info
     launch_bundle
     ;;
   build)
+    update_latest
+    write_build_info
     ;;
   release)
     package_release_zip
@@ -410,17 +483,25 @@ case "$MODE" in
     update_versions_json
     ;;
   --debug|debug)
+    update_latest
+    write_build_info
     lldb -- "$APP_BINARY"
     ;;
   --logs|logs)
+    update_latest
+    write_build_info
     launch_bundle
     /usr/bin/log stream --info --style compact --predicate "process == \"$APP_EXECUTABLE_NAME\""
     ;;
   --telemetry|telemetry)
+    update_latest
+    write_build_info
     launch_bundle
     /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
     ;;
   --verify|verify)
+    update_latest
+    write_build_info
     launch_bundle
     sleep 2
     pgrep -x "$APP_EXECUTABLE_NAME" >/dev/null

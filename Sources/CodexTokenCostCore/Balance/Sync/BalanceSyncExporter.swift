@@ -95,22 +95,27 @@ public enum BalanceSyncExporter {
     }
 
     /// 校验配置完整性。
-    static func validatedConfig(_ prefs: BalanceSyncPreferences) throws -> (baseURL: URL, deviceID: String, token: String, passphrase: String) {
+    static func validatedConfig(
+        _ prefs: BalanceSyncPreferences,
+        secretStore: any BalanceSyncSecretStoring
+    ) throws -> (baseURL: URL, deviceID: String, token: String, passphrase: String) {
         guard prefs.enabled else { throw SyncError.missingConfiguration }
         guard let base = prefs.serverBaseURL, let baseURL = URL(string: base), baseURL.scheme != nil else {
             throw SyncError.invalidServerURL
         }
         guard let deviceID = prefs.deviceID, !deviceID.isEmpty,
-              let token = prefs.syncToken, !token.isEmpty,
-              let passphrase = prefs.passphrase, !passphrase.isEmpty
+              let secrets = try secretStore.load(), secrets.isComplete
         else { throw SyncError.missingConfiguration }
-        return (baseURL, deviceID, token, passphrase)
+        return (baseURL, deviceID, secrets.syncToken, secrets.passphrase)
     }
 
     /// 加密并上传当前凭证。
     @discardableResult
-    public static func push(_ prefs: BalanceSyncPreferences) async throws -> Date {
-        let (baseURL, deviceID, token, passphrase) = try validatedConfig(prefs)
+    public static func push(
+        _ prefs: BalanceSyncPreferences,
+        secretStore: any BalanceSyncSecretStoring = KeychainBalanceSyncSecretStore()
+    ) async throws -> Date {
+        let (baseURL, deviceID, token, passphrase) = try validatedConfig(prefs, secretStore: secretStore)
         let payload = buildPayload()
         guard !payload.providers.isEmpty else { throw SyncError.emptyCredentials }
 

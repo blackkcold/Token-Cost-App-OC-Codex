@@ -44,22 +44,12 @@ public struct SafeFileStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.keyEncodingStrategy = .convertToSnakeCase
         let data = try encoder.encode(value)
-#if DEBUG
-        if let jsonString = String(data: data, encoding: .utf8) {
-            print("[SafeFileStore] writeCodable → \(relativePath):\n\(jsonString.prefix(500))")
-        }
-#endif
         try writeData(data, to: relativePath)
     }
 
     public func readCodable<T: Codable>(_ type: T.Type, from relativePath: String) throws -> T {
         let url = try resolve(relativePath)
         let data = try Data(contentsOf: url)
-#if DEBUG
-        if let jsonString = String(data: data, encoding: .utf8) {
-            print("[SafeFileStore] readCodable ← \(relativePath):\n\(jsonString.prefix(500))")
-        }
-#endif
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(T.self, from: data)

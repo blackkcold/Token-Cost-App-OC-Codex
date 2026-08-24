@@ -1,5 +1,6 @@
 #include <CommonCrypto/CommonCryptor.h>
 #include <CommonCrypto/CommonKeyDerivation.h>
+#include <zlib.h>
 
 int cc_aes128cbc_decrypt(
     const void *key, const void *iv,
@@ -40,4 +41,30 @@ int cc_aescbc_decrypt(
     return CCCrypt(kCCDecrypt, kCCAlgorithmAES, kCCOptionPKCS7Padding,
                    key, keyLen, iv, ct, ctLen,
                    pt, *ptLen, ptLen);
+}
+
+size_t cc_zlib_compress_bound(size_t sourceLen)
+{
+    return (size_t)compressBound((uLong)sourceLen);
+}
+
+int cc_zlib_compress(
+    const uint8_t *source, size_t sourceLen,
+    uint8_t *destination, size_t *destinationLen,
+    int level)
+{
+    uLongf outputLength = (uLongf)*destinationLen;
+    int status = compress2(destination, &outputLength, source, (uLong)sourceLen, level);
+    *destinationLen = (size_t)outputLength;
+    return status;
+}
+
+int cc_zlib_decompress(
+    const uint8_t *source, size_t sourceLen,
+    uint8_t *destination, size_t *destinationLen)
+{
+    uLongf outputLength = (uLongf)*destinationLen;
+    int status = uncompress(destination, &outputLength, source, (uLong)sourceLen);
+    *destinationLen = (size_t)outputLength;
+    return status;
 }

@@ -7,6 +7,7 @@ struct BalanceRelaySettingsCard: View {
     @State private var serverURL = ProcessInfo.processInfo.environment[BalanceRelayEndpoint.environmentKey] ?? ""
     @State private var deviceName = Host.current().localizedName ?? "Mac"
     @State private var isWorking = false
+    @State private var showPairingConfirmation = false
     let palette: TokenCostPalette
     var relayLoggingBinding: Binding<Bool>?
 
@@ -77,6 +78,12 @@ struct BalanceRelaySettingsCard: View {
                 try? await Task.sleep(for: .seconds(3))
             }
         }
+        .alert("允许新的手机配对？", isPresented: $showPairingConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("允许并生成二维码") { beginPairing() }
+        } message: {
+            Text("Relay 可以看到一次性配对码，但不能读取端到端加密的数据。仅在确认身边设备将立即扫码时继续。")
+        }
     }
 
     private var statusRow: some View {
@@ -137,11 +144,7 @@ struct BalanceRelaySettingsCard: View {
                     .font(.caption2)
                     .foregroundStyle(palette.subtitle)
                 Button {
-                    isWorking = true
-                    Task {
-                        await coordinator.startPairing()
-                        isWorking = false
-                    }
+                    showPairingConfirmation = true
                 } label: {
                     Label("重新配对", systemImage: "qrcode")
                 }
@@ -204,11 +207,7 @@ struct BalanceRelaySettingsCard: View {
     private var pairingForm: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
-                isWorking = true
-                Task {
-                    await coordinator.startPairing()
-                    isWorking = false
-                }
+                showPairingConfirmation = true
             } label: {
                 Label("生成配对二维码", systemImage: "qrcode")
             }
@@ -226,6 +225,14 @@ struct BalanceRelaySettingsCard: View {
                 Label("忘记设备", systemImage: "trash")
             }
             .settingsGlassButtonStyle(prominent: false)
+        }
+    }
+
+    private func beginPairing() {
+        isWorking = true
+        Task {
+            await coordinator.startPairing()
+            isWorking = false
         }
     }
 

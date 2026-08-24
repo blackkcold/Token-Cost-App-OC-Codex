@@ -11,6 +11,7 @@ import 'package:balance_monitor/services/relay_client.dart';
 import 'package:balance_monitor/services/relay_crypto.dart';
 import 'package:balance_monitor/services/relay_identity_store.dart';
 import 'package:balance_monitor/services/relay_endpoint.dart';
+import 'package:balance_monitor/services/relay_section_codec.dart';
 
 final testRelayEndpoint = Uri.parse('https://relay.example.invalid');
 final contractFixtureRoot = Directory('../Resources/RelayContract/v1');
@@ -162,6 +163,47 @@ void main() {
     expect(plaintext['nonce'], 'contract-query-nonce-0001');
   });
 
+  test('Contract 1.1 response vector 可解码且 request 可往返', () async {
+    final response =
+        jsonDecode(
+              File(
+                '${contractFixtureRoot.path}/response-v1.1.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final decodedSections = await RelaySectionCodec.decodeAll(
+      response['sections'] as Map<String, dynamic>,
+    );
+    final overview = decodedSections['overview'] as Map<String, dynamic>;
+    expect(overview, {
+      'activeDays': 2,
+      'dailyAverageTokens': 750.0,
+      'monthlyEstimateTokens': 22500.0,
+      'totalActualTokens': 1500.0,
+      'totalCostUSD': 1.25,
+      'totalTokens': 2000.0,
+    });
+
+    final request =
+        jsonDecode(
+              File(
+                '${contractFixtureRoot.path}/request-v1.1.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final query = RelayQuery(
+      action: request['action'] as String,
+      issuedAtMilliseconds: (request['issuedAtMilliseconds'] as num).toInt(),
+      nonce: request['nonce'] as String,
+      requestedSections: (request['requestedSections'] as List<dynamic>)
+          .cast<String>(),
+      sectionParams: Map<String, dynamic>.from(
+        request['sectionParams'] as Map<String, dynamic>,
+      ),
+    );
+    expect(query.toJson(), request);
+  });
+
   test('Contract pairing fields 不含 server override', () {
     final contract =
         jsonDecode(
@@ -252,8 +294,13 @@ void main() {
         expect(request.body.contains('balance.refresh'), false);
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         final requestId = body['requestId'] as String;
+        final queryEnvelope = RelayOpaqueEnvelope.fromJson(
+          body['envelope'] as Map<String, dynamic>,
+        );
+        final queryPlaintext = RelayCrypto.open(queryEnvelope, key);
         final responseEnvelope = RelayCrypto.seal({
           'generatedAtMilliseconds': 1700000000000,
+          'requestNonce': queryPlaintext['nonce'],
           'snapshots': <dynamic>[],
         }, key);
         return http.Response(
@@ -298,6 +345,200 @@ void main() {
     await expectLater(
       client.query(identity),
       throwsA(isA<RelayClientException>()),
+    );
+  });
+
+  test('中继拒绝外层 requestId 正确但内部 nonce 错误的响应', () async {
+    final key = Uint8List(32);
+    final identity = RelayIdentity(
+      deviceId: 'device_security_nonce_0001',
+      appToken: 'app-token-security-${List.filled(48, 'n').join()}',
+      e2eKey: key,
+    );
+    final client = RelayClient(
+      MemoryIdentityStore(),
+      serverBaseUrl: testRelayEndpoint,
+      httpClient: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        return http.Response(
+          jsonEncode({
+            'requestId': body['requestId'],
+            'envelope': RelayCrypto.seal({
+              'generatedAtMilliseconds': 1700000000000,
+              'requestNonce': 'different-inner-nonce-0001',
+              'snapshots': <dynamic>[],
+            }, key).toJson(),
+          }),
+          200,
+        );
+      }),
+    );
+    await expectLater(
+      client.query(identity),
+      throwsA(
+        predicate(
+          (error) =>
+              error is RelayClientException && error.code == 'REQUEST_REPLAYED',
+        ),
+      ),
+    );
+  });
+
+  test('query single-flight 复用同一个 Future', () async {
+    final key = Uint8List(32);
+    final identity = RelayIdentity(
+      deviceId: 'device_single_flight_0001',
+      appToken: 'app-token-security-${List.filled(48, 's').join()}',
+      e2eKey: key,
+    );
+    var requestCount = 0;
+    final client = RelayClient(
+      MemoryIdentityStore(),
+      serverBaseUrl: testRelayEndpoint,
+      httpClient: MockClient((request) async {
+        requestCount += 1;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final query = RelayCrypto.open(
+          RelayOpaqueEnvelope.fromJson(
+            body['envelope'] as Map<String, dynamic>,
+          ),
+          key,
+        );
+        return http.Response(
+          jsonEncode({
+            'requestId': body['requestId'],
+            'envelope': RelayCrypto.seal({
+              'generatedAtMilliseconds': DateTime.now().millisecondsSinceEpoch,
+              'requestNonce': query['nonce'],
+              'snapshots': <dynamic>[],
+            }, key).toJson(),
+          }),
+          200,
+        );
+      }),
+    );
+    final first = client.query(identity);
+    final second = client.query(identity);
+    await Future.wait([first, second]);
+    expect(requestCount, 1);
+  });
+
+  test('stream-level 65KB 限制拒绝超大响应', () async {
+    final identity = RelayIdentity(
+      deviceId: 'device_stream_limit_0001',
+      appToken: 'app-token-security-${List.filled(48, 'l').join()}',
+      e2eKey: Uint8List(32),
+    );
+    final client = RelayClient(
+      MemoryIdentityStore(),
+      serverBaseUrl: testRelayEndpoint,
+      httpClient: MockClient(
+        (request) async => http.Response(List.filled(70000, 'x').join(), 200),
+      ),
+    );
+    await expectLater(
+      client.query(identity),
+      throwsA(
+        predicate(
+          (error) =>
+              error is RelayClientException &&
+              error.code == 'RESPONSE_TOO_LARGE',
+        ),
+      ),
+    );
+  });
+
+  test('batch 超限后单层降级为逐 section 查询', () async {
+    final key = Uint8List(32);
+    final identity = RelayIdentity(
+      deviceId: 'device_batch_fallback_0001',
+      appToken: 'app-token-security-${List.filled(48, 'b').join()}',
+      e2eKey: key,
+    );
+    final requestedBatches = <List<String>>[];
+    final client = RelayClient(
+      MemoryIdentityStore(),
+      serverBaseUrl: testRelayEndpoint,
+      httpClient: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final query = RelayCrypto.open(
+          RelayOpaqueEnvelope.fromJson(
+            body['envelope'] as Map<String, dynamic>,
+          ),
+          key,
+        );
+        final requested = (query['requestedSections'] as List<dynamic>)
+            .cast<String>();
+        requestedBatches.add(requested);
+        if (requested.length > 1) {
+          return http.Response(List.filled(70000, 'x').join(), 200);
+        }
+        return http.Response(
+          jsonEncode({
+            'requestId': body['requestId'],
+            'envelope': RelayCrypto.seal({
+              'generatedAtMilliseconds': 1700000000000,
+              'requestNonce': query['nonce'],
+              'snapshots': <dynamic>[],
+              'sections': <String, dynamic>{},
+            }, key).toJson(),
+          }),
+          200,
+        );
+      }),
+    );
+
+    final response = await client.query(identity);
+    expect(response.sections, isEmpty);
+    expect(
+      requestedBatches
+          .where((sections) => sections.length == 1)
+          .map((e) => e.single),
+      containsAll(<String>[
+        'overview',
+        'cache',
+        'cost',
+        'usage',
+        'modelDistribution',
+        'trend',
+        'heatmap',
+      ]),
+    );
+  });
+
+  test('RFC 1950 section vector 解压并拒绝压缩炸弹', () async {
+    final vector =
+        jsonDecode(
+              File(
+                '${contractFixtureRoot.path}/section-zlib-vector.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final decoded = await RelaySectionCodec.decodeAll({
+      'overview': {
+        'encoding': vector['encoding'],
+        'uncompressedBytes': vector['uncompressedBytes'],
+        'data': vector['data'],
+      },
+    });
+    expect(
+      jsonEncode(decoded['overview']),
+      jsonEncode(jsonDecode(vector['plaintext'] as String)),
+    );
+
+    final bomb = base64.encode(
+      ZLibCodec().encode(List<int>.filled(200000, 65)),
+    );
+    await expectLater(
+      RelaySectionCodec.decodeAll({
+        'overview': {
+          'encoding': 'json+zlib',
+          'uncompressedBytes': 100,
+          'data': bomb,
+        },
+      }),
+      throwsA(isA<RelaySectionCodecException>()),
     );
   });
 

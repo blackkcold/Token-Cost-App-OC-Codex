@@ -4,8 +4,8 @@
 
 | 版本   | 支持状态       |
 |--------|--------------|
-| 1.0.x  | 当前稳定版，接受安全报告和修复 |
-| 0.9.x  | 接受安全报告 |
+| 1.2.x  | 当前稳定版，接受安全报告和修复 |
+| 1.0.x–1.1.x | 接受安全报告 |
 | 更早版本 | 不再保证支持   |
 
 ## 报告安全漏洞
@@ -56,10 +56,16 @@
 - Client-facing API 使用稳定 `{code,error}`；客户端程序逻辑只依赖 `code`，UI 文案不作为协议。
 - 日志和诊断禁止输出完整 Endpoint、Pair Code、E2EE Key、Bearer Token、完整 QR 或业务密文。
 - Relay 地址不是 Secret，仍可能通过 APK、DNS 或流量分析获知；系统安全依赖 E2EE、认证、授权、防重放和安全部署。
+- Contract `1.1.0` 响应必须绑定解密请求的 `requestNonce`；两端拒绝 nonce 不匹配、重复、过期或未知 section 请求。
+- macOS Relay Client 使用有容量上限的 TTL replay cache、2/秒与 10/10 秒滑动窗口、并发 2、10 秒业务超时和 65,536-byte 最终帧限制。
+- Android 使用 `Client.send()` 流式读取并在 65,536 bytes 处取消；RFC 1950 解压限制为单 section 131,072 bytes、总计 524,288 bytes。
+- Android analytics 缓存使用独立 secure-storage key 和 AES-GCM，按设备隔离、5 分钟过期；Auto Backup 与 device transfer 均排除应用数据。
 
 ## Relay 与 Credential Sync
 
 Relay 只传输余额查询与 E2EE 快照；`Balance/Sync` 是独立 Credential Sync 安全域，会在用户明确配置后把凭证以独立加密信封发送到其 Sync Endpoint。两者不得共享协议、文档或“凭证永不离开 Mac”的笼统表述。
+
+Credential Sync 的 passphrase 与 sync token 保存在 `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` Keychain 项目中，不再编码进偏好 JSON；旧配置只有在 Keychain 写入成功后才移除明文字段，失败时保留旧配置以避免不可恢复的数据丢失。
 
 ## 开发者模式安全边界（v0.9.0+）
 

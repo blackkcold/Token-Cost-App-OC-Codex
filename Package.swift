@@ -13,7 +13,10 @@ let package = Package(
     targets: [
         .target(
             name: "CCryptoBridge",
-            path: "Sources/CCryptoBridge"
+            path: "Sources/CCryptoBridge",
+            linkerSettings: [
+                .linkedLibrary("z")
+            ]
         ),
         .target(
             name: "CodexTokenCostCore",
