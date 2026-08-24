@@ -11,10 +11,6 @@ public struct BalanceSyncPreferences: Codable, Equatable, Sendable {
     public var serverBaseURL: String?
     /// 设备 ID（作为云端存储桶 key，两端需一致）。
     public var deviceID: String?
-    /// 云端鉴权 Token（`X-Sync-Token` 头）。
-    public var syncToken: String?
-    /// 加密口令（不落盘到云端；本地保存以便自动推送）。
-    public var passphrase: String?
     /// 自动推送间隔（秒），仅当凭证更新或达到间隔时触发。
     public var autoPushSeconds: Int
 
@@ -22,15 +18,11 @@ public struct BalanceSyncPreferences: Codable, Equatable, Sendable {
         enabled: Bool = false,
         serverBaseURL: String? = nil,
         deviceID: String? = nil,
-        syncToken: String? = nil,
-        passphrase: String? = nil,
         autoPushSeconds: Int = 3600
     ) {
         self.enabled = enabled
         self.serverBaseURL = serverBaseURL
         self.deviceID = deviceID
-        self.syncToken = syncToken
-        self.passphrase = passphrase
         self.autoPushSeconds = autoPushSeconds
     }
 }
@@ -38,18 +30,78 @@ public struct BalanceSyncPreferences: Codable, Equatable, Sendable {
 /// `BalanceSyncPreferences` 的本地文件存储。
 public final class BalanceSyncPreferencesStore {
     private let fileStore: SafeFileStore
+    private let secretStore: any BalanceSyncSecretStoring
     private let relativePath = "config/balance-sync.json"
 
-    public init(runtimeRoot: URL = TokenCostPaths.runtimeRoot) {
+    public init(
+        runtimeRoot: URL = TokenCostPaths.runtimeRoot,
+        secretStore: any BalanceSyncSecretStoring = KeychainBalanceSyncSecretStore()
+    ) {
         self.fileStore = SafeFileStore(root: runtimeRoot)
+        self.secretStore = secretStore
     }
 
     public func load() -> BalanceSyncPreferences {
-        (try? fileStore.readCodable(BalanceSyncPreferences.self, from: relativePath))
-            ?? BalanceSyncPreferences()
+        guard let url = try? fileStore.resolve(relativePath),
+              let data = try? Data(contentsOf: url),
+              let legacy = try? JSONDecoder.snakeCase.decode(LegacyBalanceSyncPreferences.self, from: data)
+        else { return BalanceSyncPreferences() }
+
+        if let token = legacy.syncToken, !token.isEmpty,
+           let passphrase = legacy.passphrase, !passphrase.isEmpty {
+            do {
+                let secrets = BalanceSyncSecrets(syncToken: token, passphrase: passphrase)
+                try secretStore.save(secrets)
+                guard try secretStore.load() == secrets else {
+                    throw BalanceSyncSecretStoreError.verificationFailed
+                }
+                try save(legacy.preferences)
+            } catch {
+                return legacy.preferences
+            }
+        }
+        return legacy.preferences
     }
 
     public func save(_ prefs: BalanceSyncPreferences) throws {
         try fileStore.writeCodable(prefs, to: relativePath)
+    }
+
+    public func save(_ prefs: BalanceSyncPreferences, secrets: BalanceSyncSecrets) throws {
+        try secretStore.save(secrets)
+        guard try secretStore.load() == secrets else {
+            throw BalanceSyncSecretStoreError.verificationFailed
+        }
+        try save(prefs)
+    }
+
+    public func loadSecrets() throws -> BalanceSyncSecrets? {
+        try secretStore.load()
+    }
+}
+
+private struct LegacyBalanceSyncPreferences: Decodable {
+    var enabled: Bool = false
+    var serverBaseURL: String?
+    var deviceID: String?
+    var syncToken: String?
+    var passphrase: String?
+    var autoPushSeconds: Int = 3600
+
+    var preferences: BalanceSyncPreferences {
+        BalanceSyncPreferences(
+            enabled: enabled,
+            serverBaseURL: serverBaseURL,
+            deviceID: deviceID,
+            autoPushSeconds: autoPushSeconds
+        )
+    }
+}
+
+private extension JSONDecoder {
+    static var snakeCase: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return decoder
     }
 }

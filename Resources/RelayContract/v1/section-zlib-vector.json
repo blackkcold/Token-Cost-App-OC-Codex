@@ -1,0 +1,8 @@
+{
+  "algorithm": "zlib",
+  "encoding": "json+zlib",
+  "section": "overview",
+  "uncompressedBytes": 143,
+  "plaintext": "{\"activeDays\":2,\"dailyAverageTokens\":750.0,\"monthlyEstimateTokens\":22500.0,\"totalActualTokens\":1500.0,\"totalCostUSD\":1.25,\"totalTokens\":2000.0}",
+  "data": "eNqrVkpMLsksS3VJrCxWsjLSUUpJzMypdCxLLUpMTw3Jz07NAwqbmxroGego5ebnlWTkVLoWl2TmJpbAZY2MTA3A8iX5JYk5jsklpYk5MDlDZCnn/OKS0GAXoKiekSlUDG6IAUhhLQCLJS6T"
+}

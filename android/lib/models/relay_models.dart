@@ -122,27 +122,71 @@ class RelayQuery {
   final String action;
   final int issuedAtMilliseconds;
   final String nonce;
+  final List<String>? requestedSections;
+  final Map<String, dynamic>? sectionParams;
 
   RelayQuery({
     this.action = 'balance.refresh',
     required this.issuedAtMilliseconds,
     required this.nonce,
+    this.requestedSections,
+    this.sectionParams,
   });
 
   Map<String, dynamic> toJson() => {
     'action': action,
     'issuedAtMilliseconds': issuedAtMilliseconds,
     'nonce': nonce,
+    if (requestedSections != null) 'requestedSections': requestedSections,
+    if (sectionParams != null) 'sectionParams': sectionParams,
   };
+}
+
+class RelayEncodedSection {
+  final String encoding;
+  final int uncompressedBytes;
+  final String data;
+
+  const RelayEncodedSection({
+    required this.encoding,
+    required this.uncompressedBytes,
+    required this.data,
+  });
+
+  factory RelayEncodedSection.fromJson(Map<String, dynamic> json) {
+    return RelayEncodedSection(
+      encoding: json['encoding'] as String? ?? '',
+      uncompressedBytes: (json['uncompressedBytes'] as num?)?.toInt() ?? -1,
+      data: json['data'] as String? ?? '',
+    );
+  }
+}
+
+class RelayWireError {
+  final String code;
+  final String message;
+
+  const RelayWireError({required this.code, required this.message});
+
+  factory RelayWireError.fromJson(Map<String, dynamic> json) => RelayWireError(
+    code: json['code'] as String? ?? 'INVALID_REQUEST',
+    message: json['message'] as String? ?? 'Relay request failed',
+  );
 }
 
 class RelayBalanceResponse {
   final int generatedAtMilliseconds;
   final List<BalanceSnapshot> snapshots;
+  final String requestNonce;
+  final Map<String, dynamic> sections;
+  final RelayWireError? error;
 
   RelayBalanceResponse({
     required this.generatedAtMilliseconds,
     required this.snapshots,
+    required this.requestNonce,
+    this.sections = const {},
+    this.error,
   });
 
   factory RelayBalanceResponse.fromJson(Map<String, dynamic> json) {
@@ -164,6 +208,21 @@ class RelayBalanceResponse {
       generatedAtMilliseconds:
           (json['generatedAtMilliseconds'] as num?)?.toInt() ?? 0,
       snapshots: snapshots,
+      requestNonce: json['requestNonce'] as String? ?? '',
+      sections: (json['sections'] as Map<String, dynamic>?) ?? const {},
+      error: json['error'] is Map<String, dynamic>
+          ? RelayWireError.fromJson(json['error'] as Map<String, dynamic>)
+          : null,
+    );
+  }
+
+  RelayBalanceResponse merge(RelayBalanceResponse other) {
+    return RelayBalanceResponse(
+      generatedAtMilliseconds: other.generatedAtMilliseconds,
+      snapshots: other.snapshots.isNotEmpty ? other.snapshots : snapshots,
+      requestNonce: other.requestNonce,
+      sections: {...sections, ...other.sections},
+      error: other.error,
     );
   }
 }

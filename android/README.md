@@ -8,6 +8,8 @@ Android 手机端余额监控 App，与 macOS 桌面端（Token Cost App）配�
 - **余额监控**：实时查看 OpenCode Go / Ollama Cloud / Codex / DeepSeek 的余额快照（配额比例、剩余 Credits、货币余额）。
 - **端到端加密**：配对信息（App Token + E2EE 密钥）通过 AES-256-GCM 加密，经中继服务器转发，服务器无法解密内容。
 - **安全存储**：配对凭证存于 Android Keystore（`flutter_secure_storage`），不落明文到普通存储。
+- **全量分析**：按需获取 overview / cache / cost / usage / modelDistribution / trend / heatmap 七类分析 section。
+- **有界缓存**：section 使用 RFC 1950 zlib 解压（单项 128 KiB、总计 512 KiB）并写入设备隔离的 AES-GCM 缓存，5 分钟后失效。
 - **忘记设备**：一键撤销服务器上的配对记录并清除本地密钥。
 
 ## 架构
@@ -61,36 +63,40 @@ flutter test             # 单元测试（relay 安全链路）
 flutter run --dart-define=RELAY_BASE_URL=http://10.0.2.2:8787
 ```
 
-Release 只接受构建时注入的 HTTPS Production Endpoint，用户、二维码、SharedPreferences、Intent 或 Deep Link 均不能覆盖。真实 Production URL 不写入 Public Source；正式构建由受保护的 CI Environment 注入。
+Release 只接受构建时注入的 HTTPS Production Endpoint，用户、二维码、SharedPreferences、Intent 或 Deep Link 均不能覆盖。真实 Production URL 不写入 Public Source；正式构建在本地手动执行，签名使用本地 `key.properties` 与被 `.gitignore` 忽略的 `.jks`，不依赖 CI 注入签名。
 
 ### 打包发布
 
-推荐使用仓库打包脚本（自动归档到 `android/release/`）：
+推荐使用仓库打包脚本（自动归档到工作区 `App-Builds/vA.BCD.E-YYYYMMDD-HHMM/android/`）：
 
 ```bash
 export JAVA_HOME="$(/usr/libexec/java_home -v 17)"   # 若系统已安装 JDK 17，脚本会自动回退识别
 export RELAY_BASE_URL="${RELAY_BASE_URL:?请先设置受保护的 HTTPS Relay Endpoint}"
 bash script/build_android_release.sh          # 构建并归档（版本号读自 pubspec.yaml）
-bash script/build_android_release.sh release  # 正式发布（可 RELEASE_VERSION=v1.0.0 覆盖）
+bash script/build_android_release.sh release  # 正式发布（可 ANDROID_VERSION=1.001.0+1001000 覆盖）
 bash script/build_android_release.sh help     # 查看用法
 ```
 
-正式打包还要求 `RELAY_BASE_URL` 和 Release Signing 配置；缺少任一配置会直接失败。构建启用 Flutter obfuscation、R8/resource shrinking，并把 split-debug-info 保留在受忽略的本地目录，不随 APK/AAB 分发。
+正式打包还要求 `RELAY_BASE_URL` 和本地 Release Signing 配置；缺少任一配置会直接失败。签名使用本地 `android/key.properties`（storeFile 指向被 `.gitignore` 忽略的 `android/app/keystore/*.jks`），不写入仓库、不依赖 CI 注入。构建启用 Flutter obfuscation、R8/resource shrinking，并把 split-debug-info 保留在受忽略的本地目录，不随 APK/AAB 分发。
 
-### release 目录约定
+Android 版本独立于 macOS git tag，格式固定为 `A.BCD.E+code`：`A≥1`、`BCD=001–999`、`E=0–9`，且 `code = A×1,000,000 + BCD×1,000 + E`、上限为 `2,100,000,000`。同一个 `A.BCD.E` 只发布一次；需要重发时先递增 `E`。`ANDROID_VERSION` 与 `pubspec.yaml` 读取值在 build/release 两种模式下都会执行相同强校验。
 
-归档目录命名与 macOS 端一致（版本号-时间戳-PID）：
+> **打包策略**：不打包 QA 或 Debug 版。归档到 `App-Builds/` 的产物均为带签名正式版（`release` 模式），供正式环境手动测试。
+
+### App-Builds 目录约定
+
+发布二进制归档到工作区级 `App-Builds/` 目录（精确大小写 `App-Builds`），布局与 macOS 端一致：
 
 ```
-android/release/v<版本>-<YYYYMMDD>-<HHMMSS>-<PID>/
-├── balance-monitor-<版本>-android-arm64-v8a-release.apk        # 现代设备（主力）
-├── balance-monitor-<版本>-android-armeabi-v7a-release.apk      # 旧设备
-├── balance-monitor-<版本>-android-x86_64-release.apk           # 模拟器/x86
-├── balance-monitor-<版本>-android-universal-release.apk        # 全架构单包
-└── balance-monitor-<版本>-android-release.aab                  # Play Store 用
+App-Builds/vA.BCD.E-YYYYMMDD-HHMM/android/
+├── balance-monitor-vA.BCD.E-YYYYMMDD-HHMM-android-arm64-v8a-release.apk
+├── balance-monitor-vA.BCD.E-YYYYMMDD-HHMM-android-armeabi-v7a-release.apk
+├── balance-monitor-vA.BCD.E-YYYYMMDD-HHMM-android-x86_64-release.apk
+├── balance-monitor-vA.BCD.E-YYYYMMDD-HHMM-android-universal-release.apk
+└── balance-monitor-vA.BCD.E-YYYYMMDD-HHMM-android-release.aab
 ```
 
-> 产物为二进制大文件，`android/release/` 下的 `.apk/.aab/.zip` 已被 `.gitignore` 忽略，经 GitHub Releases 分发。
+> 本地默认在工作区根目录的 `App-Builds/`（各仓库的 sibling，不在仓库内）。Android 产物为二进制大文件，经 GitHub Releases 分发，不提交到仓库。Android 版本独立于 macOS git tag，产物手动上传到 macOS 的 tag Release：先本地执行 `bash script/build_android_release.sh release`，再用 `gh release upload <macOS-tag> App-Builds/vA.BCD.E-YYYYMMDD-HHMM/android/*` 上传到对应 tag 的 Release。
 
 ## 测试
 
@@ -98,7 +104,7 @@ android/release/v<版本>-<YYYYMMDD>-<HHMMSS>-<PID>/
 cd android && flutter test
 ```
 
-覆盖中继安全链路：二维码拒绝 Endpoint override、固定 Endpoint 校验、E2EE 信封往返与防篡改、配对领取、结构化错误码、requestId 绑定、设备撤销/删除、注册状态检测及 Contract vectors。
+覆盖中继安全链路：二维码拒绝 Endpoint override、固定 Endpoint 校验、E2EE 信封往返与防篡改、配对领取、结构化错误码、requestId/requestNonce 双重绑定、query single-flight、65 KiB 流式上限、RFC 1950 压缩炸弹拒绝、加密 section 缓存、设备撤销/删除、注册状态检测及 Contract vectors。
 
 > **WebSocket 兼容性经验**：中继服务与 macOS 桌面端之间的 WebSocket 传输必须接受已部署客户端实际使用的帧类型（text frame 与 binary frame 均按 UTF-8 JSON 解析），相关错误需端到端测试验证，不能只依赖单端单元测试。
 

@@ -1,6 +1,6 @@
 {
   "protocolVersion": 1,
-  "contractVersion": "1.0.0-draft",
+  "contractVersion": "1.1.0",
   "pairingFields": [
     "version",
     "deviceID",
@@ -22,6 +22,7 @@
   "deviceRoutes": [
     "POST /api/v1/devices/register",
     "POST /api/v1/pair/start",
+    "POST /api/v1/pair/approve",
     "POST /api/v1/pair/claim",
     "POST /api/v1/devices/revoke",
     "DELETE /api/v1/devices",
@@ -32,28 +33,64 @@
   ],
   "errorCodes": [
     "ALREADY_PAIRED",
+    "ANALYTICS_UNAVAILABLE",
+    "DECOMPRESSION_LIMIT_EXCEEDED",
     "DEVICE_NOT_FOUND",
     "DEVICE_RATE_LIMITED",
     "DUPLICATE_REQUEST",
     "INTERNAL_ERROR",
     "INVALID_APP_CREDENTIALS",
     "INVALID_CREDENTIALS",
+    "INVALID_COMPRESSION",
     "INVALID_DEVICE_CREDENTIALS",
     "INVALID_PAIRING_PAYLOAD",
     "INVALID_PC_CREDENTIALS",
     "INVALID_RELAY_ENVELOPE",
     "INVALID_REQUEST",
+    "INVALID_SECTION",
+    "INVALID_SECTION_PARAMS",
     "IP_BLOCKED",
     "NOT_FOUND",
     "PAIRING_INVALID_OR_EXPIRED",
+    "PAIRING_APPROVAL_REQUIRED",
     "PAIRING_RATE_LIMITED",
     "PC_DISCONNECTED",
     "PC_OFFLINE",
     "PC_RESPONSE_TIMEOUT",
     "PC_SEND_FAILED",
     "REGISTRATION_RATE_LIMITED",
+    "REQUEST_RATE_LIMITED",
+    "REQUEST_REPLAYED",
+    "REQUEST_TIMEOUT",
     "RELAY_INTERNAL_ERROR",
+    "RESPONSE_TOO_LARGE",
+    "SECTION_TOO_LARGE",
+    "SECTIONS_TOO_LARGE",
     "SERVER_SHUTDOWN",
-    "TOO_MANY_REQUESTS"
-  ]
+    "TOO_MANY_REQUESTS",
+    "UPGRADE_REQUIRED"
+  ],
+  "analyticsSections": [
+    "overview",
+    "cache",
+    "cost",
+    "usage",
+    "modelDistribution",
+    "trend",
+    "heatmap"
+  ],
+  "limits": {
+    "maxTransportBytes": 65536,
+    "maxSectionPlaintextBytes": 131072,
+    "maxSectionsPlaintextBytes": 524288,
+    "trendDays": { "minimum": 1, "maximum": 90, "default": 30 },
+    "heatmapWeeks": { "minimum": 1, "maximum": 52, "default": 52 },
+    "requestWindowMilliseconds": 300000,
+    "replayCacheCapacity": 1000
+  },
+  "compatibility": {
+    "missingRequestedSections": "snapshots-only",
+    "oldAndroidNewMac": "supported",
+    "newAndroidOldMac": "fail-closed-upgrade-required"
+  }
 }

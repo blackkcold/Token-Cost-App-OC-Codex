@@ -43,6 +43,7 @@ AI coding tools charge by token — but most developers have no idea what they'r
 - **Theme & Appearance** — Choose Ocean, Forest, Sunset, or Violet independently from System, Light, or Dark appearance
 - **CNY/USD Toggle** — All prices dynamically switch with currency; custom monthly fees auto-convert
 - **Balance Monitoring** — Real-time balance queries for OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud, with validated encrypted Cookie caching, browser/profile fallback, and multi-window quota visualization
+- **Relay Analytics 1.1** — Optional E2EE transport for overview, cache, cost, usage, model distribution, trend, and heatmap sections with bounded RFC 1950 decompression and encrypted Android caching
 - **Responsive Settings Panel** — Module-based collapsible settings with adaptive horizontal layout for faster desktop scanning
 - **Desktop-Friendly Window Behavior** — Closing the main window hides the Dock icon while keeping the MenuBar workflow active
 - **Update Checker** — Silent check on launch + manual trigger; auto-downloads updates
@@ -85,11 +86,13 @@ flutter pub get
 flutter analyze
 flutter test
 
-# Package release artifacts (APK + AAB) into android/release/
+# Package release artifacts (APK + AAB) into App-Builds/vA.BCD.E-<UTC minute>/android/
 export JAVA_HOME="$(/usr/libexec/java_home -v 17)"  # 脚本会自动回退识别已安装的 JDK 17
 export RELAY_BASE_URL="${RELAY_BASE_URL:?Set the protected HTTPS Relay endpoint}"
-bash script/build_android_release.sh
+bash script/build_android_release.sh release
 ```
+
+> **打包策略**：不打包 QA 或 Debug 版。归档到 `App-Builds/` 的产物均为带签名正式版（`release` 模式），供正式环境手动测试。Android 签名使用本地 `key.properties` + 被忽略的 `.jks`，不依赖 CI 注入；产物手动上传到 macOS 的 tag Release（`gh release upload <macOS-tag> App-Builds/vA.BCD.E-<UTC minute>/android/*`）。CI 仅在 `.github/workflows/ci.yml` 中运行 Android `flutter analyze` / `flutter test`，不构建或上传 Android 产物。
 
 See [android/README.md](android/README.md) for details.
 
@@ -128,12 +131,13 @@ Token-Cost-App-OC-Codex/
 │   ├── CodexTokenCostApp/     # Main app (SwiftUI views, stores, entry)
 │   └── CodexTokenCostHelper/  # Helper process (CLI Codex session collector)
 ├── android/                   # Android companion app (Flutter Balance Monitor)
-│   └── release/               # Android release artifacts (APK + AAB)
 ├── docs/                      # Architecture docs & dev manual
 ├── script/                    # Build & run scripts
-├── release/                   # macOS release artifacts + versions.json
+├── release/                   # Release metadata (versions.json) — binaries live in workspace App-Builds/
 └── .github/workflows/         # CI/CD
 ```
+
+> **Build output convention**: Release binaries are archived to the workspace-level `App-Builds/` directory (exact-case `App-Builds`) under timestamped platform versions: macOS uses `App-Builds/vX.Y.Z-YYYYMMDD-HHMM/macos/`, while Android uses its independent `App-Builds/vA.BCD.E-YYYYMMDD-HHMM/android/` version. Local development snapshots keep the collision-safe seconds + PID suffix; `App-Builds/latest/<platform>` remains platform-scoped. macOS release is built by CI; Android release is built locally and manually uploaded to the macOS tag Release. `release/versions.json` remains repo metadata and stores the canonical macOS version plus the timestamped zip filename.
 
 See [dev manual](docs/开发手册.md) and [architecture diagram](docs/架构逻辑链图.md) for details.
 
@@ -181,6 +185,7 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 - **主题与外观** — 海洋蓝、森林绿、日落橙、紫罗兰 4 种主题色，可独立选择跟随系统、浅色或深色外观
 - **人民币/美元计价切换** — 所有价格展示随币种动态切换，自定义月费自动换算
 - **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud 余额实时查询；Cookie 优先从内存与 App 本地 AES 加密缓存读取，失效时自动验证 Chrome/Edge/Brave/Arc 的后续候选，不触发 Keychain 授权弹窗
+- **Relay Analytics 1.1** — 可选 E2EE 传输总览、缓存、成本、用量、模型分布、趋势与热力图；Android 使用有界 RFC 1950 解压和加密短期缓存
 - **响应式设置页** — 模块化折叠设置面板，短控件采用横向自适应布局，桌面端浏览更高效
 - **桌面窗口行为优化** — 关闭主窗口后自动隐藏 Dock 图标，保留 MenuBar 工作流
 - **版本更新检查** — 启动时静默检查 + 手动触发，自动下载更新包
@@ -223,11 +228,13 @@ flutter pub get
 flutter analyze
 flutter test
 
-# 打包 release 产物（APK + AAB）到 android/release/
+# 打包 release 产物（APK + AAB）到 App-Builds/vA.BCD.E-<UTC 分钟>/android/
 export JAVA_HOME="$(/usr/libexec/java_home -v 17)"  # 脚本会自动回退识别已安装的 JDK 17
 export RELAY_BASE_URL="${RELAY_BASE_URL:?请先设置受保护的 HTTPS Relay Endpoint}"
-bash script/build_android_release.sh
+bash script/build_android_release.sh release
 ```
+
+> **打包策略**：不打包 QA 或 Debug 版。归档到 `App-Builds/` 的产物均为带签名正式版（`release` 模式），供正式环境手动测试。Android 签名使用本地 `key.properties` + 被忽略的 `.jks`，不依赖 CI 注入；产物手动上传到 macOS 的 tag Release（`gh release upload <macOS-tag> App-Builds/vA.BCD.E-<UTC 分钟>/android/*`）。CI 仅在 `.github/workflows/ci.yml` 中运行 Android `flutter analyze` / `flutter test`，不构建或上传 Android 产物。
 
 详见 [android/README.md](android/README.md)。
 
@@ -266,12 +273,13 @@ Token-Cost-App-OC-Codex/
 │   ├── CodexTokenCostApp/     # 主应用
 │   └── CodexTokenCostHelper/  # 辅助进程
 ├── android/                   # 安卓配套 App（Flutter 余额监控）
-│   └── release/               # 安卓发布产物（APK + AAB）
 ├── docs/                      # 文档
 ├── script/                    # 构建脚本
-├── release/                   # macOS 发布产物 + versions.json
+├── release/                   # 发布元数据（versions.json）——二进制产物在工作区 App-Builds/
 └── .github/workflows/         # CI/CD
 ```
+
+> **构建产物约定**：发布二进制归档到工作区级 `App-Builds/` 目录（精确大小写 `App-Builds`）。macOS 使用 `App-Builds/vX.Y.Z-YYYYMMDD-HHMM/macos/`，Android 使用独立版本 `App-Builds/vA.BCD.E-YYYYMMDD-HHMM/android/`；本地开发快照继续使用秒级时间戳 + PID 防碰撞，`App-Builds/latest/<platform>` 按平台隔离。macOS 正式产物由 CI 构建；Android 正式产物在本地构建并手动上传到 macOS 的 tag Release。`release/versions.json` 仍是仓库元数据，其中 macOS `version` 保持纯版本，`file` 记录带时间戳 zip 文件名。
 
 详见 [开发手册](docs/开发手册.md) 和 [架构逻辑链图](docs/架构逻辑链图.md)。
 

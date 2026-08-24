@@ -1,0 +1,13 @@
+{
+  "generatedAtMilliseconds": 1700000000100,
+  "requestNonce": "contract-query-nonce-0001",
+  "snapshots": [],
+  "compression": "zlib",
+  "sections": {
+    "overview": {
+      "encoding": "json+zlib",
+      "uncompressedBytes": 143,
+      "data": "eNqrVkpMLsksS3VJrCxWsjLSUUpJzMypdCxLLUpMTw3Jz07NAwqbmxroGego5ebnlWTkVLoWl2TmJpbAZY2MTA3A8iX5JYk5jsklpYk5MDlDZCnn/OKS0GAXoKiekSlUDG6IAUhhLQCLJS6T"
+    }
+  }
+}

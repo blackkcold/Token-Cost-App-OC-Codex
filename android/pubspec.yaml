@@ -4,9 +4,10 @@ description: "A new Flutter project."
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-# The following defines the version and build number for your application.
-# A version number is three numbers separated by dots, like 1.2.43
-# followed by an optional build number separated by a +.
+# Android releases use A.BCD.E+code: A is the major generation, BCD is a
+# three-digit release sequence (001-999), E is the rebuild edition (0-9), and
+# code = A×1,000,000 + BCD×1,000 + E. Publish each A.BCD.E only once; bump E
+# before rebuilding an already published release.
 # Both the version and the builder number may be overridden in flutter
 # build by specifying --build-name and --build-number, respectively.
 # In Android, build-name is used as versionName while build-number used as versionCode.
@@ -16,7 +17,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.2.0+2
+version: 1.001.0+1001000
 
 environment:
   sdk: ^3.12.2
@@ -39,6 +40,7 @@ dependencies:
   pointycastle: ^3.9.1
   flutter_secure_storage: ^9.2.2
   mobile_scanner: ^7.4.0
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:

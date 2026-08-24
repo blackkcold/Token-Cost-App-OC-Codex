@@ -73,28 +73,88 @@ public struct BalanceRelayQuery: Codable, Equatable, Sendable {
     public let action: String
     public let issuedAtMilliseconds: Int64
     public let nonce: String
+    public let requestedSections: [String]?
+    public let sectionParams: BalanceRelaySectionParams?
 
     public init(
         action: String = "balance.refresh",
         issuedAtMilliseconds: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
-        nonce: String = UUID().uuidString
+        nonce: String = UUID().uuidString,
+        requestedSections: [String]? = nil,
+        sectionParams: BalanceRelaySectionParams? = nil
     ) {
         self.action = action
         self.issuedAtMilliseconds = issuedAtMilliseconds
         self.nonce = nonce
+        self.requestedSections = requestedSections
+        self.sectionParams = sectionParams
+    }
+}
+
+public struct BalanceRelaySectionParams: Codable, Equatable, Sendable {
+    public struct Trend: Codable, Equatable, Sendable {
+        public let days: Int?
+        public init(days: Int? = nil) { self.days = days }
+    }
+
+    public struct Heatmap: Codable, Equatable, Sendable {
+        public let weeks: Int?
+        public init(weeks: Int? = nil) { self.weeks = weeks }
+    }
+
+    public let trend: Trend?
+    public let heatmap: Heatmap?
+
+    public init(trend: Trend? = nil, heatmap: Heatmap? = nil) {
+        self.trend = trend
+        self.heatmap = heatmap
+    }
+}
+
+public struct BalanceRelayEncodedSection: Codable, Equatable, Sendable {
+    public let encoding: String
+    public let uncompressedBytes: Int
+    public let data: String
+
+    public init(encoding: String = "json+zlib", uncompressedBytes: Int, data: String) {
+        self.encoding = encoding
+        self.uncompressedBytes = uncompressedBytes
+        self.data = data
+    }
+}
+
+public struct BalanceRelayWireError: Codable, Equatable, Sendable {
+    public let code: String
+    public let message: String
+
+    public init(code: String, message: String) {
+        self.code = code
+        self.message = message
     }
 }
 
 public struct BalanceRelayResponse: Codable, Sendable {
     public let generatedAtMilliseconds: Int64
+    public let requestNonce: String
     public let snapshots: [BalanceSnapshot]
+    public let compression: String?
+    public let sections: [String: BalanceRelayEncodedSection]?
+    public let error: BalanceRelayWireError?
 
     public init(
         generatedAtMilliseconds: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
-        snapshots: [BalanceSnapshot]
+        requestNonce: String,
+        snapshots: [BalanceSnapshot],
+        compression: String? = nil,
+        sections: [String: BalanceRelayEncodedSection]? = nil,
+        error: BalanceRelayWireError? = nil
     ) {
         self.generatedAtMilliseconds = generatedAtMilliseconds
+        self.requestNonce = requestNonce
         self.snapshots = snapshots
+        self.compression = compression
+        self.sections = sections
+        self.error = error
     }
 }
 
@@ -125,13 +185,46 @@ public enum BalanceRelayQueryValidationError: Error, Equatable {
     case staleRequest
     case invalidNonce
     case replay
+    case duplicateSection
+    case unknownSection
+    case invalidSectionParams
+}
+
+public struct BalanceRelayReplayCache: Sendable {
+    private var expirations: [String: Int64] = [:]
+    public let capacity: Int
+    public let ttlMilliseconds: Int64
+
+    public init(capacity: Int = 1_000, ttlMilliseconds: Int64 = 300_000) {
+        self.capacity = capacity
+        self.ttlMilliseconds = ttlMilliseconds
+    }
+
+    public var count: Int { expirations.count }
+
+    public mutating func insert(_ nonce: String, nowMilliseconds: Int64) throws {
+        expirations = expirations.filter { $0.value > nowMilliseconds }
+        guard expirations[nonce] == nil else { throw BalanceRelayQueryValidationError.replay }
+        if expirations.count >= capacity, let earliest = expirations.min(by: { $0.value < $1.value })?.key {
+            expirations.removeValue(forKey: earliest)
+        }
+        expirations[nonce] = nowMilliseconds + ttlMilliseconds
+    }
+
+    public mutating func removeAll() {
+        expirations.removeAll(keepingCapacity: true)
+    }
 }
 
 public enum BalanceRelayQueryValidator {
+    public static let allowedSections = Set([
+        "overview", "cache", "cost", "usage", "modelDistribution", "trend", "heatmap",
+    ])
+
     public static func validate(
         _ query: BalanceRelayQuery,
         nowMilliseconds: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
-        seenNonces: inout Set<String>
+        replayCache: inout BalanceRelayReplayCache
     ) throws {
         guard query.action == "balance.refresh" else {
             throw BalanceRelayQueryValidationError.unsupportedAction
@@ -142,13 +235,21 @@ public enum BalanceRelayQueryValidator {
         guard query.nonce.count >= 16, query.nonce.count <= 100 else {
             throw BalanceRelayQueryValidationError.invalidNonce
         }
-        guard seenNonces.insert(query.nonce).inserted else {
-            throw BalanceRelayQueryValidationError.replay
+        if let sections = query.requestedSections {
+            guard Set(sections).count == sections.count else {
+                throw BalanceRelayQueryValidationError.duplicateSection
+            }
+            guard sections.count <= allowedSections.count,
+                  sections.allSatisfy(allowedSections.contains)
+            else { throw BalanceRelayQueryValidationError.unknownSection }
         }
-        if seenNonces.count > 1_000 {
-            seenNonces.removeAll(keepingCapacity: true)
-            seenNonces.insert(query.nonce)
+        if let days = query.sectionParams?.trend?.days, !(1...90).contains(days) {
+            throw BalanceRelayQueryValidationError.invalidSectionParams
         }
+        if let weeks = query.sectionParams?.heatmap?.weeks, !(1...52).contains(weeks) {
+            throw BalanceRelayQueryValidationError.invalidSectionParams
+        }
+        try replayCache.insert(query.nonce, nowMilliseconds: nowMilliseconds)
     }
 }
 

@@ -17,15 +17,35 @@ on:
         options:
           - all
           - macos
-          - android
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_version || github.ref_name }}
+  # Workspace-level App-Builds convention: exact-case directory inside github.workspace.
+  # Layout: App-Builds/<timestamped-version>/<platform>,
+  #         App-Builds/qa/<qa-pack>, App-Builds/latest/<platform>.
+  APP_BUILDS_DIR: ${{ github.workspace }}/App-Builds
 
 jobs:
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      release_ts: ${{ steps.release_ts.outputs.release_ts }}
+    steps:
+      - name: Resolve release timestamp
+        id: release_ts
+        run: |
+          release_ts="$(date -u +%Y%m%d-%H%M)"
+          if [[ ! "$release_ts" =~ ^[0-9]{8}-[0-9]{4}$ ]]; then
+            echo "Invalid release timestamp: $release_ts" >&2
+            exit 1
+          fi
+          echo "release_ts=$release_ts" >> "$GITHUB_OUTPUT"
+
   release:
     name: Release (macOS)
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'macos' }}
+    needs: prepare
     runs-on: macos-26
     permissions:
       contents: write
@@ -44,6 +64,7 @@ jobs:
       - name: Package release bundle
         env:
           RELEASE_VERSION: ${{ env.RELEASE_TAG }}
+          RELEASE_TS: ${{ needs.prepare.outputs.release_ts }}
           UPDATE_MANIFEST_PRIVATE_KEY_PEM: ${{ secrets.UPDATE_MANIFEST_PRIVATE_KEY_PEM }}
           UPDATE_MANIFEST_PUBLIC_KEY_B64: ${{ vars.UPDATE_MANIFEST_PUBLIC_KEY_B64 }}
           RELAY_BASE_URL: ${{ secrets.RELAY_PRODUCTION_URL }}
@@ -51,11 +72,14 @@ jobs:
 
       - name: Resolve release assets
         id: release_assets
+        env:
+          RELEASE_TS: ${{ needs.prepare.outputs.release_ts }}
         run: |
           shopt -s nullglob
-          zips=(release/${{ env.RELEASE_TAG }}/Token-Cost-App-OC-Codex-${{ env.RELEASE_TAG }}-macOS-*.zip)
-          dmgs=(release/${{ env.RELEASE_TAG }}/Token-Cost-App-OC-Codex-${{ env.RELEASE_TAG }}-macOS-*.dmg)
-          manifests=(release/${{ env.RELEASE_TAG }}/Token-Cost-App-OC-Codex-${{ env.RELEASE_TAG }}-macOS-*.update-manifest.json)
+          base="$APP_BUILDS_DIR/${RELEASE_TAG}-${RELEASE_TS}/macos"
+          zips=("$base"/Token-Cost-App-OC-Codex-*-macOS-*.zip)
+          dmgs=("$base"/Token-Cost-App-OC-Codex-*-macOS-*.dmg)
+          manifests=("$base"/Token-Cost-App-OC-Codex-*-macOS-*.update-manifest.json)
           if [[ ${#zips[@]} -ne 1 ]]; then
             echo "Expected exactly one release zip, found ${#zips[@]}" >&2
             printf '%s\n' "${zips[@]}" >&2
@@ -82,78 +106,3 @@ jobs:
             ${{ steps.release_assets.outputs.zip_path }}
             ${{ steps.release_assets.outputs.dmg_path }}
             ${{ steps.release_assets.outputs.manifest_path }}
-
-  android:
-    name: Release (Android)
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'android' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
-      - name: Validate release tag
-        run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid release tag: $RELEASE_TAG" >&2
-            exit 1
-          fi
-          git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}" >/dev/null
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-      # 注入 release 签名密钥（不写入仓库；key.properties/.jks 均被 .gitignore 忽略）
-      - name: Inject Android release signing keys
-        env:
-          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        run: |
-          if [ -z "$ANDROID_KEYSTORE_B64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ]; then
-            echo "ERROR: ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS secrets are required for a release build." >&2
-            exit 1
-          fi
-          mkdir -p android/android/app/keystore
-          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > android/android/app/keystore/balance-monitor-release.jks
-          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=keystore/balance-monitor-release.jks\n' \
-            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" \
-            > android/android/key.properties
-      - name: Build Android artifacts
-        env:
-          RELEASE_VERSION: ${{ env.RELEASE_TAG }}
-          RELAY_BASE_URL: ${{ secrets.RELAY_PRODUCTION_URL }}
-        run: |
-          if [ -z "$RELAY_BASE_URL" ]; then
-            echo "ERROR: RELAY_PRODUCTION_URL is required for a release build." >&2
-            exit 1
-          fi
-          cd android
-          flutter pub get
-          flutter analyze
-          flutter test
-          # 归档到 android/release/<tag>/，供上传
-          mkdir -p "build/symbols/${{ env.RELEASE_TAG }}"
-          flutter build apk --release \
-            --dart-define=RELAY_BASE_URL="$RELAY_BASE_URL" \
-            --obfuscate \
-            --split-debug-info="build/symbols/${{ env.RELEASE_TAG }}"
-          flutter build appbundle --release \
-            --dart-define=RELAY_BASE_URL="$RELAY_BASE_URL" \
-            --obfuscate \
-            --split-debug-info="build/symbols/${{ env.RELEASE_TAG }}"
-          mkdir -p "release/${{ env.RELEASE_TAG }}"
-          for abi in arm64-v8a armeabi-v7a x86_64; do
-            cp "build/app/outputs/flutter-apk/app-${abi}-release.apk" \
-              "release/${{ env.RELEASE_TAG }}/balance-monitor-${{ env.RELEASE_TAG }}-android-${abi}-release.apk" 2>/dev/null || true
-          done
-          cp "build/app/outputs/flutter-apk/app-release.apk" \
-            "release/${{ env.RELEASE_TAG }}/balance-monitor-${{ env.RELEASE_TAG }}-android-universal-release.apk" 2>/dev/null || true
-          cp "build/app/outputs/bundle/release/app-release.aab" \
-            "release/${{ env.RELEASE_TAG }}/balance-monitor-${{ env.RELEASE_TAG }}-android-release.aab" 2>/dev/null || true
-      - name: Upload Android assets to Release
-        uses: softprops/action-gh-release@v3.0.2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          files: android/release/${{ env.RELEASE_TAG }}/*
-          fail_on_unmatched_files: false

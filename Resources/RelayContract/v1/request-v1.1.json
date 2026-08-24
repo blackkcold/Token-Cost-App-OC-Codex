@@ -1,0 +1,7 @@
+{
+  "action": "balance.refresh",
+  "issuedAtMilliseconds": 1700000000000,
+  "nonce": "contract-query-nonce-0001",
+  "requestedSections": ["overview", "cache", "cost", "usage", "modelDistribution", "trend", "heatmap"],
+  "sectionParams": {"trend": {"days": 30}, "heatmap": {"weeks": 52}}
+}

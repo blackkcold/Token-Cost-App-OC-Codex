@@ -15,6 +15,7 @@ public final class BalanceRelayCoordinator: ObservableObject {
     @Published public private(set) var serverOnline: Bool?
 
     private let balanceManager: BalanceManager
+    private let analyticsProvider: (any RelayAnalyticsProviding)?
     private let client: BalanceRelayClient?
     private let configuredServerBaseURL: URL?
 
@@ -24,13 +25,16 @@ public final class BalanceRelayCoordinator: ObservableObject {
     private var selfCheckTask: Task<Void, Never>?
     private var selfCheckInFlight = false
     private var lastForcedReconnectAt: Date = .distantPast
+    private var refreshTask: Task<Void, Never>?
 
     public init(
         balanceManager: BalanceManager,
+        analyticsProvider: (any RelayAnalyticsProviding)? = nil,
         identityStore: BalanceRelayIdentityStore? = nil,
         configuredServerBaseURL: URL? = BalanceRelayEndpoint.configuredURL()
     ) {
         self.balanceManager = balanceManager
+        self.analyticsProvider = analyticsProvider
         self.configuredServerBaseURL = configuredServerBaseURL
         let store = identityStore ?? (try? BalanceRelayIdentityStore())
         if let store {
@@ -320,11 +324,47 @@ public final class BalanceRelayCoordinator: ObservableObject {
             throw BalanceRelayQueryValidationError.unsupportedAction
         }
         triggerBackgroundRefresh()
+        let snapshots: [BalanceSnapshot]
         if balanceManager.snapshots.isEmpty {
-            let waited = await waitForSnapshots(timeout: freshWaitSeconds)
-            return BalanceRelayResponse(snapshots: waited)
+            snapshots = await waitForSnapshots(timeout: freshWaitSeconds)
+        } else {
+            snapshots = balanceManager.snapshots
         }
-        return BalanceRelayResponse(snapshots: balanceManager.snapshots)
+        guard let requestedSections = query.requestedSections, !requestedSections.isEmpty else {
+            return BalanceRelayResponse(requestNonce: query.nonce, snapshots: snapshots)
+        }
+        guard let analytics = await analyticsProvider?.currentAnalytics() else {
+            return BalanceRelayResponse(
+                requestNonce: query.nonce,
+                snapshots: snapshots,
+                error: BalanceRelayWireError(code: "ANALYTICS_UNAVAILABLE", message: "Analytics are not available")
+            )
+        }
+        do {
+            let sections = try RelaySectionBuilder.build(
+                requestedSections: requestedSections,
+                params: query.sectionParams,
+                analytics: analytics
+            )
+            return BalanceRelayResponse(
+                requestNonce: query.nonce,
+                snapshots: snapshots,
+                compression: "zlib",
+                sections: sections
+            )
+        } catch RelaySectionBuildError.sectionTooLarge {
+            return BalanceRelayResponse(
+                requestNonce: query.nonce,
+                snapshots: snapshots,
+                error: BalanceRelayWireError(code: "SECTION_TOO_LARGE", message: "An analytics section exceeds the plaintext limit")
+            )
+        } catch RelaySectionBuildError.invalidNumber {
+            return BalanceRelayResponse(
+                requestNonce: query.nonce,
+                snapshots: snapshots,
+                error: BalanceRelayWireError(code: "INVALID_SECTION_DATA", message: "An analytics section contains invalid numeric data")
+            )
+        }
     }
 
     /// 首次空数据时的短等待上限：远小于服务器 QUERY_TIMEOUT_SECONDS（45s），
@@ -345,9 +385,11 @@ public final class BalanceRelayCoordinator: ObservableObject {
 
     /// 在后台触发全量刷新，不阻塞中继响应；`refresh` 自带并发保护，重复触发会安全合并。
     private func triggerBackgroundRefresh() {
+        guard refreshTask == nil else { return }
         let manager = balanceManager
-        Task { @MainActor in
+        refreshTask = Task { @MainActor [weak self] in
             await manager.refresh(force: true)
+            self?.refreshTask = nil
         }
     }
 }

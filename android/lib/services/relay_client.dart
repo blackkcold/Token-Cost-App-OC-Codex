@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -6,11 +8,28 @@ import '../models/relay_models.dart';
 import 'diagnostic_log.dart';
 import 'relay_crypto.dart';
 import 'relay_identity_store.dart';
+import 'relay_section_codec.dart';
 
 class RelayClient {
+  static const int maxTransportBytes = 65_536;
+  static const _allSections = [
+    'overview',
+    'cache',
+    'cost',
+    'usage',
+    'modelDistribution',
+    'trend',
+    'heatmap',
+  ];
   final RelayIdentityPersistence store;
   final Uri serverBaseUrl;
   final http.Client httpClient;
+  Future<RelayBalanceResponse>? _queryInFlight;
+  Future<bool>? _onlineInFlight;
+  DateTime? _lastOnlineAt;
+  bool? _lastOnlineValue;
+  StreamSubscription<List<int>>? _querySubscription;
+  Completer<Uint8List>? _queryReadCompleter;
 
   RelayClient(
     this.store, {
@@ -75,6 +94,27 @@ class RelayClient {
   }
 
   Future<bool> online(RelayIdentity identity) async {
+    final existing = _onlineInFlight;
+    if (existing != null) return existing;
+    final now = DateTime.now();
+    if (_lastOnlineAt != null &&
+        now.difference(_lastOnlineAt!) < const Duration(seconds: 2) &&
+        _lastOnlineValue != null) {
+      return _lastOnlineValue!;
+    }
+    final future = _performOnline(identity);
+    _onlineInFlight = future;
+    try {
+      final value = await future;
+      _lastOnlineAt = DateTime.now();
+      _lastOnlineValue = value;
+      return value;
+    } finally {
+      if (identical(_onlineInFlight, future)) _onlineInFlight = null;
+    }
+  }
+
+  Future<bool> _performOnline(RelayIdentity identity) async {
     final stopwatch = Stopwatch()..start();
     try {
       final response = await httpClient
@@ -234,45 +274,108 @@ class RelayClient {
     }
   }
 
-  Future<RelayBalanceResponse> query(RelayIdentity identity) async {
+  Future<RelayBalanceResponse> query(RelayIdentity identity) {
+    final existing = _queryInFlight;
+    if (existing != null) return existing;
+    final future = _trackedQuery(identity);
+    _queryInFlight = future;
+    return future;
+  }
+
+  Future<RelayBalanceResponse> _trackedQuery(RelayIdentity identity) async {
+    try {
+      return await _queryWithBatches(identity);
+    } finally {
+      _queryInFlight = null;
+    }
+  }
+
+  void cancelQuery() {
+    final completer = _queryReadCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(
+        const RelayClientException('查询已取消', code: 'REQUEST_CANCELLED'),
+      );
+    }
+    unawaited(_querySubscription?.cancel());
+    _querySubscription = null;
+  }
+
+  Future<RelayBalanceResponse> _queryWithBatches(RelayIdentity identity) async {
+    try {
+      return await _queryOnce(identity, _allSections);
+    } on RelayClientException catch (error) {
+      if (error.code != 'RESPONSE_TOO_LARGE') rethrow;
+    }
+
+    const batches = [
+      ['overview', 'cache'],
+      ['cost', 'usage', 'modelDistribution'],
+      ['trend'],
+      ['heatmap'],
+    ];
+    RelayBalanceResponse? merged;
+    for (final batch in batches) {
+      try {
+        final response = await _queryOnce(identity, batch);
+        merged = merged == null ? response : merged.merge(response);
+      } on RelayClientException catch (error) {
+        if (error.code != 'RESPONSE_TOO_LARGE' || batch.length == 1) rethrow;
+        for (final section in batch) {
+          final response = await _queryOnce(identity, [section]);
+          merged = merged == null ? response : merged.merge(response);
+        }
+      }
+    }
+    return merged!;
+  }
+
+  Future<RelayBalanceResponse> _queryOnce(
+    RelayIdentity identity,
+    List<String> requestedSections,
+  ) async {
     final stopwatch = Stopwatch()..start();
     try {
       final requestId = RelayCrypto.randomId();
+      final queryNonce = RelayCrypto.randomId(24);
       final query = RelayQuery(
         issuedAtMilliseconds: DateTime.now().millisecondsSinceEpoch,
-        nonce: RelayCrypto.randomId(24),
+        nonce: queryNonce,
+        requestedSections: requestedSections,
+        sectionParams: const {
+          'trend': {'days': 30},
+          'heatmap': {'weeks': 52},
+        },
       );
       final envelope = RelayCrypto.seal(query.toJson(), identity.e2eKey);
       DiagnosticLog.instance.record(
         '[query] request start requestId=${requestId.substring(0, 8)} path=api/v1/relay/query',
         category: DiagnosticCategory.query,
       );
-      final response = await httpClient
-          .post(
-            _endpoint('api/v1/relay/query'),
-            headers: {
-              ..._authHeaders(identity),
-              'Content-Type': 'application/json',
-            },
-            body: jsonEncode({
-              'requestId': requestId,
-              'envelope': envelope.toJson(),
-            }),
-          )
+      final request = http.Request('POST', _endpoint('api/v1/relay/query'))
+        ..headers.addAll({
+          ..._authHeaders(identity),
+          'Content-Type': 'application/json',
+          'X-Relay-Contract': '1.1.0',
+        })
+        ..body = jsonEncode({
+          'requestId': requestId,
+          'envelope': envelope.toJson(),
+        });
+      final streamed = await httpClient
+          .send(request)
           .timeout(const Duration(seconds: 50));
-      if (response.bodyBytes.length > 65_536) {
-        DiagnosticLog.instance.record(
-          '[query] error: 中继响应过大',
-          category: DiagnosticCategory.query,
-        );
-        throw const RelayClientException('中继响应过大');
+      final declaredLength = streamed.contentLength;
+      if (declaredLength != null && declaredLength > maxTransportBytes) {
+        throw const RelayClientException('中继响应过大', code: 'RESPONSE_TOO_LARGE');
       }
-      final body = _json(response);
+      final responseBytes = await _readBounded(streamed.stream);
+      final body = _jsonBytes(responseBytes);
       DiagnosticLog.instance.record(
-        '[query] ${response.statusCode} ${stopwatch.elapsedMilliseconds}ms',
+        '[query] ${streamed.statusCode} ${stopwatch.elapsedMilliseconds}ms',
         category: DiagnosticCategory.query,
       );
-      if (response.statusCode != 200) {
+      if (streamed.statusCode != 200) {
         final error = body['error'] as String? ?? '余额查询失败';
         final code = body['code'] as String?;
         DiagnosticLog.instance.record(
@@ -314,7 +417,31 @@ class RelayClient {
         category: DiagnosticCategory.query,
       );
       final plaintext = RelayCrypto.open(responseEnvelope, identity.e2eKey);
-      final result = RelayBalanceResponse.fromJson(plaintext);
+      if (plaintext['requestNonce'] == null) {
+        throw const RelayClientException(
+          'Mac 客户端需要升级',
+          code: 'UPGRADE_REQUIRED',
+        );
+      }
+      if (plaintext['requestNonce'] != queryNonce) {
+        throw const RelayClientException(
+          '中继响应 nonce 不匹配',
+          code: 'REQUEST_REPLAYED',
+        );
+      }
+      final decodedSections = await RelaySectionCodec.decodeAll(
+        plaintext['sections'] as Map<String, dynamic>?,
+      );
+      final result = RelayBalanceResponse.fromJson({
+        ...plaintext,
+        'sections': decodedSections,
+      });
+      if (result.error != null) {
+        throw RelayClientException(
+          result.error!.message,
+          code: result.error!.code,
+        );
+      }
       final providers = result.snapshots
           .map((s) => s.provider?.rawValue ?? 'unknown')
           .join(', ');
@@ -323,6 +450,8 @@ class RelayClient {
         category: DiagnosticCategory.query,
       );
       return result;
+    } on RelaySectionCodecException catch (error) {
+      throw RelayClientException(error.message, code: error.code);
     } catch (error) {
       if (error is RelayClientException) rethrow;
       DiagnosticLog.instance.record(
@@ -330,6 +459,50 @@ class RelayClient {
         category: DiagnosticCategory.query,
       );
       throw const RelayClientException('余额查询失败', code: 'NETWORK_ERROR');
+    }
+  }
+
+  Future<Uint8List> _readBounded(http.ByteStream stream) async {
+    final builder = BytesBuilder(copy: false);
+    final completer = Completer<Uint8List>();
+    _queryReadCompleter = completer;
+    late StreamSubscription<List<int>> subscription;
+    subscription = stream
+        .timeout(const Duration(seconds: 15))
+        .listen(
+          (chunk) {
+            if (builder.length + chunk.length > maxTransportBytes) {
+              unawaited(subscription.cancel());
+              if (!completer.isCompleted) {
+                completer.completeError(
+                  const RelayClientException(
+                    '中继响应过大',
+                    code: 'RESPONSE_TOO_LARGE',
+                  ),
+                );
+              }
+              return;
+            }
+            builder.add(chunk);
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!completer.isCompleted) {
+              completer.completeError(error, stackTrace);
+            }
+          },
+          onDone: () {
+            if (!completer.isCompleted) completer.complete(builder.takeBytes());
+          },
+          cancelOnError: true,
+        );
+    _querySubscription = subscription;
+    try {
+      return await completer.future;
+    } finally {
+      if (identical(_querySubscription, subscription)) {
+        _querySubscription = null;
+      }
+      if (identical(_queryReadCompleter, completer)) _queryReadCompleter = null;
     }
   }
 
@@ -351,14 +524,25 @@ class RelayClient {
   }
 
   Map<String, dynamic> _json(http.Response response) {
-    if (response.bodyBytes.length > 65_536) {
-      throw const RelayClientException('服务器响应过大');
+    if (response.bodyBytes.length > maxTransportBytes) {
+      throw const RelayClientException('服务器响应过大', code: 'RESPONSE_TOO_LARGE');
     }
     try {
       return jsonDecode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;
     } catch (_) {
       throw const RelayClientException('服务器响应格式无效');
+    }
+  }
+
+  Map<String, dynamic> _jsonBytes(Uint8List bytes) {
+    if (bytes.length > maxTransportBytes) {
+      throw const RelayClientException('服务器响应过大', code: 'RESPONSE_TOO_LARGE');
+    }
+    try {
+      return jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+    } catch (_) {
+      throw const RelayClientException('服务器响应格式无效', code: 'INVALID_RESPONSE');
     }
   }
 }
