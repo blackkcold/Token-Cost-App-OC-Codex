@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           repository: blackkcold/Token-Cost-Relay-Contract
-          ref: main
+          ref: v1.1.0
           path: _relay-contract
       - name: Audit Public Repository Boundary
         run: python3 script/audit_public_boundary.py
