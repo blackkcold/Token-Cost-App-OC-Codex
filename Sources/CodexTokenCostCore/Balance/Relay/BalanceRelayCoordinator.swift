@@ -13,6 +13,7 @@ public final class BalanceRelayCoordinator: ObservableObject {
     @Published public private(set) var appLastSeenAt: Int64 = 0
     /// 服务器认为本机 WebSocket 是否在线；nil 表示未知/未配对。用于识别僵尸连接。
     @Published public private(set) var serverOnline: Bool?
+    @Published public private(set) var hasPendingPairing: Bool = false
 
     private let balanceManager: BalanceManager
     private let analyticsProvider: (any RelayAnalyticsProviding)?
@@ -49,7 +50,10 @@ public final class BalanceRelayCoordinator: ObservableObject {
             let loadedIdentity = stored?.identity
             self.identity = loadedIdentity
             self.connectionState = loadedIdentity == nil ? .unconfigured : .disconnected
-            self.needsRepair = loadedIdentity != nil && (stored?.e2eKey.isEmpty ?? true)
+            let hasActiveKey = stored?.e2eKey?.isEmpty == false
+            let hasPendingKey = stored?.pendingE2EKey?.isEmpty == false
+            self.needsRepair = loadedIdentity != nil && !hasActiveKey && !hasPendingKey
+            self.hasPendingPairing = hasPendingKey
         } else {
             self.client = nil
             self.identity = nil
@@ -96,8 +100,25 @@ public final class BalanceRelayCoordinator: ObservableObject {
             return
         }
         do {
-            isPaired = try await client.isPaired()
+            let status = try await client.deviceStatus()
+            let activeKeyChanged = try await client.reconcileTerminalState(status: status)
+            let reconciledStatus = activeKeyChanged ? try await client.deviceStatus() : status
+            isPaired = reconciledStatus.activeTerminal?.state == .active
+            appOnline = reconciledStatus.appOnline
+            appLastSeenAt = reconciledStatus.appLastSeenAt
+            serverOnline = reconciledStatus.selfOnline
+            needsRepair = false
+            hasPendingPairing = await client.hasPendingKeyJournal()
+            if activeKeyChanged {
+                pairingPayload = nil
+                await client.disconnect()
+                if isPaired { await autoConnect() }
+            }
             errorMessage = nil
+        } catch BalanceRelayClientError.pairingRequired {
+            needsRepair = true
+        } catch BalanceRelayClientError.invalidServerResponse {
+            errorMessage = "Relay 不支持 Contract 1.2 或返回了不匹配的终端状态"
         } catch {
             // 查询失败不阻塞 UI，保持上次状态。
         }
@@ -161,28 +182,21 @@ public final class BalanceRelayCoordinator: ObservableObject {
     public func startPairing() async {
         do {
             guard let client else { throw BalanceRelayClientError.unconfigured }
-            pairingPayload = try await client.startPairing()
+            let payload = try await client.startPairing()
+            try await client.approvePairing()
+            pairingPayload = payload
+            hasPendingPairing = true
             errorMessage = nil
             needsRepair = false
-            // 生成二维码 ≠ 已配对；保持配对表单展示二维码，直至手机扫码成功。
-            isPaired = false
-            try await client.connect(
-                queryHandler: { [weak self] query in
-                    guard let self else { throw CancellationError() }
-                    return try await self.execute(query)
-                },
-                stateHandler: { [weak self] state in
-                    await MainActor.run {
-                        self?.connectionState = state
-                        if state == .connected { self?.startSelfCheck() }
-                    }
-                }
-            )
+            // QR 已由用户明确确认并获 Relay 批准；旧 ACTIVE 终端在新终端激活前继续可用。
         } catch BalanceRelayClientError.alreadyPaired {
             errorMessage = BalanceRelayClientError.alreadyPaired.localizedDescription
             pairingPayload = nil
             // 保持配对表单可操作：用户可"忘记设备"后重新生成二维码。
             isPaired = false
+        } catch BalanceRelayClientError.invalidServerResponse {
+            pairingPayload = nil
+            errorMessage = "Relay 不支持 Contract 1.2，请先升级服务器"
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -239,6 +253,26 @@ public final class BalanceRelayCoordinator: ObservableObject {
         stopSelfCheck()
         await client?.disconnect()
         connectionState = identity == nil ? .unconfigured : .disconnected
+    }
+
+    /// 仅撤销当前活动终端，保留 Mac 注册，以便随后安全配对新终端。
+    public func revokeActiveTerminal() async {
+        do {
+            guard let client else { throw BalanceRelayClientError.unconfigured }
+            stopSelfCheck()
+            try await client.revokeActiveTerminal()
+            pairingPayload = nil
+            isPaired = false
+            appOnline = false
+            appLastSeenAt = 0
+            serverOnline = nil
+            connectionState = .disconnected
+            needsRepair = false
+            hasPendingPairing = await client.hasPendingKeyJournal()
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     /// 已配对设备重新连接中继（不重置端到端密钥）。
@@ -302,6 +336,7 @@ public final class BalanceRelayCoordinator: ObservableObject {
         isPaired = false
         registered = false
         needsRepair = false
+        hasPendingPairing = false
         connectionState = .unconfigured
         serverOnline = nil
         errorMessage = nil

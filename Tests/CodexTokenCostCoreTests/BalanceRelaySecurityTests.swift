@@ -45,7 +45,8 @@ final class BalanceRelaySecurityTests: XCTestCase {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         let valid = BalanceRelayPairingPayload(
             deviceID: "device_security_0001",
-            pairCode: "pair_security_code_0001",
+            keyVersion: 2,
+            pairCode: "pair_security_code_000001",
             e2eKey: Data(repeating: 0x42, count: 32),
             expiresAtMilliseconds: now + 300_000
         )
@@ -61,9 +62,15 @@ final class BalanceRelaySecurityTests: XCTestCase {
         let qrData = try XCTUnwrap(Data(base64Encoded: normalized))
         let qrObject = try XCTUnwrap(JSONSerialization.jsonObject(with: qrData) as? [String: Any])
         XCTAssertNil(qrObject["serverBaseURL"])
+        XCTAssertEqual(qrObject["keyVersion"] as? Int, 2)
+        XCTAssertNil(BalanceRelayPairingPayload.parse(qrString: try XCTUnwrap(valid.qrString) + "&extra=value"))
+        XCTAssertNil(BalanceRelayPairingPayload.parse(
+            qrString: try XCTUnwrap(valid.qrString) + "&data=duplicate"
+        ))
 
         let expired = BalanceRelayPairingPayload(
             deviceID: valid.deviceID,
+            keyVersion: valid.keyVersion,
             pairCode: valid.pairCode,
             e2eKey: valid.e2eKey,
             expiresAtMilliseconds: now - 1
@@ -72,11 +79,21 @@ final class BalanceRelaySecurityTests: XCTestCase {
 
         let shortKey = BalanceRelayPairingPayload(
             deviceID: valid.deviceID,
+            keyVersion: valid.keyVersion,
             pairCode: valid.pairCode,
             e2eKey: Data(repeating: 0x42, count: 16),
             expiresAtMilliseconds: now + 300_000
         )
         XCTAssertNil(BalanceRelayPairingPayload.parse(qrString: try XCTUnwrap(shortKey.qrString)))
+
+        let invalidVersion = BalanceRelayPairingPayload(
+            deviceID: valid.deviceID,
+            keyVersion: 0,
+            pairCode: valid.pairCode,
+            e2eKey: valid.e2eKey,
+            expiresAtMilliseconds: now + 300_000
+        )
+        XCTAssertNil(BalanceRelayPairingPayload.parse(qrString: try XCTUnwrap(invalidVersion.qrString)))
     }
 
     func testPairingPayloadRejectsLegacyServerOverride() throws {
@@ -84,7 +101,8 @@ final class BalanceRelaySecurityTests: XCTestCase {
             "version": 1,
             "serverBaseURL": "https://relay.example.invalid",
             "deviceID": "device_security_0001",
-            "pairCode": "pair_security_code_0001",
+            "keyVersion": 2,
+            "pairCode": "pair_security_code_000001",
             "e2eKey": Data(repeating: 0x42, count: 32).base64EncodedString(),
             "expiresAtMilliseconds": Int64(Date().timeIntervalSince1970 * 1000) + 300_000,
         ]
@@ -114,6 +132,7 @@ final class BalanceRelaySecurityTests: XCTestCase {
         )
         XCTAssertEqual(payload.version, 1)
         XCTAssertEqual(payload.deviceID, "device_contract_0001")
+        XCTAssertEqual(payload.keyVersion, 2)
         XCTAssertEqual(payload.e2eKey.count, 32)
     }
 
@@ -210,7 +229,7 @@ final class BalanceRelaySecurityTests: XCTestCase {
         let data = try Data(contentsOf: contractFixtureRoot.appendingPathComponent("contract.json"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let fields = try XCTUnwrap(object["pairingFields"] as? [String])
-        XCTAssertEqual(fields, ["version", "deviceID", "pairCode", "e2eKey", "expiresAtMilliseconds"])
+        XCTAssertEqual(fields, ["version", "deviceID", "keyVersion", "pairCode", "e2eKey", "expiresAtMilliseconds"])
         XCTAssertFalse(fields.contains("serverBaseURL"))
     }
 
@@ -359,6 +378,39 @@ final class BalanceRelaySecurityTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: keyURL.path), "密钥文件应保留以便复用")
     }
 
+    func testIdentityStorePersistsEncryptedActiveAndPendingKeyJournal() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("balance-relay-key-journal-\(UUID().uuidString)")
+        temporaryDirectories.append(directory)
+        let store = try BalanceRelayIdentityStore(root: directory)
+        let identity = BalanceRelayIdentity(
+            serverBaseURL: URL(string: "https://relay.example.invalid")!,
+            deviceID: "device_security_0007",
+            pcToken: "pc-token-key-journal"
+        )
+        let activeKey = Data(repeating: 0x31, count: 32)
+        let pendingKey = Data(repeating: 0x32, count: 32)
+        try store.save(BalanceRelayStoredIdentity(
+            identity: identity,
+            e2eKey: activeKey,
+            keyVersion: 4,
+            pendingKeyVersion: 5,
+            pendingE2EKey: pendingKey,
+            pendingPairingExpiresAt: 4_102_444_800_000
+        ))
+
+        let loaded = try XCTUnwrap(store.loadStored())
+        XCTAssertEqual(loaded.e2eKey, activeKey)
+        XCTAssertEqual(loaded.keyVersion, 4)
+        XCTAssertEqual(loaded.pendingE2EKey, pendingKey)
+        XCTAssertEqual(loaded.pendingKeyVersion, 5)
+        XCTAssertEqual(loaded.pendingPairingExpiresAt, 4_102_444_800_000)
+
+        let encrypted = try Data(contentsOf: directory.appendingPathComponent("identity.enc"))
+        XCTAssertFalse(encrypted.contains(activeKey))
+        XCTAssertFalse(encrypted.contains(pendingKey))
+    }
+
     func testAlreadyPairedErrorMapsToClearLocalizedMessage() {
         XCTAssertEqual(
             BalanceRelayClientError.alreadyPaired.localizedDescription,
@@ -399,6 +451,58 @@ final class BalanceRelaySecurityTests: XCTestCase {
         }
     }
 
+    func testDeviceStatusValidationAcceptsUnpairedStateAndRejectsBindingConflicts() throws {
+        let unpaired = BalanceRelayPairingStatus(
+            deviceId: "device_security_0008",
+            paired: false,
+            online: true,
+            appOnline: false,
+            appLastSeenAt: 0,
+            activeTerminal: nil,
+            pendingTerminal: nil
+        )
+        let validated = try BalanceRelayClient.validatedDeviceStatus(
+            unpaired,
+            expectedDeviceID: "device_security_0008"
+        )
+        XCTAssertFalse(validated.paired)
+        XCTAssertNil(validated.activeTerminal)
+        XCTAssertNil(validated.pendingTerminal)
+
+        XCTAssertThrowsError(try BalanceRelayClient.validatedDeviceStatus(
+            unpaired,
+            expectedDeviceID: "device_security_other"
+        ))
+
+        let contradictory = BalanceRelayPairingStatus(
+            deviceId: "device_security_0008",
+            paired: true,
+            online: true,
+            appOnline: false,
+            appLastSeenAt: 0,
+            activeTerminal: nil,
+            pendingTerminal: nil
+        )
+        XCTAssertThrowsError(try BalanceRelayClient.validatedDeviceStatus(
+            contradictory,
+            expectedDeviceID: "device_security_0008"
+        ))
+
+        let duplicateVersion = BalanceRelayPairingStatus(
+            deviceId: "device_security_0008",
+            paired: true,
+            online: true,
+            appOnline: true,
+            appLastSeenAt: 1,
+            activeTerminal: BalanceRelayTerminalInfo(keyVersion: 4, state: .active),
+            pendingTerminal: BalanceRelayTerminalInfo(keyVersion: 4, state: .pending)
+        )
+        XCTAssertThrowsError(try BalanceRelayClient.validatedDeviceStatus(
+            duplicateVersion,
+            expectedDeviceID: "device_security_0008"
+        ))
+    }
+
     func testRelayResponseIsEncodedAsTextFramePayload() throws {
         let envelope = BalanceRelayOpaqueEnvelope(
             nonce: Data(repeating: 0x01, count: 12).base64EncodedString(),
@@ -408,6 +512,7 @@ final class BalanceRelaySecurityTests: XCTestCase {
 
         let text = try BalanceRelayClient.encodeResponseText(
             requestID: "request_text_frame_0001",
+            keyVersion: 2,
             envelope: envelope
         )
         let object = try XCTUnwrap(
@@ -416,6 +521,7 @@ final class BalanceRelaySecurityTests: XCTestCase {
 
         XCTAssertEqual(object["type"] as? String, "relay.response")
         XCTAssertEqual(object["requestId"] as? String, "request_text_frame_0001")
+        XCTAssertEqual(object["keyVersion"] as? Int, 2)
         XCTAssertEqual((object["envelope"] as? [String: Any])?["v"] as? Int, 1)
     }
 

@@ -5,11 +5,27 @@ import Foundation
 /// 使 App 重启后能自动重连中继，无需重新扫码配对。
 public struct BalanceRelayStoredIdentity: Codable, Sendable {
     public let identity: BalanceRelayIdentity
-    public let e2eKey: Data
+    /// Active key retained under its legacy field name for backward-compatible decoding.
+    public let e2eKey: Data?
+    public let keyVersion: Int?
+    public let pendingKeyVersion: Int?
+    public let pendingE2EKey: Data?
+    public let pendingPairingExpiresAt: Int64?
 
-    public init(identity: BalanceRelayIdentity, e2eKey: Data) {
+    public init(
+        identity: BalanceRelayIdentity,
+        e2eKey: Data? = nil,
+        keyVersion: Int? = nil,
+        pendingKeyVersion: Int? = nil,
+        pendingE2EKey: Data? = nil,
+        pendingPairingExpiresAt: Int64? = nil
+    ) {
         self.identity = identity
         self.e2eKey = e2eKey
+        self.keyVersion = keyVersion
+        self.pendingKeyVersion = pendingKeyVersion
+        self.pendingE2EKey = pendingE2EKey
+        self.pendingPairingExpiresAt = pendingPairingExpiresAt
     }
 }
 

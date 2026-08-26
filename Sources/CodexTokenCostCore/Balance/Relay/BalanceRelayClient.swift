@@ -41,20 +41,36 @@ public actor BalanceRelayClient {
 
     private struct PairingResponse: Decodable {
         let deviceId: String
+        let keyVersion: Int
         let pairCode: String
         let expiresAt: Int64
         let requiresApproval: Bool?
+        let requiresActivation: Bool?
+    }
+
+    private struct ActivationResponse: Decodable {
+        let keyVersion: Int
+        let terminalState: BalanceRelayTerminalState
+        let replacedKeyVersion: Int?
+    }
+
+    private struct TerminalRevokeResponse: Decodable {
+        let changed: Bool
+        let keyVersion: Int
+        let terminalState: BalanceRelayTerminalState
     }
 
     private struct ServerMessage: Decodable {
         let type: String
         let requestId: String
+        let keyVersion: Int?
         let envelope: BalanceRelayOpaqueEnvelope
     }
 
     private struct ClientMessage: Encodable {
         let type: String
         let requestId: String
+        let keyVersion: Int?
         let envelope: BalanceRelayOpaqueEnvelope
     }
 
@@ -67,6 +83,10 @@ public actor BalanceRelayClient {
     private let session: URLSession
     private var identity: BalanceRelayIdentity?
     private var e2eKey: Data?
+    private var keyVersion: Int?
+    private var pendingE2EKey: Data?
+    private var pendingKeyVersion: Int?
+    private var pendingPairingExpiresAt: Int64?
     private var socket: URLSessionWebSocketTask?
     private var connectionTask: Task<Void, Never>?
     private var connectionGeneration: UInt64 = 0
@@ -85,7 +105,11 @@ public actor BalanceRelayClient {
         self.identityStore = identityStore
         let stored = identityStore.loadStored()
         self.identity = stored?.identity
-        self.e2eKey = (stored?.e2eKey.isEmpty == false) ? stored?.e2eKey : nil
+        self.e2eKey = stored?.e2eKey.flatMap { $0.isEmpty ? nil : $0 }
+        self.keyVersion = stored?.keyVersion
+        self.pendingE2EKey = stored?.pendingE2EKey.flatMap { $0.isEmpty ? nil : $0 }
+        self.pendingKeyVersion = stored?.pendingKeyVersion
+        self.pendingPairingExpiresAt = stored?.pendingPairingExpiresAt
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60
@@ -109,6 +133,10 @@ public actor BalanceRelayClient {
 
     public func savedIdentity() -> BalanceRelayIdentity? {
         identity
+    }
+
+    public func hasPendingKeyJournal() -> Bool {
+        pendingKeyVersion != nil && pendingE2EKey != nil
     }
 
     /// 查询服务器端本机 WebSocket 在线状态（PC token 认证），用于僵尸连接自检。
@@ -155,13 +183,32 @@ public actor BalanceRelayClient {
             body: Data(),
             identity: identity
         )
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let status = try? JSONDecoder().decode(BalanceRelayPairingStatus.self, from: data) else {
             throw BalanceRelayClientError.invalidServerResponse
         }
+        return try Self.validatedDeviceStatus(status, expectedDeviceID: identity.deviceID)
+    }
+
+    static func validatedDeviceStatus(
+        _ status: BalanceRelayPairingStatus,
+        expectedDeviceID: String
+    ) throws -> BalanceRelayDeviceStatus {
+        guard status.deviceId == expectedDeviceID,
+              status.activeTerminal?.state == .active || status.activeTerminal == nil,
+              status.pendingTerminal?.state == .pending || status.pendingTerminal == nil,
+              (status.activeTerminal?.keyVersion ?? 1) > 0,
+              (status.pendingTerminal?.keyVersion ?? 1) > 0,
+              status.paired == (status.activeTerminal != nil),
+              status.activeTerminal == nil || status.pendingTerminal == nil
+                  || status.activeTerminal?.keyVersion != status.pendingTerminal?.keyVersion
+        else { throw BalanceRelayClientError.invalidServerResponse }
         return BalanceRelayDeviceStatus(
-            appOnline: object["appOnline"] as? Bool ?? false,
-            appLastSeenAt: (object["appLastSeenAt"] as? NSNumber)?.int64Value ?? 0,
-            selfOnline: object["online"] as? Bool ?? false
+            paired: status.paired,
+            appOnline: status.appOnline,
+            appLastSeenAt: status.appLastSeenAt,
+            selfOnline: status.online,
+            activeTerminal: status.activeTerminal,
+            pendingTerminal: status.pendingTerminal
         )
     }
 
@@ -215,6 +262,10 @@ public actor BalanceRelayClient {
         try identityStore.delete()
         self.identity = nil
         e2eKey = nil
+        keyVersion = nil
+        pendingE2EKey = nil
+        pendingKeyVersion = nil
+        pendingPairingExpiresAt = nil
         replayCache.removeAll()
         await stateHandler?(.unconfigured)
     }
@@ -241,6 +292,10 @@ public actor BalanceRelayClient {
 
     public func startPairing() async throws -> BalanceRelayPairingPayload {
         guard let identity else { throw BalanceRelayClientError.unconfigured }
+        _ = try await reconcileTerminalState()
+        guard pendingKeyVersion == nil, pendingE2EKey == nil else {
+            throw BalanceRelayClientError.pairingRequired
+        }
         let data: Data
         do {
             data = try await request(
@@ -249,34 +304,187 @@ public actor BalanceRelayClient {
                 method: "POST",
                 body: Data("{}".utf8),
                 identity: identity,
-                additionalHeaders: ["X-Relay-Contract": "1.1.0"]
+                additionalHeaders: ["X-Relay-Contract": "1.2.0"]
             )
         } catch BalanceRelayClientError.server(let status, let code, _)
-            where status == 409 && (code == nil || code == "ALREADY_PAIRED") {
-            throw BalanceRelayClientError.alreadyPaired
+            where status == 409 && code == "PAIRING_INVALID_OR_EXPIRED" {
+            throw BalanceRelayClientError.pairingRequired
         }
-        let response = try JSONDecoder().decode(PairingResponse.self, from: data)
-        if response.requiresApproval == true {
-            _ = try await request(
-                baseURL: identity.serverBaseURL,
-                path: "/api/v1/pair/approve",
-                method: "POST",
-                body: Data("{}".utf8),
-                identity: identity,
-                additionalHeaders: ["X-Relay-Contract": "1.1.0"]
-            )
+        guard let response = try? JSONDecoder().decode(PairingResponse.self, from: data) else {
+            throw BalanceRelayClientError.invalidServerResponse
+        }
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        guard response.deviceId == identity.deviceID,
+              response.keyVersion > 0,
+              (24...100).contains(response.pairCode.count),
+              response.expiresAt > now,
+              response.requiresApproval == true,
+              response.requiresActivation == true
+        else {
+            throw BalanceRelayClientError.invalidServerResponse
         }
         let key = BalanceRelayCrypto.generateKey()
-        e2eKey = key
+        pendingE2EKey = key
+        pendingKeyVersion = response.keyVersion
+        pendingPairingExpiresAt = response.expiresAt
         replayCache.removeAll()
-        // 持久化 e2eKey，使 App 重启后能自动重连中继，无需重新扫码配对。
-        try? identityStore.save(BalanceRelayStoredIdentity(identity: identity, e2eKey: key))
+        try persistKeyJournal()
         return BalanceRelayPairingPayload(
             deviceID: response.deviceId,
+            keyVersion: response.keyVersion,
             pairCode: response.pairCode,
             e2eKey: key,
             expiresAtMilliseconds: response.expiresAt
         )
+    }
+
+    /// Explicit user approval is separate from QR generation. A 1.2 client never auto-approves.
+    public func approvePairing() async throws {
+        guard let identity, pendingKeyVersion != nil, pendingE2EKey != nil else {
+            throw BalanceRelayClientError.pairingRequired
+        }
+        _ = try await request(
+            baseURL: identity.serverBaseURL,
+            path: "/api/v1/pair/approve",
+            method: "POST",
+            body: Data("{}".utf8),
+            identity: identity,
+            additionalHeaders: ["X-Relay-Contract": "1.2.0"]
+        )
+    }
+
+    /// Reconciles the durable pending-key journal with authoritative Relay state.
+    /// Returns true when the active key changed and the WebSocket must be restarted.
+    @discardableResult
+    public func reconcileTerminalState(status: BalanceRelayDeviceStatus? = nil) async throws -> Bool {
+        let currentStatus: BalanceRelayDeviceStatus
+        if let status {
+            currentStatus = status
+        } else {
+            currentStatus = try await deviceStatus()
+        }
+        guard let pendingKeyVersion, let pendingE2EKey else {
+            return try adoptLegacyKeyVersionIfNeeded(from: currentStatus)
+        }
+
+        if currentStatus.activeTerminal?.keyVersion == pendingKeyVersion {
+            try promotePendingKey(version: pendingKeyVersion, key: pendingE2EKey)
+            return true
+        }
+
+        if currentStatus.pendingTerminal?.keyVersion == pendingKeyVersion {
+            let activationBody = try JSONSerialization.data(withJSONObject: ["keyVersion": pendingKeyVersion])
+            guard let identity else { throw BalanceRelayClientError.unconfigured }
+            let data = try await request(
+                baseURL: identity.serverBaseURL,
+                path: "/api/v1/pair/activate",
+                method: "POST",
+                body: activationBody,
+                identity: identity,
+                additionalHeaders: ["X-Relay-Contract": "1.2.0"]
+            )
+            let activation = try JSONDecoder().decode(ActivationResponse.self, from: data)
+            guard activation.keyVersion == pendingKeyVersion, activation.terminalState == .active else {
+                throw BalanceRelayClientError.invalidServerResponse
+            }
+            try promotePendingKey(version: pendingKeyVersion, key: pendingE2EKey)
+            return true
+        }
+
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        if let pendingPairingExpiresAt, pendingPairingExpiresAt <= now {
+            self.pendingKeyVersion = nil
+            self.pendingE2EKey = nil
+            self.pendingPairingExpiresAt = nil
+            try persistKeyJournal()
+        }
+        return try adoptLegacyKeyVersionIfNeeded(from: currentStatus)
+    }
+
+    public func revokeActiveTerminal() async throws {
+        guard let identity, let keyVersion else { throw BalanceRelayClientError.pairingRequired }
+        let body = try JSONSerialization.data(withJSONObject: ["keyVersion": keyVersion])
+        let data = try await request(
+            baseURL: identity.serverBaseURL,
+            path: "/api/v1/terminal/revoke",
+            method: "POST",
+            body: body,
+            identity: identity,
+            additionalHeaders: ["X-Relay-Contract": "1.2.0"]
+        )
+        let response = try JSONDecoder().decode(TerminalRevokeResponse.self, from: data)
+        guard response.keyVersion == keyVersion, response.terminalState == .revoked else {
+            throw BalanceRelayClientError.invalidServerResponse
+        }
+        await disconnect()
+        e2eKey = nil
+        self.keyVersion = nil
+        replayCache.removeAll()
+        try persistKeyJournal()
+    }
+
+    private func persistKeyJournal() throws {
+        guard let identity else { throw BalanceRelayClientError.unconfigured }
+        if let e2eKey, e2eKey.count != 32 { throw BalanceRelayClientError.invalidServerResponse }
+        if let pendingE2EKey, pendingE2EKey.count != 32 { throw BalanceRelayClientError.invalidServerResponse }
+        if (keyVersion == nil) != (e2eKey == nil) { throw BalanceRelayClientError.invalidServerResponse }
+        if (pendingKeyVersion == nil) != (pendingE2EKey == nil) { throw BalanceRelayClientError.invalidServerResponse }
+        try identityStore.save(BalanceRelayStoredIdentity(
+            identity: identity,
+            e2eKey: e2eKey,
+            keyVersion: keyVersion,
+            pendingKeyVersion: pendingKeyVersion,
+            pendingE2EKey: pendingE2EKey,
+            pendingPairingExpiresAt: pendingPairingExpiresAt
+        ))
+    }
+
+    private func promotePendingKey(version: Int, key: Data) throws {
+        guard let identity, version > 0, key.count == 32 else {
+            throw BalanceRelayClientError.invalidServerResponse
+        }
+        let promoted = BalanceRelayStoredIdentity(
+            identity: identity,
+            e2eKey: key,
+            keyVersion: version
+        )
+        try identityStore.save(promoted)
+        e2eKey = key
+        keyVersion = version
+        pendingE2EKey = nil
+        pendingKeyVersion = nil
+        pendingPairingExpiresAt = nil
+        replayCache.removeAll()
+    }
+
+    private func adoptLegacyKeyVersionIfNeeded(from status: BalanceRelayDeviceStatus) throws -> Bool {
+        if status.paired && status.activeTerminal == nil {
+            // A 1.1 Relay lacks terminal metadata. Never interpret that additive-field
+            // downgrade as authoritative revocation and never erase the local key.
+            throw BalanceRelayClientError.invalidServerResponse
+        }
+        if let activeTerminal = status.activeTerminal {
+            guard activeTerminal.state == .active else {
+                throw BalanceRelayClientError.invalidServerResponse
+            }
+            if let keyVersion {
+                guard keyVersion == activeTerminal.keyVersion else {
+                    throw BalanceRelayClientError.invalidServerResponse
+                }
+                return false
+            }
+            guard e2eKey != nil else { throw BalanceRelayClientError.pairingRequired }
+            keyVersion = activeTerminal.keyVersion
+            try persistKeyJournal()
+            return false
+        }
+
+        guard e2eKey != nil || keyVersion != nil else { return false }
+        e2eKey = nil
+        keyVersion = nil
+        replayCache.removeAll()
+        try persistKeyJournal()
+        return true
     }
 
     public func connect(queryHandler: @escaping QueryHandler, stateHandler: @escaping StateHandler) async throws {
@@ -315,6 +523,10 @@ public actor BalanceRelayClient {
         try identityStore.delete()
         identity = nil
         e2eKey = nil
+        keyVersion = nil
+        pendingE2EKey = nil
+        pendingKeyVersion = nil
+        pendingPairingExpiresAt = nil
         replayCache.removeAll()
         await stateHandler?(.unconfigured)
     }
@@ -345,6 +557,10 @@ public actor BalanceRelayClient {
         try identityStore.delete()
         self.identity = nil
         e2eKey = nil
+        keyVersion = nil
+        pendingE2EKey = nil
+        pendingKeyVersion = nil
+        pendingPairingExpiresAt = nil
         replayCache.removeAll()
         await stateHandler?(.unconfigured)
     }
@@ -444,19 +660,40 @@ public actor BalanceRelayClient {
     }
 
     private func handleMessage(_ data: Data, task: URLSessionWebSocketTask) async throws {
-        guard data.count <= Self.maxTransportBytes, let key = e2eKey, let queryHandler else {
+        guard data.count <= Self.maxTransportBytes, let queryHandler else {
             throw BalanceRelayClientError.invalidServerResponse
         }
         let message = try JSONDecoder().decode(ServerMessage.self, from: data)
         guard message.type == "relay.request", (16...100).contains(message.requestId.count) else {
             throw BalanceRelayClientError.invalidServerResponse
         }
+        let key: Data
+        if let messageKeyVersion = message.keyVersion {
+            guard messageKeyVersion > 0 else { throw BalanceRelayClientError.invalidServerResponse }
+            if messageKeyVersion == keyVersion, let e2eKey {
+                key = e2eKey
+            } else if messageKeyVersion == pendingKeyVersion, let pendingE2EKey {
+                key = pendingE2EKey
+            } else {
+                throw BalanceRelayClientError.invalidServerResponse
+            }
+        } else {
+            guard let e2eKey else { throw BalanceRelayClientError.pairingRequired }
+            key = e2eKey
+        }
         let query = try BalanceRelayCrypto.open(message.envelope, keyData: key, as: BalanceRelayQuery.self)
         do {
             try BalanceRelayQueryValidator.validate(query, replayCache: &replayCache)
             try queryLimiter.acquire()
         } catch {
-            try await sendError(for: query, requestID: message.requestId, error: error, key: key, task: task)
+            try await sendError(
+                for: query,
+                requestID: message.requestId,
+                keyVersion: message.keyVersion,
+                error: error,
+                key: key,
+                task: task
+            )
             return
         }
         defer { queryLimiter.release() }
@@ -476,18 +713,30 @@ public actor BalanceRelayClient {
                 return result
             }
         } catch {
-            try await sendError(for: query, requestID: message.requestId, error: error, key: key, task: task)
+            try await sendError(
+                for: query,
+                requestID: message.requestId,
+                keyVersion: message.keyVersion,
+                error: error,
+                key: key,
+                task: task
+            )
             logError("relay query failed for requestId=\(message.requestId)")
             return
         }
         let envelope = try BalanceRelayCrypto.seal(response, keyData: key)
         let replyText: String
         do {
-            replyText = try Self.encodeResponseText(requestID: message.requestId, envelope: envelope)
+            replyText = try Self.encodeResponseText(
+                requestID: message.requestId,
+                keyVersion: message.keyVersion,
+                envelope: envelope
+            )
         } catch {
             try await sendError(
                 for: query,
                 requestID: message.requestId,
+                keyVersion: message.keyVersion,
                 error: BalanceRelayQueryProcessingError.responseTooLarge,
                 key: key,
                 task: task
@@ -500,10 +749,16 @@ public actor BalanceRelayClient {
 
     static func encodeResponseText(
         requestID: String,
+        keyVersion: Int? = nil,
         envelope: BalanceRelayOpaqueEnvelope
     ) throws -> String {
         let data = try JSONEncoder().encode(
-            ClientMessage(type: "relay.response", requestId: requestID, envelope: envelope)
+            ClientMessage(
+                type: "relay.response",
+                requestId: requestID,
+                keyVersion: keyVersion,
+                envelope: envelope
+            )
         )
         guard data.count <= maxTransportBytes else {
             throw BalanceRelayQueryProcessingError.responseTooLarge
@@ -551,6 +806,7 @@ public actor BalanceRelayClient {
     private func sendError(
         for query: BalanceRelayQuery,
         requestID: String,
+        keyVersion: Int?,
         error: Error,
         key: Data,
         task: URLSessionWebSocketTask
@@ -562,7 +818,11 @@ public actor BalanceRelayClient {
             error: wireError
         )
         let envelope = try BalanceRelayCrypto.seal(response, keyData: key)
-        let text = try Self.encodeResponseText(requestID: requestID, envelope: envelope)
+        let text = try Self.encodeResponseText(
+            requestID: requestID,
+            keyVersion: keyVersion,
+            envelope: envelope
+        )
         try await task.send(.string(text))
     }
 

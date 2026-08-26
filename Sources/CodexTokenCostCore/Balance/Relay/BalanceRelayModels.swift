@@ -15,6 +15,7 @@ public struct BalanceRelayIdentity: Codable, Equatable, Sendable {
 public struct BalanceRelayPairingPayload: Codable, Equatable, Sendable {
     public let version: Int
     public let deviceID: String
+    public let keyVersion: Int
     public let pairCode: String
     public let e2eKey: Data
     public let expiresAtMilliseconds: Int64
@@ -22,12 +23,14 @@ public struct BalanceRelayPairingPayload: Codable, Equatable, Sendable {
     public init(
         version: Int = 1,
         deviceID: String,
+        keyVersion: Int,
         pairCode: String,
         e2eKey: Data,
         expiresAtMilliseconds: Int64
     ) {
         self.version = version
         self.deviceID = deviceID
+        self.keyVersion = keyVersion
         self.pairCode = pairCode
         self.e2eKey = e2eKey
         self.expiresAtMilliseconds = expiresAtMilliseconds
@@ -42,17 +45,70 @@ public struct BalanceRelayPairingPayload: Codable, Equatable, Sendable {
         guard let components = URLComponents(string: qrString),
               components.scheme == "balance-relay",
               components.host == "pair",
-              let encoded = components.queryItems?.first(where: { $0.name == "data" })?.value,
+              components.user == nil,
+              components.password == nil,
+              components.port == nil,
+              components.path.isEmpty,
+              components.fragment == nil,
+              let queryItems = components.queryItems,
+              queryItems.count == 1,
+              queryItems[0].name == "data",
+              let encoded = queryItems[0].value,
               let data = Data(base64URLString: encoded),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object["serverBaseURL"] == nil,
+              Set(object.keys) == Set([
+                  "version", "deviceID", "keyVersion", "pairCode", "e2eKey", "expiresAtMilliseconds",
+              ]),
               let payload = try? JSONDecoder().decode(Self.self, from: data),
               payload.version == 1,
+              payload.deviceID.range(of: #"^[A-Za-z0-9_-]{16,80}$"#, options: .regularExpression) != nil,
+              payload.keyVersion > 0,
+              (24...100).contains(payload.pairCode.count),
               payload.e2eKey.count == 32,
               payload.expiresAtMilliseconds > Int64(Date().timeIntervalSince1970 * 1000)
         else { return nil }
         return payload
     }
+}
+
+public enum BalanceRelayTerminalState: String, Codable, Equatable, Sendable {
+    case pending = "PENDING"
+    case active = "ACTIVE"
+    case expired = "EXPIRED"
+    case revoked = "REVOKED"
+    case replaced = "REPLACED"
+}
+
+public struct BalanceRelayTerminalInfo: Codable, Equatable, Sendable {
+    public let keyVersion: Int
+    public let state: BalanceRelayTerminalState
+    public let activationExpiresAt: Int64?
+    public let lastUserActivityAt: Int64?
+    public let expiresAt: Int64?
+
+    public init(
+        keyVersion: Int,
+        state: BalanceRelayTerminalState,
+        activationExpiresAt: Int64? = nil,
+        lastUserActivityAt: Int64? = nil,
+        expiresAt: Int64? = nil
+    ) {
+        self.keyVersion = keyVersion
+        self.state = state
+        self.activationExpiresAt = activationExpiresAt
+        self.lastUserActivityAt = lastUserActivityAt
+        self.expiresAt = expiresAt
+    }
+}
+
+public struct BalanceRelayPairingStatus: Codable, Equatable, Sendable {
+    public let deviceId: String
+    public let paired: Bool
+    public let online: Bool
+    public let appOnline: Bool
+    public let appLastSeenAt: Int64
+    public let activeTerminal: BalanceRelayTerminalInfo?
+    public let pendingTerminal: BalanceRelayTerminalInfo?
 }
 
 public struct BalanceRelayOpaqueEnvelope: Codable, Equatable, Sendable {
@@ -168,15 +224,28 @@ public enum BalanceRelayConnectionState: String, Sendable {
 
 /// Mac 端从服务器查询到的设备状态（含手机端在线情况）。
 public struct BalanceRelayDeviceStatus: Sendable, Equatable {
+    public let paired: Bool
     public let appOnline: Bool
     public let appLastSeenAt: Int64
     /// 本机 WebSocket 在服务器 pcSockets 中的在线状态（用于僵尸连接自检）。
     public let selfOnline: Bool
+    public let activeTerminal: BalanceRelayTerminalInfo?
+    public let pendingTerminal: BalanceRelayTerminalInfo?
 
-    public init(appOnline: Bool, appLastSeenAt: Int64, selfOnline: Bool) {
+    public init(
+        paired: Bool,
+        appOnline: Bool,
+        appLastSeenAt: Int64,
+        selfOnline: Bool,
+        activeTerminal: BalanceRelayTerminalInfo? = nil,
+        pendingTerminal: BalanceRelayTerminalInfo? = nil
+    ) {
+        self.paired = paired
         self.appOnline = appOnline
         self.appLastSeenAt = appLastSeenAt
         self.selfOnline = selfOnline
+        self.activeTerminal = activeTerminal
+        self.pendingTerminal = pendingTerminal
     }
 }
 
