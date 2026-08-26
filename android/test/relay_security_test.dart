@@ -29,10 +29,11 @@ class MemoryIdentityStore implements RelayIdentityPersistence {
   Future<void> delete() async => value = null;
 }
 
-String pairingQr({required int expiresAt, Uint8List? key}) {
+String pairingQr({required int expiresAt, Uint8List? key, int keyVersion = 2}) {
   final json = jsonEncode({
     'version': 1,
     'deviceID': 'device_security_0001',
+    'keyVersion': keyVersion,
     'pairCode': 'pair-code-security-000000000001',
     'e2eKey': base64.encode(key ?? Uint8List.fromList(List.filled(32, 0x42))),
     'expiresAtMilliseconds': expiresAt,
@@ -48,6 +49,7 @@ void main() {
       nowMilliseconds: now,
     );
     expect(valid.deviceId, 'device_security_0001');
+    expect(valid.keyVersion, 2);
     expect(valid.e2eKey.length, 32);
 
     expect(
@@ -85,6 +87,7 @@ void main() {
       'version': 1,
       'serverBaseURL': 'https://attacker.example.invalid',
       'deviceID': 'device_security_0001',
+      'keyVersion': 2,
       'pairCode': 'pair-code-security-000000000001',
       'e2eKey': base64.encode(Uint8List(32)),
       'expiresAtMilliseconds': DateTime.now().millisecondsSinceEpoch + 300000,
@@ -215,6 +218,7 @@ void main() {
     expect(contract['pairingFields'], [
       'version',
       'deviceID',
+      'keyVersion',
       'pairCode',
       'e2eKey',
       'expiresAtMilliseconds',
@@ -258,10 +262,14 @@ void main() {
         );
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         expect(body['pairCode'], 'pair-code-security-000000000001');
+        expect(body['keyVersion'], 2);
+        expect(body['clientKind'], 'android');
         return http.Response(
           jsonEncode({
             'deviceId': 'device_security_0001',
             'appToken': 'app-token-security-${List.filled(48, 'x').join()}',
+            'keyVersion': 2,
+            'terminalState': 'PENDING',
           }),
           200,
           headers: {'content-type': 'application/json'},
@@ -275,6 +283,8 @@ void main() {
     expect(identity.appToken.length, greaterThan(40));
     expect(store.value?.deviceId, identity.deviceId);
     expect(store.value?.e2eKey, identity.e2eKey);
+    expect(identity.keyVersion, 2);
+    expect(identity.terminalState, RelayTerminalState.pending);
   });
 
   test('中继查询正文不泄露动作并绑定 requestId', () async {
@@ -291,8 +301,10 @@ void main() {
       httpClient: MockClient((request) async {
         expect(request.headers['authorization'], 'Bearer ${identity.appToken}');
         expect(request.headers['x-device-id'], identity.deviceId);
+        expect(request.headers['x-relay-contract'], '1.2.0');
         expect(request.body.contains('balance.refresh'), false);
         final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['keyVersion'], identity.keyVersion);
         final requestId = body['requestId'] as String;
         final queryEnvelope = RelayOpaqueEnvelope.fromJson(
           body['envelope'] as Map<String, dynamic>,
@@ -306,6 +318,7 @@ void main() {
         return http.Response(
           jsonEncode({
             'requestId': requestId,
+            'keyVersion': identity.keyVersion,
             'envelope': responseEnvelope.toJson(),
           }),
           200,
@@ -333,6 +346,7 @@ void main() {
         (request) async => http.Response(
           jsonEncode({
             'requestId': 'different_request_id_0001',
+            'keyVersion': identity.keyVersion,
             'envelope': RelayCrypto.seal({
               'generatedAtMilliseconds': 0,
               'snapshots': <dynamic>[],
@@ -363,6 +377,7 @@ void main() {
         return http.Response(
           jsonEncode({
             'requestId': body['requestId'],
+            'keyVersion': identity.keyVersion,
             'envelope': RelayCrypto.seal({
               'generatedAtMilliseconds': 1700000000000,
               'requestNonce': 'different-inner-nonce-0001',
@@ -408,6 +423,7 @@ void main() {
         return http.Response(
           jsonEncode({
             'requestId': body['requestId'],
+            'keyVersion': identity.keyVersion,
             'envelope': RelayCrypto.seal({
               'generatedAtMilliseconds': DateTime.now().millisecondsSinceEpoch,
               'requestNonce': query['nonce'],
@@ -477,6 +493,7 @@ void main() {
         return http.Response(
           jsonEncode({
             'requestId': body['requestId'],
+            'keyVersion': identity.keyVersion,
             'envelope': RelayCrypto.seal({
               'generatedAtMilliseconds': 1700000000000,
               'requestNonce': query['nonce'],
@@ -557,6 +574,7 @@ void main() {
     final json = jsonEncode({
       'version': 1,
       'deviceID': 'device_security_0001',
+      'keyVersion': 2,
       'pairCode': 'pair-code-security-000000000001',
       'e2eKey': keyB64,
       'expiresAtMilliseconds': now + 300000,
@@ -615,12 +633,21 @@ void main() {
       httpClient: MockClient((request) async {
         expect(
           request.url.toString(),
-          'https://relay.example.invalid/api/v1/devices/revoke',
+          'https://relay.example.invalid/api/v1/terminal/revoke',
         );
         expect(request.method, 'POST');
         expect(request.headers['authorization'], 'Bearer ${identity.appToken}');
+        expect(jsonDecode(request.body), {'keyVersion': identity.keyVersion});
         revoked = true;
-        return http.Response(jsonEncode({'ok': true, 'changed': true}), 200);
+        return http.Response(
+          jsonEncode({
+            'ok': true,
+            'changed': true,
+            'keyVersion': identity.keyVersion,
+            'terminalState': 'REVOKED',
+          }),
+          200,
+        );
       }),
     );
     await client.revoke(identity);
@@ -666,21 +693,110 @@ void main() {
       serverBaseUrl: testRelayEndpoint,
       httpClient: MockClient(
         (request) async => http.Response(
-          jsonEncode({'registered': true, 'paired': true}),
+          jsonEncode({
+            'registered': true,
+            'paired': true,
+            'disabled': false,
+            'keyVersion': identity.keyVersion,
+            'terminalState': 'ACTIVE',
+          }),
           200,
         ),
       ),
     );
-    expect(await existsClient.registrationStatus(identity), true);
+    final registration = await existsClient.registrationStatus(identity);
+    expect(registration?.registered, true);
+    expect(registration?.paired, true);
 
     final goneClient = RelayClient(
       store,
       serverBaseUrl: testRelayEndpoint,
       httpClient: MockClient(
-        (request) async =>
-            http.Response(jsonEncode({'error': 'device_not_found'}), 404),
+        (request) async => http.Response(
+          jsonEncode({'code': 'DEVICE_NOT_FOUND', 'error': 'Device not found'}),
+          404,
+        ),
       ),
     );
     expect(await goneClient.registrationStatus(identity), null);
+  });
+
+  test('pending 终端只能轮询状态且不能发起用户查询', () async {
+    final identity = RelayIdentity(
+      deviceId: 'device_pending_status_0001',
+      appToken: 'app-token-security-${List.filled(48, 'p').join()}',
+      e2eKey: Uint8List(32),
+      keyVersion: 7,
+      terminalState: RelayTerminalState.pending,
+    );
+    var requestCount = 0;
+    final client = RelayClient(
+      MemoryIdentityStore(),
+      serverBaseUrl: testRelayEndpoint,
+      httpClient: MockClient((request) async {
+        requestCount += 1;
+        expect(request.url.path, '/api/v1/device/status');
+        return http.Response(
+          jsonEncode({
+            'deviceId': identity.deviceId,
+            'online': true,
+            'appOnline': true,
+            'appLastSeenAt': 1700000000000,
+            'terminal': {
+              'keyVersion': identity.keyVersion,
+              'state': 'PENDING',
+              'activationExpiresAt': 1700000300000,
+              'lastUserActivityAt': null,
+              'expiresAt': null,
+            },
+          }),
+          200,
+        );
+      }),
+    );
+
+    final status = await client.deviceStatus(identity);
+    expect(status.terminal.state, RelayTerminalState.pending);
+    expect(status.terminal.keyVersion, 7);
+    await expectLater(
+      client.query(identity),
+      throwsA(
+        predicate(
+          (error) =>
+              error is RelayClientException &&
+              error.code == 'TERMINAL_NOT_ACTIVE',
+        ),
+      ),
+    );
+    expect(requestCount, 1, reason: 'pending 查询必须在发出 HTTP 请求前失败');
+  });
+
+  test('registrationStatus 缺少 1.2 终端绑定时拒绝降级', () async {
+    final identity = RelayIdentity(
+      deviceId: 'device_registration_downgrade_0001',
+      appToken: 'app-token-security-${List.filled(48, 'd').join()}',
+      e2eKey: Uint8List(32),
+      keyVersion: 3,
+    );
+    final client = RelayClient(
+      MemoryIdentityStore(),
+      serverBaseUrl: testRelayEndpoint,
+      httpClient: MockClient(
+        (_) async => http.Response(
+          jsonEncode({'registered': true, 'paired': true, 'disabled': false}),
+          200,
+        ),
+      ),
+    );
+
+    await expectLater(
+      client.registrationStatus(identity),
+      throwsA(
+        predicate(
+          (error) =>
+              error is RelayClientException && error.code == 'UPGRADE_REQUIRED',
+        ),
+      ),
+    );
   });
 }

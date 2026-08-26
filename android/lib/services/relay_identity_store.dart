@@ -29,6 +29,8 @@ class RelayIdentityStore implements RelayIdentityPersistence {
         'deviceId': identity.deviceId,
         'appToken': identity.appToken,
         'e2eKey': base64.encode(identity.e2eKey),
+        'keyVersion': identity.keyVersion,
+        'terminalState': identity.terminalState.wireValue,
       }),
     );
   }
@@ -49,6 +51,10 @@ class RelayIdentityStore implements RelayIdentityPersistence {
         deviceId: json['deviceId'] as String,
         appToken: json['appToken'] as String,
         e2eKey: key,
+        keyVersion: (json['keyVersion'] as num?)?.toInt() ?? 1,
+        terminalState: json['terminalState'] == null
+            ? RelayTerminalState.active
+            : RelayTerminalState.parse(json['terminalState']),
       );
     } catch (_) {
       return null;

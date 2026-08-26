@@ -33,6 +33,17 @@ String? statusMessageAfterOnlineCheck({
   return currentMessage;
 }
 
+@visibleForTesting
+String terminalStateMessage(RelayTerminalState state, {required bool online}) {
+  return switch (state) {
+    RelayTerminalState.pending => '等待 Mac 确认并激活此终端',
+    RelayTerminalState.active => online ? 'Mac 已连接' : _offlineStatusMessage,
+    RelayTerminalState.expired => '终端已因七天未使用而过期，请重新扫码配对',
+    RelayTerminalState.revoked => '终端已被撤销，请重新扫码配对',
+    RelayTerminalState.replaced => '终端已被新的手机替换，请重新扫码配对',
+  };
+}
+
 class DashboardView extends StatefulWidget {
   final Uri relayEndpoint;
 
@@ -92,8 +103,10 @@ class _DashboardViewState extends State<DashboardView> {
       if (_identity != null) {
         await _checkStatus();
         _startStatusPolling();
-        // 启动即自动抓取一次余额，避免停留在"没有可显示的数据"空态。
-        await _refresh();
+        if (_identity?.terminalState == RelayTerminalState.active) {
+          // 启动即自动抓取一次余额，避免停留在"没有可显示的数据"空态。
+          await _refresh();
+        }
       }
     } else {
       DiagnosticLog.instance.record(
@@ -118,8 +131,8 @@ class _DashboardViewState extends State<DashboardView> {
   /// 注册状态检测：设备若已在 Mac 端删除（404），清本地并提示重新配对。
   Future<void> _checkRegistration(RelayIdentity identity) async {
     try {
-      final registered = await _client.registrationStatus(identity);
-      if (registered == null) {
+      final registration = await _client.registrationStatus(identity);
+      if (registration == null) {
         await _store.delete();
         if (!mounted) return;
         setState(() {
@@ -132,6 +145,24 @@ class _DashboardViewState extends State<DashboardView> {
           '[registration] 设备已在 Mac 端删除，清空本地配对',
           category: DiagnosticCategory.registration,
         );
+        return;
+      }
+      if (registration.terminalState != null) {
+        final updated = identity.copyWith(
+          terminalState: registration.terminalState,
+        );
+        await _store.save(updated);
+        if (!mounted) return;
+        setState(() {
+          _identity = updated;
+          if (updated.terminalState != RelayTerminalState.active) {
+            _pcOnline = false;
+            _statusMessage = terminalStateMessage(
+              updated.terminalState,
+              online: false,
+            );
+          }
+        });
       }
     } catch (_) {
       // 网络失败不阻塞，保持当前状态。
@@ -144,19 +175,29 @@ class _DashboardViewState extends State<DashboardView> {
     if (identity == null || _checkingStatus) return;
     _checkingStatus = true;
     try {
-      final online = await _client.online(identity);
+      final status = await _client.deviceStatus(identity);
+      final updated = identity.copyWith(terminalState: status.terminal.state);
+      await _store.save(updated);
       if (!mounted) return;
+      final becameActive =
+          identity.terminalState != RelayTerminalState.active &&
+          updated.terminalState == RelayTerminalState.active;
       setState(() {
-        _pcOnline = online;
-        _statusMessage = statusMessageAfterOnlineCheck(
-          online: online,
-          currentMessage: _statusMessage,
-        );
+        _identity = updated;
+        _pcOnline =
+            updated.terminalState == RelayTerminalState.active && status.online;
+        _statusMessage = updated.terminalState == RelayTerminalState.active
+            ? statusMessageAfterOnlineCheck(
+                online: status.online,
+                currentMessage: _statusMessage,
+              )
+            : terminalStateMessage(updated.terminalState, online: false);
       });
       DiagnosticLog.instance.record(
-        '[online] 连接状态检查完成 online=$online',
+        '[online] 连接状态检查完成 online=${status.online} terminal=${updated.terminalState.wireValue}',
         category: DiagnosticCategory.connection,
       );
+      if (becameActive) unawaited(_refresh());
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -186,15 +227,18 @@ class _DashboardViewState extends State<DashboardView> {
       if (!mounted) return;
       setState(() {
         _identity = identity;
-        _pcOnline = true;
-        _statusMessage = null;
+        _pcOnline = false;
+        _statusMessage = terminalStateMessage(
+          identity.terminalState,
+          online: false,
+        );
       });
       DiagnosticLog.instance.record(
         '[pair] 配对成功 device=${_shortId(identity.deviceId)}',
         category: DiagnosticCategory.pairing,
       );
       _startStatusPolling();
-      await _refresh();
+      await _checkStatus();
     } catch (error) {
       if (!mounted) return;
       setState(() => _statusMessage = '配对失败：$error');
@@ -211,6 +255,15 @@ class _DashboardViewState extends State<DashboardView> {
     final identity = _identity;
     if (identity == null) {
       setState(() => _statusMessage = '请先扫描 Mac 端配对二维码');
+      return;
+    }
+    if (identity.terminalState != RelayTerminalState.active) {
+      setState(() {
+        _statusMessage = terminalStateMessage(
+          identity.terminalState,
+          online: false,
+        );
+      });
       return;
     }
     if (_isFetching) return;
@@ -310,8 +363,8 @@ class _DashboardViewState extends State<DashboardView> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('忘记配对设备？'),
-        content: const Text('将彻底删除服务器上的设备记录，并清除本机保存的 App Token 和端到端密钥。'),
+        title: const Text('撤销并忘记当前手机？'),
+        content: const Text('将只撤销当前手机终端并清除本机保存的 App Token 和端到端密钥；Mac 注册会保留。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -319,7 +372,7 @@ class _DashboardViewState extends State<DashboardView> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('忘记设备'),
+            child: const Text('撤销终端'),
           ),
         ],
       ),
@@ -328,9 +381,28 @@ class _DashboardViewState extends State<DashboardView> {
     final identity = _identity;
     if (identity != null) {
       try {
-        await _client.deleteDevice(identity);
-      } catch (_) {
-        // 服务器删除失败不阻塞本地清理；下次查询会因 token 失效自然结束。
+        await _client.revoke(identity);
+      } on RelayClientException catch (error) {
+        final alreadyInactive = const {
+          'TERMINAL_EXPIRED',
+          'TERMINAL_REVOKED',
+          'TERMINAL_NOT_ACTIVE',
+        }.contains(error.code);
+        if (!alreadyInactive) {
+          if (mounted) {
+            setState(() {
+              _statusMessage = '撤销失败，已保留本地凭据以便重试：$error';
+            });
+          }
+          return;
+        }
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _statusMessage = '撤销失败，已保留本地凭据以便重试：$error';
+          });
+        }
+        return;
       }
     }
     await _store.delete();
@@ -379,7 +451,7 @@ class _DashboardViewState extends State<DashboardView> {
             itemBuilder: (_) => [
               if (kDebugMode)
                 const PopupMenuItem(value: 'diagnostic', child: Text('开发者诊断')),
-              const PopupMenuItem(value: 'forget', child: Text('忘记设备')),
+              const PopupMenuItem(value: 'forget', child: Text('撤销并忘记手机')),
             ],
           ),
         ],

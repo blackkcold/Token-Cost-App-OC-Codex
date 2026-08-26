@@ -47,6 +47,8 @@ class RelayClient {
             body: jsonEncode({
               'deviceId': payload.deviceId,
               'pairCode': payload.pairCode,
+              'keyVersion': payload.keyVersion,
+              'clientKind': 'android',
             }),
           )
           .timeout(const Duration(seconds: 30));
@@ -65,7 +67,13 @@ class RelayClient {
         throw RelayClientException(error, code: code);
       }
       final appToken = body['appToken'] as String? ?? '';
-      if (appToken.length < 40) {
+      final responseDeviceId = body['deviceId'] as String?;
+      final responseKeyVersion = (body['keyVersion'] as num?)?.toInt();
+      final terminalState = RelayTerminalState.parse(body['terminalState']);
+      if (appToken.length < 40 ||
+          responseDeviceId != payload.deviceId ||
+          responseKeyVersion != payload.keyVersion ||
+          terminalState != RelayTerminalState.pending) {
         DiagnosticLog.instance.record(
           '[claim] error: 服务器返回的 App Token 无效',
           category: DiagnosticCategory.pairing,
@@ -76,6 +84,8 @@ class RelayClient {
         deviceId: payload.deviceId,
         appToken: appToken,
         e2eKey: payload.e2eKey,
+        keyVersion: payload.keyVersion,
+        terminalState: terminalState,
       );
       await store.save(identity);
       DiagnosticLog.instance.record(
@@ -85,6 +95,12 @@ class RelayClient {
       return identity;
     } catch (error) {
       if (error is RelayClientException) rethrow;
+      if (error is FormatException) {
+        throw const RelayClientException(
+          'Relay 配对响应不支持 Contract 1.2',
+          code: 'UPGRADE_REQUIRED',
+        );
+      }
       DiagnosticLog.instance.record(
         '[claim] connection failed',
         category: DiagnosticCategory.pairing,
@@ -115,6 +131,11 @@ class RelayClient {
   }
 
   Future<bool> _performOnline(RelayIdentity identity) async {
+    final status = await deviceStatus(identity);
+    return status.online;
+  }
+
+  Future<RelayDeviceStatus> deviceStatus(RelayIdentity identity) async {
     final stopwatch = Stopwatch()..start();
     try {
       final response = await httpClient
@@ -137,14 +158,27 @@ class RelayClient {
         );
         throw RelayClientException(error, code: code);
       }
-      final online = body['online'] as bool? ?? false;
+      final status = RelayDeviceStatus.fromJson(body);
+      if (status.deviceId != identity.deviceId ||
+          status.terminal.keyVersion != identity.keyVersion) {
+        throw const RelayClientException(
+          '终端状态绑定不匹配',
+          code: 'KEY_VERSION_MISMATCH',
+        );
+      }
       DiagnosticLog.instance.record(
-        '[online] online=$online',
+        '[online] online=${status.online} terminal=${status.terminal.state.wireValue}',
         category: DiagnosticCategory.connection,
       );
-      return online;
+      return status;
     } catch (error) {
       if (error is RelayClientException) rethrow;
+      if (error is FormatException || error is TypeError) {
+        throw const RelayClientException(
+          'Relay 状态响应不支持 Contract 1.2',
+          code: 'UPGRADE_REQUIRED',
+        );
+      }
       DiagnosticLog.instance.record(
         '[online] connection failed',
         category: DiagnosticCategory.connection,
@@ -153,23 +187,23 @@ class RelayClient {
     }
   }
 
-  /// 用 App token 撤销服务器上的配对记录（忘记设备时调用）。
+  /// App token 只能撤销自身 keyVersion 对应的终端，不删除 Mac 注册。
   Future<void> revoke(RelayIdentity identity) async {
     final stopwatch = Stopwatch()..start();
     try {
       final response = await httpClient
           .post(
-            _endpoint('api/v1/devices/revoke'),
+            _endpoint('api/v1/terminal/revoke'),
             headers: {
               ..._authHeaders(identity),
               'Content-Type': 'application/json',
             },
-            body: '{}',
+            body: jsonEncode({'keyVersion': identity.keyVersion}),
           )
           .timeout(const Duration(seconds: 15));
       final body = _json(response);
       DiagnosticLog.instance.record(
-        '[revoke] ${response.statusCode} ${stopwatch.elapsedMilliseconds}ms path=api/v1/devices/revoke',
+        '[revoke] ${response.statusCode} ${stopwatch.elapsedMilliseconds}ms path=api/v1/terminal/revoke',
         category: DiagnosticCategory.device,
       );
       if (response.statusCode != 200) {
@@ -180,6 +214,13 @@ class RelayClient {
           category: DiagnosticCategory.device,
         );
         throw RelayClientException(error, code: code);
+      }
+      if (body['keyVersion'] != identity.keyVersion ||
+          body['terminalState'] != RelayTerminalState.revoked.wireValue) {
+        throw const RelayClientException(
+          '终端撤销响应绑定不匹配',
+          code: 'KEY_VERSION_MISMATCH',
+        );
       }
     } catch (error) {
       if (error is RelayClientException) rethrow;
@@ -222,9 +263,10 @@ class RelayClient {
     }
   }
 
-  /// 注册状态检测（3 态）。
-  /// 返回 null 表示设备不存在（404），true/false 表示已注册/未注册。
-  Future<bool?> registrationStatus(RelayIdentity identity) async {
+  /// 注册状态检测。null 仅表示 DEVICE_NOT_FOUND；终端状态保持结构化。
+  Future<RelayRegistrationStatus?> registrationStatus(
+    RelayIdentity identity,
+  ) async {
     final stopwatch = Stopwatch()..start();
     try {
       final response = await httpClient
@@ -242,7 +284,7 @@ class RelayClient {
         '[registration] ${response.statusCode} ${stopwatch.elapsedMilliseconds}ms path=api/v1/device/registration-status',
         category: DiagnosticCategory.registration,
       );
-      if (response.statusCode == 404) {
+      if (response.statusCode == 404 && body['code'] == 'DEVICE_NOT_FOUND') {
         DiagnosticLog.instance.record(
           '[registration] device_not_found',
           category: DiagnosticCategory.registration,
@@ -259,11 +301,28 @@ class RelayClient {
         throw RelayClientException(error, code: code);
       }
       final registered = body['registered'] as bool? ?? false;
+      final statusKeyVersion = (body['keyVersion'] as num?)?.toInt();
+      final stateValue = body['terminalState'];
+      final terminalState = stateValue == null
+          ? null
+          : RelayTerminalState.parse(stateValue);
+      if (statusKeyVersion != identity.keyVersion || terminalState == null) {
+        throw const RelayClientException(
+          'Relay 注册状态不支持 Contract 1.2',
+          code: 'UPGRADE_REQUIRED',
+        );
+      }
       DiagnosticLog.instance.record(
         '[registration] registered=$registered',
         category: DiagnosticCategory.registration,
       );
-      return registered;
+      return RelayRegistrationStatus(
+        registered: registered,
+        paired: body['paired'] as bool? ?? false,
+        disabled: body['disabled'] as bool? ?? false,
+        keyVersion: statusKeyVersion,
+        terminalState: terminalState,
+      );
     } catch (error) {
       if (error is RelayClientException) rethrow;
       DiagnosticLog.instance.record(
@@ -275,6 +334,14 @@ class RelayClient {
   }
 
   Future<RelayBalanceResponse> query(RelayIdentity identity) {
+    if (identity.terminalState != RelayTerminalState.active) {
+      return Future.error(
+        RelayClientException(
+          _terminalStateMessage(identity.terminalState),
+          code: _terminalStateCode(identity.terminalState),
+        ),
+      );
+    }
     final existing = _queryInFlight;
     if (existing != null) return existing;
     final future = _trackedQuery(identity);
@@ -356,10 +423,11 @@ class RelayClient {
         ..headers.addAll({
           ..._authHeaders(identity),
           'Content-Type': 'application/json',
-          'X-Relay-Contract': '1.1.0',
+          'X-Relay-Contract': '1.2.0',
         })
         ..body = jsonEncode({
           'requestId': requestId,
+          'keyVersion': identity.keyVersion,
           'envelope': envelope.toJson(),
         });
       final streamed = await httpClient
@@ -402,12 +470,13 @@ class RelayClient {
         }
         throw RelayClientException(error, code: code);
       }
-      if (body['requestId'] != requestId) {
+      if (body['requestId'] != requestId ||
+          body['keyVersion'] != identity.keyVersion) {
         DiagnosticLog.instance.record(
           '[query] requestId 不匹配',
           category: DiagnosticCategory.query,
         );
-        throw const RelayClientException('中继响应 requestId 不匹配');
+        throw const RelayClientException('中继响应绑定不匹配', code: 'REQUEST_REPLAYED');
       }
       final responseEnvelope = RelayOpaqueEnvelope.fromJson(
         body['envelope'] as Map<String, dynamic>,
@@ -509,7 +578,25 @@ class RelayClient {
   Map<String, String> _authHeaders(RelayIdentity identity) => {
     'Authorization': 'Bearer ${identity.appToken}',
     'X-Device-Id': identity.deviceId,
+    'X-Relay-Contract': '1.2.0',
   };
+
+  static String _terminalStateCode(RelayTerminalState state) => switch (state) {
+    RelayTerminalState.expired => 'TERMINAL_EXPIRED',
+    RelayTerminalState.revoked => 'TERMINAL_REVOKED',
+    RelayTerminalState.pending ||
+    RelayTerminalState.replaced => 'TERMINAL_NOT_ACTIVE',
+    RelayTerminalState.active => 'INVALID_REQUEST',
+  };
+
+  static String _terminalStateMessage(RelayTerminalState state) =>
+      switch (state) {
+        RelayTerminalState.pending => '正在等待 Mac 激活此终端',
+        RelayTerminalState.expired => '终端已因七天未使用而过期，请重新配对',
+        RelayTerminalState.revoked => '终端已被撤销，请重新配对',
+        RelayTerminalState.replaced => '终端已被新设备替换，请重新配对',
+        RelayTerminalState.active => '终端状态无效',
+      };
 
   static String _shortId(String deviceId) =>
       deviceId.length <= 8 ? deviceId : '${deviceId.substring(0, 8)}…';
