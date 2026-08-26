@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.4.0] - 2026-08-26
+
+> **功能版本**：Relay Contract 1.2 草案——版本绑定终端会话、两阶段激活、单活动终端原子替换、显式终端撤销与七天用户活动 TTL；新增 Web PWA 终端与共享 `relay_core` 包。
+
+### Added
+
+- Relay Contract `1.2.0` 草案支持：macOS 生成 `keyVersion` 绑定的 active/pending 加密 key journal，两阶段激活与崩溃恢复，单活动终端原子替换，显式终端撤销。
+- Android claim/query/status/revoke 全部绑定 `keyVersion`；PENDING 终端禁止查询，ACTIVE 后自动刷新。
+- 新增 `packages/relay_core` 平台无关共享包（严格 URI parser、API、Crypto 与测试），供 Android 与 Web 复用。
+- 新增 Web PWA 终端（`web/`）：稳定错误边界、v2 加密存储、Origin 绑定、CSP、版本化 Service Worker 与同源资源缓存。
+- CI 扩展：`relay-core` analyze/test job、Web analyze/非浏览器 test/hardened production build、Contract 1.2 vendored snapshot 自一致性校验。
+
+### Changed
+
+- macOS `BalanceRelayClient` 使用 `X-Relay-Contract: 1.2.0`，实现 approve、activate、terminal revoke、状态恢复、原子 pending key promotion 与 WebSocket `keyVersion` 回显。
+- Android 忘记手机改为 `/api/v1/terminal/revoke`，只撤销当前 session；网络撤销失败时保留本地凭据以便重试。
+- 旧 1.1 Relay 返回 `paired=true` 但无 `activeTerminal` 时 fail-closed，不删除本地密钥。
+- Contract 1.2 客户端拒绝缺少 `keyVersion` 或结构化终端状态的旧 Relay 响应，不静默降级。
+
+### Security
+
+- macOS 严格校验 pairing-status 的 `deviceId`、active/pending 状态形状与 `paired ↔ activeTerminal` 一致性。
+- Android 撤销请求绑定同一 `keyVersion`；仅已过期/撤销/替换状态允许直接本地清理。
+- macOS 删除 Mac 注册增加破坏性二次确认。
+- 七天用户活动 TTL：仅通过全部安全校验的用户 query 续期；状态轮询与心跳不续期。
+
 ## [v1.3.0] - 2026-08-24
 
 ### Added
@@ -707,7 +733,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.4.0...HEAD
+[v1.4.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.3.0...v1.4.0
 [v1.3.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.2.0...v1.3.0
 [v1.2.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.3...v1.2.0
 [v1.1.3]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.2...v1.1.3

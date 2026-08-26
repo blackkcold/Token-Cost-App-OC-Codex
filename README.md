@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.3.0)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.4.0)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
@@ -43,7 +43,7 @@ AI coding tools charge by token — but most developers have no idea what they'r
 - **Theme & Appearance** — Choose Ocean, Forest, Sunset, or Violet independently from System, Light, or Dark appearance
 - **CNY/USD Toggle** — All prices dynamically switch with currency; custom monthly fees auto-convert
 - **Balance Monitoring** — Real-time balance queries for OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud, with validated encrypted Cookie caching, browser/profile fallback, and multi-window quota visualization
-- **Relay Analytics 1.1** — Optional E2EE transport for overview, cache, cost, usage, model distribution, trend, and heatmap sections with bounded RFC 1950 decompression and encrypted Android caching
+- **Relay Contract 1.2 draft** — Optional E2EE analytics transport with version-bound terminal sessions, two-phase activation, atomic single-terminal replacement, explicit terminal revocation, and a seven-day accepted-user-query lifetime
 - **Responsive Settings Panel** — Module-based collapsible settings with adaptive horizontal layout for faster desktop scanning
 - **Desktop-Friendly Window Behavior** — Closing the main window hides the Dock icon while keeping the MenuBar workflow active
 - **Update Checker** — Silent check on launch + manual trigger; auto-downloads updates
@@ -185,7 +185,7 @@ AI 编程工具按 token 计费，但大多数开发者不清楚自己到底花�
 - **主题与外观** — 海洋蓝、森林绿、日落橙、紫罗兰 4 种主题色，可独立选择跟随系统、浅色或深色外观
 - **人民币/美元计价切换** — 所有价格展示随币种动态切换，自定义月费自动换算
 - **余额监控** — 支持 OpenCode Go / Codex / OpenCode Zen / DeepSeek / Ollama Cloud 余额实时查询；Cookie 优先从内存与 App 本地 AES 加密缓存读取，失效时自动验证 Chrome/Edge/Brave/Arc 的后续候选，不触发 Keychain 授权弹窗
-- **Relay Analytics 1.1** — 可选 E2EE 传输总览、缓存、成本、用量、模型分布、趋势与热力图；Android 使用有界 RFC 1950 解压和加密短期缓存
+- **Relay Contract 1.2 草案** — 可选 E2EE 分析传输；终端会话绑定 `keyVersion`，采用两阶段激活、单活动终端原子替换、显式终端撤销及七天有效用户查询活动期
 - **响应式设置页** — 模块化折叠设置面板，短控件采用横向自适应布局，桌面端浏览更高效
 - **桌面窗口行为优化** — 关闭主窗口后自动隐藏 Dock 图标，保留 MenuBar 工作流
 - **版本更新检查** — 启动时静默检查 + 手动触发，自动下载更新包

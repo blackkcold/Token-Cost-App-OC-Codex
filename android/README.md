@@ -10,7 +10,8 @@ Android 手机端余额监控 App，与 macOS 桌面端（Token Cost App）配�
 - **安全存储**：配对凭证存于 Android Keystore（`flutter_secure_storage`），不落明文到普通存储。
 - **全量分析**：按需获取 overview / cache / cost / usage / modelDistribution / trend / heatmap 七类分析 section。
 - **有界缓存**：section 使用 RFC 1950 zlib 解压（单项 128 KiB、总计 512 KiB）并写入设备隔离的 AES-GCM 缓存，5 分钟后失效。
-- **忘记设备**：一键撤销服务器上的配对记录并清除本地密钥。
+- **终端生命周期**：Contract 1.2 使用 `PENDING → ACTIVE` 两阶段激活；仅 `ACTIVE` 终端可查询，七天无已接受的用户查询后过期。
+- **撤销当前手机**：只撤销当前 `keyVersion` 对应的手机终端并清除本地密钥，保留 Mac 注册；网络撤销失败时保留凭据以便重试。
 
 ## 架构
 
@@ -23,7 +24,8 @@ macOS 桌面端 ──(生成配对二维码)──► Android 手机端
                                      │
                     中继服务器（仅转发密文，无法解密）
                                      │
-             手机端用 E2EE 密钥加密请求 → 解密响应（余额快照）
+             Mac 激活 PENDING 终端 → 手机用版本绑定的 E2EE 密钥查询
+                                     → 解密响应（余额快照）
 ```
 
 核心模块：
@@ -41,7 +43,7 @@ macOS 桌面端 ──(生成配对二维码)──► Android 手机端
 
 安卓端作为中继的 **App 端**：通过 HTTPS 向中继服务发起余额查询请求，中继服务再通过 WebSocket 转发给 macOS 桌面端（PC 端），桌面端返回余额快照后经中继回传。安卓端负责配对交互、余额展示与在线/错误状态恢复。
 
-> **当前状态**：若设备曾被撤销（revoke），需要重新配对后才能继续使用。真实手机端到端（E2E）验证尚未通过，需在设备撤销后重新配对再验证。
+> **兼容边界**：Contract 1.2 客户端拒绝缺少 `keyVersion` 或结构化终端状态的旧 Relay 响应，不静默降级。终端被撤销、替换或过期后需要重新扫码配对。
 
 ## 开发
 
@@ -104,7 +106,7 @@ App-Builds/vA.BCD.E-YYYYMMDD-HHMM/android/
 cd android && flutter test
 ```
 
-覆盖中继安全链路：二维码拒绝 Endpoint override、固定 Endpoint 校验、E2EE 信封往返与防篡改、配对领取、结构化错误码、requestId/requestNonce 双重绑定、query single-flight、65 KiB 流式上限、RFC 1950 压缩炸弹拒绝、加密 section 缓存、设备撤销/删除、注册状态检测及 Contract vectors。
+覆盖中继安全链路：二维码拒绝 Endpoint override、固定 Endpoint 校验、E2EE 信封往返与防篡改、`keyVersion` 绑定、PENDING 查询拒绝、结构化错误码、requestId/requestNonce 双重绑定、query single-flight、65 KiB 流式上限、RFC 1950 压缩炸弹拒绝、加密 section 缓存、终端撤销、注册状态检测及 Contract vectors。
 
 > **WebSocket 兼容性经验**：中继服务与 macOS 桌面端之间的 WebSocket 传输必须接受已部署客户端实际使用的帧类型（text frame 与 binary frame 均按 UTF-8 JSON 解析），相关错误需端到端测试验证，不能只依赖单端单元测试。
 
