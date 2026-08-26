@@ -8,6 +8,8 @@ struct BalanceRelaySettingsCard: View {
     @State private var deviceName = Host.current().localizedName ?? "Mac"
     @State private var isWorking = false
     @State private var showPairingConfirmation = false
+    @State private var showTerminalRevokeConfirmation = false
+    @State private var showRegistrationDeleteConfirmation = false
     let palette: TokenCostPalette
     var relayLoggingBinding: Binding<Bool>?
 
@@ -35,6 +37,8 @@ struct BalanceRelaySettingsCard: View {
                 }
                 if coordinator.identity == nil {
                     registrationForm
+                } else if coordinator.pairingPayload != nil {
+                    pairingForm
                 } else if coordinator.isPaired {
                     pairedControls
                 } else {
@@ -72,7 +76,7 @@ struct BalanceRelaySettingsCard: View {
             await coordinator.refreshAppOnlineStatus()
             // 处于配对表单（已生成二维码但未配对）时轮询服务器，手机扫码成功后自动切到"已配对"并隐藏二维码。
             while !Task.isCancelled {
-                if coordinator.identity != nil && !coordinator.isPaired {
+                if coordinator.identity != nil && (!coordinator.isPaired || coordinator.hasPendingPairing) {
                     await coordinator.refreshPairingStatus()
                 }
                 try? await Task.sleep(for: .seconds(3))
@@ -83,6 +87,22 @@ struct BalanceRelaySettingsCard: View {
             Button("允许并生成二维码") { beginPairing() }
         } message: {
             Text("Relay 可以看到一次性配对码，但不能读取端到端加密的数据。仅在确认身边设备将立即扫码时继续。")
+        }
+        .alert("撤销当前手机终端？", isPresented: $showTerminalRevokeConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("撤销终端", role: .destructive) {
+                Task { await coordinator.revokeActiveTerminal() }
+            }
+        } message: {
+            Text("此操作仅撤销当前手机的 Relay 会话，保留 Mac 注册。撤销后需要重新扫码配对。")
+        }
+        .alert("删除此 Mac 的 Relay 注册？", isPresented: $showRegistrationDeleteConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("删除注册", role: .destructive) {
+                Task { await coordinator.forgetIdentity() }
+            }
+        } message: {
+            Text("此操作会禁用当前 Mac 注册及其全部终端，并清除本地 Relay 身份。")
         }
     }
 
@@ -212,7 +232,13 @@ struct BalanceRelaySettingsCard: View {
                 Label("生成配对二维码", systemImage: "qrcode")
             }
             .settingsGlassButtonStyle(prominent: true)
-            .disabled(isWorking)
+            .disabled(isWorking || coordinator.hasPendingPairing)
+
+            if coordinator.hasPendingPairing && coordinator.pairingPayload == nil {
+                Label("正在恢复待激活终端，请保持网络连接", systemImage: "lock.rotation")
+                    .font(.caption)
+                    .foregroundStyle(palette.warning)
+            }
 
             if let payload = coordinator.pairingPayload,
                let qrString = payload.qrString {
@@ -220,7 +246,7 @@ struct BalanceRelaySettingsCard: View {
             }
 
             Button(role: .destructive) {
-                Task { await coordinator.forgetIdentity() }
+                showRegistrationDeleteConfirmation = true
             } label: {
                 Label("忘记设备", systemImage: "trash")
             }
@@ -273,9 +299,24 @@ struct BalanceRelaySettingsCard: View {
                 .disabled(coordinator.connectionState == .disconnected || coordinator.connectionState == .unconfigured)
 
                 Button(role: .destructive) {
-                    Task { await coordinator.forgetIdentity() }
+                    showTerminalRevokeConfirmation = true
                 } label: {
-                    Label("忘记设备", systemImage: "trash")
+                    Label("撤销手机", systemImage: "iphone.slash")
+                }
+                .settingsGlassButtonStyle(prominent: false)
+
+                Button {
+                    showPairingConfirmation = true
+                } label: {
+                    Label("替换手机", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .settingsGlassButtonStyle(prominent: false)
+                .disabled(isWorking || coordinator.hasPendingPairing)
+
+                Button(role: .destructive) {
+                    showRegistrationDeleteConfirmation = true
+                } label: {
+                    Label("删除 Mac 注册", systemImage: "trash")
                 }
                 .settingsGlassButtonStyle(prominent: false)
             }
@@ -295,7 +336,7 @@ struct BalanceRelaySettingsCard: View {
                     .font(.caption)
                     .foregroundStyle(palette.subtitle)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Mac 重启后需重新配对，Provider 凭证不会经由中继落盘或上传。")
+                Text("待激活密钥已加密保存；Mac 重启后会按 Relay 权威状态恢复。Provider 凭证不会经由中继落盘或上传。")
                     .font(.caption2)
                     .foregroundStyle(palette.warning)
             }
