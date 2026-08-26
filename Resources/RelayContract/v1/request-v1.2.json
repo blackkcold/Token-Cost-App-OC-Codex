@@ -1,0 +1,10 @@
+{
+  "requestId": "contract-request-0002",
+  "keyVersion": 2,
+  "envelope": {
+    "v": 1,
+    "nonce": "AQIDBAUGBwgJCgsM",
+    "ciphertext": "j9fX8k3qA5v8",
+    "tag": "AQIDBAUGBwgJCgsMDQ4PEA=="
+  }
+}

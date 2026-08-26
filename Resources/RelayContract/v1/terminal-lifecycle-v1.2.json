@@ -1,0 +1,8 @@
+{
+  "deviceId": "device_contract_0001",
+  "previous": { "keyVersion": 1, "state": "ACTIVE" },
+  "claimed": { "keyVersion": 2, "state": "PENDING" },
+  "activated": { "keyVersion": 2, "state": "ACTIVE" },
+  "previousAfterActivation": { "keyVersion": 1, "state": "REPLACED" },
+  "terminalActivityTtlMilliseconds": 604800000
+}

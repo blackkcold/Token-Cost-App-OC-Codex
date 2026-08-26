@@ -1,6 +1,7 @@
 {
   "version": 1,
   "deviceID": "device_contract_0001",
+  "keyVersion": 2,
   "pairCode": "pair-code-contract-000000000001",
   "e2eKey": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=",
   "expiresAtMilliseconds": 4102444800000
