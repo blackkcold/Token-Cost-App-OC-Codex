@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build
@@ -14,17 +17,9 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Checkout canonical Relay Contract
-        uses: actions/checkout@v7.0.1
-        with:
-          repository: blackkcold/Token-Cost-Relay-Contract
-          ref: v1.1.0
-          path: _relay-contract
       - name: Audit Public Repository Boundary
         run: python3 script/audit_public_boundary.py
-      - name: Validate Relay Contract Snapshot
-        env:
-          RELAY_CONTRACT_ROOT: ${{ github.workspace }}/_relay-contract/test-vectors
+      - name: Validate vendored Relay Contract 1.2 draft snapshot
         run: python3 script/check_relay_contract_snapshot.py
       - name: Check Developer Mode Banned Symbols
         run: bash script/check_developer_mode_banned_symbols.sh
@@ -32,6 +27,24 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+
+  relay-core:
+    name: Relay Core (Dart)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install dependencies
+        working-directory: packages/relay_core
+        run: dart pub get
+      - name: Analyze
+        working-directory: packages/relay_core
+        run: dart analyze
+      - name: Test
+        working-directory: packages/relay_core
+        run: dart test
 
   android:
     name: Android (Flutter)
@@ -52,3 +65,30 @@ jobs:
       - name: Test
         working-directory: android
         run: flutter test
+
+  web:
+    name: Terminal PWA (Flutter Web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Install dependencies
+        working-directory: web
+        run: flutter pub get
+      - name: Analyze
+        working-directory: web
+        run: flutter analyze
+      - name: Test without browser runtime
+        working-directory: web
+        run: >-
+          flutter test
+          test/relay_endpoint_test.dart
+          test/terminal_session_controller_test.dart
+          test/widget_test.dart
+      - name: Build hardened production bundle
+        working-directory: web
+        env:
+          RELAY_BASE_URL: https://relay.example.invalid
+        run: bash tool/build_web.sh

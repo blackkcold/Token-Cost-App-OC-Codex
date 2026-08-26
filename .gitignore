@@ -40,7 +40,6 @@ relay/data/
 .module-cache-*/
 .home-*/
 .cache-*/
-Packages/
 *.xcodeproj
 xcuserdata/
 

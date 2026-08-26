@@ -25,6 +25,9 @@ required = (
     "aes-gcm-vector.json",
     "request-v1.1.json",
     "response-v1.1.json",
+    "request-v1.2.json",
+    "response-v1.2.json",
+    "terminal-lifecycle-v1.2.json",
     "section-zlib-vector.json",
 )
 
@@ -52,8 +55,8 @@ for name in required:
 contract = load(PUBLIC / "contract.json")
 if contract.get("protocolVersion") != 1:
     raise SystemExit("Relay protocolVersion must be 1")
-if contract.get("contractVersion") != "1.1.0":
-    raise SystemExit("Relay contractVersion must be 1.1.0")
+if contract.get("contractVersion") != "1.2.0":
+    raise SystemExit("Relay contractVersion must be 1.2.0")
 if "serverBaseURL" in contract.get("pairingFields", []):
     raise SystemExit("serverBaseURL must not appear in pairingFields")
 
