@@ -6,12 +6,17 @@ Android 手机端余额监控 App，与 macOS 桌面端（Token Cost App）配�
 
 - **扫码配对**：扫描 macOS 桌面端生成的安全配对二维码，建立端到端（E2EE）连接。
 - **余额监控**：实时查看 OpenCode Go / Ollama Cloud / Codex / DeepSeek 的余额快照（配额比例、剩余 Credits、货币余额）。
+- **四 Tab 仪表盘**：总览（关键指标 + 缓存效率）/ 图表（7/30 天趋势、52 周热力图、模型分布、Provider 排行）/ 余额 / 设置；手机底部导航，宽屏 NavigationRail 自适应。
 - **端到端加密**：配对信息（App Token + E2EE 密钥）通过 AES-256-GCM 加密，经中继服务器转发，服务器无法解密内容。
 - **安全存储**：配对凭证存于 Android Keystore（`flutter_secure_storage`），不落明文到普通存储。
 - **全量分析**：按需获取 overview / cache / cost / usage / modelDistribution / trend / heatmap 七类分析 section。
+- **强类型解析**：`AnalyticsSections.parse` 将七类 section 解析为强类型模型，与桌面端 `RelaySectionModels.swift` 字段对齐；单个 section 缺失或损坏只降级该模块，不影响其它数据。
 - **有界缓存**：section 使用 RFC 1950 zlib 解压（单项 128 KiB、总计 512 KiB）并写入设备隔离的 AES-GCM 缓存，5 分钟后失效。
 - **终端生命周期**：Contract 1.2 使用 `PENDING → ACTIVE` 两阶段激活；仅 `ACTIVE` 终端可查询，七天无已接受的用户查询后过期。
 - **撤销当前手机**：只撤销当前 `keyVersion` 对应的手机终端并清除本地密钥，保留 Mac 注册；网络撤销失败时保留凭据以便重试。
+- **后台监控（可选）**：系统周期刷新使用 WorkManager 非精确周期任务（≥15 分钟、需网络、电量不低）；实时常驻监控为用户显式开启的前台服务（`dataSync` 类型）。后台刷新在独立 isolate 中自行读取 Keystore 身份并复用与前台一致的 Relay 安全链路。
+- **通知隐私**：通知默认只显示「余额监控已启用」状态文案，不暴露余额/配额数字；用户在设置中显式开启后才展示脱敏摘要，且锁屏默认隐藏敏感内容。
+- **开发者模式**：设置开关控制诊断入口（不再依赖 debug 构建）；诊断日志写入前自动脱敏（appToken/e2eKey/pairCode/cookie → `[REDACTED]`，deviceId 截断为前 8 位），可选落盘（上限 1 MiB，超限自动重写）。
 
 ## 架构
 
@@ -32,12 +37,25 @@ macOS 桌面端 ──(生成配对二维码)──► Android 手机端
 
 | 路径 | 说明 |
 |------|------|
-| `lib/views/dashboard_view.dart` | 主界面：连接状态、余额列表、刷新、忘记设备 |
+| `lib/views/dashboard_view.dart` | App 根视图：加载设置与共享 Store，挂接 HomeShell |
+| `lib/views/home_shell.dart` | 四 Tab 导航壳（NavigationBar / NavigationRail 自适应）、连接徽章、配对/撤销入口 |
+| `lib/views/overview_view.dart` | 总览 Tab：关键指标卡、缓存效率、状态横幅 |
+| `lib/views/charts_view.dart` | 图表 Tab：趋势折线图、52 周热力图（CustomPainter 单次绘制）、模型分布饼图、Provider 排行 |
+| `lib/views/balances_view.dart` | 余额 Tab：Provider 快照卡片列表/网格 |
+| `lib/views/settings_view.dart` | 设置 Tab：后台监控、通知隐私、开发者模式、设备管理分组 |
+| `lib/views/about_view.dart` | 关于页：版本、数据路径、安全边界、协议说明 |
 | `lib/views/pair_scanner_view.dart` | 扫码配对界面（mobile_scanner） |
 | `lib/views/balance_card.dart` | 余额卡片（配额/余额/窗口展示） |
+| `lib/views/diagnostic_view.dart` | 开发者诊断面板（内存/落盘日志、分类过滤） |
+| `lib/stores/dashboard_store.dart` | 共享状态层：身份、连接轮询、余额/section 刷新、缓存、撤销 |
 | `lib/services/relay_client.dart` | 中继 API 客户端（配对、查询、撤销、删除设备） |
 | `lib/services/relay_crypto.dart` | AES-256-GCM 端到端加解密 |
 | `lib/services/relay_identity_store.dart` | 配对身份的安全持久化 |
+| `lib/services/relay_section_cache.dart` | section 的设备隔离 AES-GCM 有界缓存 |
+| `lib/services/background_monitor.dart` | WorkManager 周期刷新 + 用户显式前台服务 + 通知隐私策略 |
+| `lib/services/app_settings.dart` | 非敏感偏好持久化（shared_preferences；不含任何凭据/endpoint 字段） |
+| `lib/services/diagnostic_log.dart` | 诊断日志：内存环形缓冲 + 写入前脱敏 + 可选落盘 |
+| `lib/models/analytics_sections.dart` | 七类分析 section 强类型解析（对齐 RelaySectionModels.swift） |
 | `lib/models/relay_models.dart` | 配对/信封/查询/响应模型 |
 | `lib/models/balance_snapshot.dart` | 余额快照模型 |
 
@@ -65,7 +83,7 @@ flutter test             # 单元测试（relay 安全链路）
 flutter run --dart-define=RELAY_BASE_URL=http://10.0.2.2:8787
 ```
 
-Release 只接受构建时注入的 HTTPS Production Endpoint，用户、二维码、SharedPreferences、Intent 或 Deep Link 均不能覆盖。真实 Production URL 不写入 Public Source；正式构建在本地手动执行，签名使用本地 `key.properties` 与被 `.gitignore` 忽略的 `.jks`，不依赖 CI 注入签名。
+Release 只接受构建时注入的 HTTPS Production Endpoint，用户、二维码、SharedPreferences、Intent 或 Deep Link 均不能覆盖。真实 Production URL 不写入 Public Source；正式构建在本地手动执行，签名使用本地缓存目录 `~/.config/token-cost/android-release/`（0700/0600），不依赖 CI 注入签名。
 
 ### 打包发布
 
@@ -79,7 +97,49 @@ bash script/build_android_release.sh release  # 正式发布（可 ANDROID_VERSI
 bash script/build_android_release.sh help     # 查看用法
 ```
 
-正式打包还要求 `RELAY_BASE_URL` 和本地 Release Signing 配置；缺少任一配置会直接失败。签名使用本地 `android/key.properties`（storeFile 指向被 `.gitignore` 忽略的 `android/app/keystore/*.jks`），不写入仓库、不依赖 CI 注入。构建启用 Flutter obfuscation、R8/resource shrinking，并把 split-debug-info 保留在受忽略的本地目录，不随 APK/AAB 分发。
+正式打包还要求 `RELAY_BASE_URL` 和本地 Release Signing 配置；缺少任一配置会直接失败。签名使用本地缓存目录 `~/.config/token-cost/android-release/`（目录 0700、文件 0600），由 `script/bootstrap_android_release.sh` 从 1Password 播种一次，之后构建完全离线、零 1Password、零钥匙串、零授权弹窗。构建启用 Flutter obfuscation、R8/resource shrinking，并把 split-debug-info 保留在受忽略的本地目录，不随 APK/AAB 分发。
+
+#### 签名安全方案（v2：全本地缓存）
+
+**核心思路**：1Password 只做「首次播种」，之后 keystore + 密码 + alias 全部缓存到本机 `~/.config/token-cost/android-release/`（0700/0600），构建时完全离线、零 1Password、零钥匙串、零弹窗。安全边界 = 目录权限 + JKS 本身密码加密。
+
+```text
+1Password（唯一源，仅首次播种）
+   │  首次访问
+   ▼
+~/.config/token-cost/android-release/（0700/0600，后续构建完全离线）
+   │
+   ▼
+Gradle 签名构建
+```
+
+缓存目录结构：
+
+```text
+~/.config/token-cost/android-release/
+├── balance-monitor-release.jks   # 0600，密码加密的 keystore
+├── secrets.properties            # 0600，storePassword/keyPassword/keyAlias
+└── cache.meta                    # 0600，keystore 指纹 + 缓存版本号
+```
+
+**首次播种（仅一次，需 1Password）**：
+
+```bash
+bash script/bootstrap_android_release.sh bootstrap   # 从 1Password 拉取并写 0600 缓存
+```
+
+**日常构建（零 1Password、零弹窗）**：`build_android_release.sh` 自动优先读本地缓存，缺失/损坏才回退 bootstrap。
+
+**校验与刷新**：
+
+```bash
+bash script/bootstrap_android_release.sh check     # 对比本地指纹与 1Password 元数据
+bash script/bootstrap_android_release.sh refresh    # keystore 轮换后强制重拉
+```
+
+**安全边界（必须明确的风险）**：这是「不用钥匙串」的固有代价——密码以明文存在 `secrets.properties`（0600），安全边界 = 本机文件权限 + 目录权限。机器被攻破时 keystore 与密码都可能泄露。缓解：目录 0700 + 文件 0600、JKS 本身密码加密、缓存目录在项目外（`~/.config`）不随仓库/备份分发、构建日志只显示 present/valid 不显示任何值。
+
+**兜底规则**：1Password 不可用但缓存有效 → 正常构建；1Password 不可用且缓存无效 → 安全失败不构建；缓存被篡改（指纹不匹配）→ 拒绝使用并重新 bootstrap。
 
 Android 版本独立于 macOS git tag，格式固定为 `A.BCD.E+code`：`A≥1`、`BCD=001–999`、`E=0–9`，且 `code = A×1,000,000 + BCD×1,000 + E`、上限为 `2,100,000,000`。同一个 `A.BCD.E` 只发布一次；需要重发时先递增 `E`。`ANDROID_VERSION` 与 `pubspec.yaml` 读取值在 build/release 两种模式下都会执行相同强校验。
 
@@ -106,9 +166,19 @@ App-Builds/vA.BCD.E-YYYYMMDD-HHMM/android/
 cd android && flutter test
 ```
 
-覆盖中继安全链路：二维码拒绝 Endpoint override、固定 Endpoint 校验、E2EE 信封往返与防篡改、`keyVersion` 绑定、PENDING 查询拒绝、结构化错误码、requestId/requestNonce 双重绑定、query single-flight、65 KiB 流式上限、RFC 1950 压缩炸弹拒绝、加密 section 缓存、终端撤销、注册状态检测及 Contract vectors。
+覆盖中继安全链路：二维码拒绝 Endpoint override、固定 Endpoint 校验、E2EE 信封往返与防篡改、`keyVersion` 绑定、PENDING 查询拒绝、结构化错误码、requestId/requestNonce 双重绑定、query single-flight、65 KiB 流式上限、RFC 1950 压缩炸弹拒绝、加密 section 缓存、终端撤销、注册状态检测及 Contract vectors；另覆盖七类 section 强类型解析（局部损坏降级、负数/NaN 拒绝）、设置默认值与允许频率、SharedPreferences 不含凭据键、通知隐私策略（默认不暴露余额）及诊断日志脱敏/落盘/清空。
 
 > **WebSocket 兼容性经验**：中继服务与 macOS 桌面端之间的 WebSocket 传输必须接受已部署客户端实际使用的帧类型（text frame 与 binary frame 均按 UTF-8 JSON 解析），相关错误需端到端测试验证，不能只依赖单端单元测试。
+
+## 后台监控能力边界
+
+后台刷新是**系统调度或尽力而为**，不是永久保活承诺：
+
+- **WorkManager 周期任务**为非精确定时，系统可延迟（Doze、厂商 ROM 后台限制）；最短周期 15 分钟，约束为「已联网 + 电量不低」。
+- **前台服务**（`dataSync` 类型）仅在用户显式开启「实时常驻监控」后运行；Android 15 对 dataSync 服务有 6 小时/24 小时的运行上限，超时后系统会停止服务。通知权限未授予时不会启动服务。
+- **不使用** `SCHEDULE_EXACT_ALARM`、开机自启广播、电池优化白名单引导等高风险策略。
+- 通知默认只显示状态文案；余额/配额数字需用户显式开启且锁屏默认隐藏（`VISIBILITY_PRIVATE`）。
+- 后台 isolate 使用与前台一致的 Relay 安全链路（Keystore 身份 + 构建时固定 endpoint + 设备隔离加密缓存），密钥不进入原生层。
 
 ## 文档
 

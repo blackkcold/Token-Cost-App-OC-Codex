@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:balance_monitor/views/dashboard_view.dart';
+import 'package:balance_monitor/views/overview_view.dart';
 
 void main() {
   test('Mac 恢复在线后清除普通离线提示', () {
@@ -28,5 +29,13 @@ void main() {
       statusMessageAfterOnlineCheck(online: false, currentMessage: message),
       message,
     );
+  });
+
+  test('中文 token 紧凑格式覆盖边界', () {
+    expect(formatCompactTokenCount(9999), '9999');
+    expect(formatCompactTokenCount(10000), '1万');
+    expect(formatCompactTokenCount(12345), '1.2万');
+    expect(formatCompactTokenCount(380000), '38万');
+    expect(formatCompactTokenCount(100000000), '1亿');
   });
 }

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.4.1] - 2026-09-01
+
+> **维护版本**：macOS 无显著功能更新，仅 Android 端主要更新——四 Tab Material 3 仪表盘、可选后台监控、诊断日志增强与签名安全方案 v2（全本地缓存）。
+
+### Added
+
+- Android 四 Tab Material 3 仪表盘：总览（关键指标 + 缓存效率）/ 图表（7/30 天趋势折线、52 周热力图、模型分布饼图、Provider 用量排行）/ 余额 / 设置；手机 NavigationBar、宽屏 NavigationRail 自适应；新增关于页（版本、数据路径、安全边界）。
+- Android 七类 analytics section 强类型解析（`AnalyticsSections`，字段对齐 macOS `RelaySectionModels.swift`）：单个 section 缺失/损坏仅局部降级，负数、NaN、无限值、非法日期 fail closed。
+- Android 共享状态层 `DashboardStore`：统一身份、连接轮询、single-flight 刷新、加密缓存与撤销生命周期，替代单屏页面状态。
+- Android 可选后台监控：WorkManager 周期刷新（≥15 分钟、非精确、需联网且电量不低）与用户显式开启的前台服务（`dataSync`）；后台 isolate 复用与前台一致的 Relay 安全链路（Keystore 身份 + 构建时固定 endpoint + 设备隔离加密缓存）。
+- Android 设置页：后台监控、通知隐私、开发者模式分组；非敏感偏好经 `shared_preferences` 持久化（白名单键，不含任何凭据/endpoint 字段）。
+- Android 诊断日志增强：写入前自动脱敏（appToken/e2eKey/pairCode/cookie → `[REDACTED]`，deviceId 截断为前 8 位）、可选落盘（上限 1 MiB、串行追加、超限自动重写）；开发者诊断入口改为设置开关控制，不再依赖 debug 构建。
+
+### Security
+
+- Android 通知默认只显示「余额监控已启用」状态文案，不暴露余额/配额数字；用户显式开启后才展示脱敏摘要，锁屏默认 `VISIBILITY_PRIVATE`。
+- 后台监控不使用 `SCHEDULE_EXACT_ALARM`、开机自启广播或电池优化白名单引导；通知权限未授予时不启动前台服务。
+- Android `AndroidManifest.xml` 新增 `POST_NOTIFICATIONS` / `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_DATA_SYNC` 权限与 `dataSync` 前台服务声明（`exported=false`）。
+- Android 签名安全方案 v2：签名材料迁移到本机 `~/.config/token-cost/android-release/`（0700/0600），由 `script/bootstrap_android_release.sh` 从 1Password 播种一次，之后构建零 1Password、零钥匙串、零授权弹窗；Gradle 直接读取缓存目录，不再依赖项目内 `key.properties`。
+
 ## [v1.4.0] - 2026-08-26
 
 > **功能版本**：Relay Contract 1.2 草案——版本绑定终端会话、两阶段激活、单活动终端原子替换、显式终端撤销与七天用户活动 TTL；新增 Web PWA 终端与共享 `relay_core` 包。
@@ -734,6 +754,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
 [Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.4.0...HEAD
+[v1.4.1]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.4.0...v1.4.1
 [v1.4.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.3.0...v1.4.0
 [v1.3.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.2.0...v1.3.0
 [v1.2.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.3...v1.2.0

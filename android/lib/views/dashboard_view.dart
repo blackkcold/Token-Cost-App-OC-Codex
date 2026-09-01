@@ -1,48 +1,15 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../models/balance_snapshot.dart';
-import '../models/relay_models.dart';
+import '../services/app_settings.dart';
+import '../services/background_monitor.dart';
 import '../services/diagnostic_log.dart';
-import '../services/relay_client.dart';
-import '../services/relay_identity_store.dart';
-import '../services/relay_section_cache.dart';
-import 'balance_card.dart';
-import 'diagnostic_view.dart';
-import 'pair_scanner_view.dart';
+import '../stores/dashboard_store.dart';
+import 'home_shell.dart';
 
-const _offlineStatusMessage = '已配对，但 Mac 当前离线';
-const _reconnectedStatusMessage = 'Mac 已重新连接，请再次刷新余额';
-const _queryRecoveredStatusMessage = 'Mac 已连接，但上次查询超时，请再次刷新余额';
-
-@visibleForTesting
-String? statusMessageAfterOnlineCheck({
-  required bool online,
-  required String? currentMessage,
-}) {
-  if (!online) return currentMessage ?? _offlineStatusMessage;
-  if (currentMessage == null ||
-      currentMessage == _offlineStatusMessage ||
-      currentMessage.startsWith('连接检查失败：')) {
-    return null;
-  }
-  if (currentMessage.contains('Mac 连接已断开')) return _reconnectedStatusMessage;
-  if (currentMessage.contains('Mac 响应超时')) return _queryRecoveredStatusMessage;
-  return currentMessage;
-}
-
-@visibleForTesting
-String terminalStateMessage(RelayTerminalState state, {required bool online}) {
-  return switch (state) {
-    RelayTerminalState.pending => '等待 Mac 确认并激活此终端',
-    RelayTerminalState.active => online ? 'Mac 已连接' : _offlineStatusMessage,
-    RelayTerminalState.expired => '终端已因七天未使用而过期，请重新扫码配对',
-    RelayTerminalState.revoked => '终端已被撤销，请重新扫码配对',
-    RelayTerminalState.replaced => '终端已被新的手机替换，请重新扫码配对',
-  };
-}
+export '../stores/dashboard_store.dart'
+    show statusMessageAfterOnlineCheck, terminalStateMessage;
 
 class DashboardView extends StatefulWidget {
   final Uri relayEndpoint;
@@ -54,558 +21,69 @@ class DashboardView extends StatefulWidget {
 }
 
 class _DashboardViewState extends State<DashboardView> {
-  late final RelayIdentityStore _store;
-  late final RelayClient _client;
-  late final RelaySectionCache _sectionCache;
-  RelayIdentity? _identity;
-  List<BalanceSnapshot> _snapshots = const [];
-  Map<String, dynamic> _sections = const {};
-  bool _loading = true;
-  bool _isFetching = false;
-  bool _pcOnline = false;
-  bool _checkingStatus = false;
-  Timer? _statusTimer;
-  String? _statusMessage;
+  late final DashboardStore _dashboard;
+  AppSettingsStore? _settings;
+  bool _syncingRuntimeSettings = false;
 
   @override
   void initState() {
     super.initState();
-    _store = RelayIdentityStore(expectedServerBaseUrl: widget.relayEndpoint);
-    _client = RelayClient(_store, serverBaseUrl: widget.relayEndpoint);
-    _sectionCache = RelaySectionCache();
+    _dashboard = DashboardStore(relayEndpoint: widget.relayEndpoint);
     _initialize();
+  }
+
+  Future<void> _initialize() async {
+    final settings = await AppSettingsStore.load();
+    await DiagnosticLog.instance.configurePersistence(
+      settings.persistDiagnostics,
+    );
+    settings.addListener(_syncRuntimeSettings);
+    await _applyRuntimeSettings(settings);
+    if (!mounted) return;
+    setState(() => _settings = settings);
+    await _dashboard.initialize();
+  }
+
+  void _syncRuntimeSettings() {
+    final settings = _settings;
+    if (settings == null || _syncingRuntimeSettings) return;
+    unawaited(_applyRuntimeSettings(settings));
+  }
+
+  Future<void> _applyRuntimeSettings(AppSettingsStore settings) async {
+    _syncingRuntimeSettings = true;
+    try {
+      await DiagnosticLog.instance.configurePersistence(
+        settings.persistDiagnostics,
+      );
+      await BackgroundMonitorCoordinator.apply(settings);
+    } catch (error) {
+      DiagnosticLog.instance.record(
+        '[background] 配置未生效：$error',
+        category: DiagnosticCategory.connection,
+      );
+      if (settings.realtimeMonitorEnabled) {
+        await settings.setRealtimeMonitorEnabled(false);
+      }
+    } finally {
+      _syncingRuntimeSettings = false;
+    }
   }
 
   @override
   void dispose() {
-    _statusTimer?.cancel();
+    _settings?.removeListener(_syncRuntimeSettings);
+    _settings?.dispose();
+    _dashboard.dispose();
     super.dispose();
   }
 
-  Future<void> _initialize() async {
-    final identity = await _store.load();
-    if (!mounted) return;
-    setState(() {
-      _identity = identity;
-      _loading = false;
-      _statusMessage = identity == null ? '请扫描 Mac 端生成的安全配对二维码' : null;
-    });
-    if (identity != null) {
-      final cached = await _sectionCache.load(identity.deviceId);
-      if (mounted && cached != null) {
-        setState(() => _sections = cached.sections);
-      }
-      DiagnosticLog.instance.record(
-        '[init] 已加载配对身份 device=${_shortId(identity.deviceId)}',
-        category: DiagnosticCategory.connection,
-      );
-      await _checkRegistration(identity);
-      if (_identity != null) {
-        await _checkStatus();
-        _startStatusPolling();
-        if (_identity?.terminalState == RelayTerminalState.active) {
-          // 启动即自动抓取一次余额，避免停留在"没有可显示的数据"空态。
-          await _refresh();
-        }
-      }
-    } else {
-      DiagnosticLog.instance.record(
-        '[init] 未找到本地配对身份',
-        category: DiagnosticCategory.connection,
-      );
-    }
-  }
-
-  static String _shortId(String deviceId) =>
-      deviceId.length <= 8 ? deviceId : '${deviceId.substring(0, 8)}…';
-
-  /// 周期性复查 PC 在线状态，使连接徽章与中继服务器实时一致。
-  void _startStatusPolling() {
-    _statusTimer?.cancel();
-    _statusTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _checkStatus(),
-    );
-  }
-
-  /// 注册状态检测：设备若已在 Mac 端删除（404），清本地并提示重新配对。
-  Future<void> _checkRegistration(RelayIdentity identity) async {
-    try {
-      final registration = await _client.registrationStatus(identity);
-      if (registration == null) {
-        await _store.delete();
-        if (!mounted) return;
-        setState(() {
-          _identity = null;
-          _snapshots = const [];
-          _pcOnline = false;
-          _statusMessage = '设备已在 Mac 端删除，请重新扫描配对二维码';
-        });
-        DiagnosticLog.instance.record(
-          '[registration] 设备已在 Mac 端删除，清空本地配对',
-          category: DiagnosticCategory.registration,
-        );
-        return;
-      }
-      if (registration.terminalState != null) {
-        final updated = identity.copyWith(
-          terminalState: registration.terminalState,
-        );
-        await _store.save(updated);
-        if (!mounted) return;
-        setState(() {
-          _identity = updated;
-          if (updated.terminalState != RelayTerminalState.active) {
-            _pcOnline = false;
-            _statusMessage = terminalStateMessage(
-              updated.terminalState,
-              online: false,
-            );
-          }
-        });
-      }
-    } catch (_) {
-      // 网络失败不阻塞，保持当前状态。
-    }
-  }
-
-  Future<void> _checkStatus() async {
-    final identity = _identity;
-    // 连接状态检查独立于内容抓取：始终允许刷新连接状态，不被内容加载冻结。
-    if (identity == null || _checkingStatus) return;
-    _checkingStatus = true;
-    try {
-      final status = await _client.deviceStatus(identity);
-      final updated = identity.copyWith(terminalState: status.terminal.state);
-      await _store.save(updated);
-      if (!mounted) return;
-      final becameActive =
-          identity.terminalState != RelayTerminalState.active &&
-          updated.terminalState == RelayTerminalState.active;
-      setState(() {
-        _identity = updated;
-        _pcOnline =
-            updated.terminalState == RelayTerminalState.active && status.online;
-        _statusMessage = updated.terminalState == RelayTerminalState.active
-            ? statusMessageAfterOnlineCheck(
-                online: status.online,
-                currentMessage: _statusMessage,
-              )
-            : terminalStateMessage(updated.terminalState, online: false);
-      });
-      DiagnosticLog.instance.record(
-        '[online] 连接状态检查完成 online=${status.online} terminal=${updated.terminalState.wireValue}',
-        category: DiagnosticCategory.connection,
-      );
-      if (becameActive) unawaited(_refresh());
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _pcOnline = false;
-        _statusMessage = '连接检查失败：$error';
-      });
-      DiagnosticLog.instance.record(
-        '[online] 连接检查失败：$error',
-        category: DiagnosticCategory.connection,
-      );
-    } finally {
-      _checkingStatus = false;
-    }
-  }
-
-  Future<void> _scanAndPair() async {
-    final payload = await Navigator.of(context).push<RelayPairingPayload>(
-      MaterialPageRoute(builder: (_) => const PairScannerView()),
-    );
-    if (payload == null || !mounted) return;
-    setState(() {
-      _loading = true;
-      _statusMessage = '正在建立端到端安全配对…';
-    });
-    try {
-      final identity = await _client.claimPairing(payload);
-      if (!mounted) return;
-      setState(() {
-        _identity = identity;
-        _pcOnline = false;
-        _statusMessage = terminalStateMessage(
-          identity.terminalState,
-          online: false,
-        );
-      });
-      DiagnosticLog.instance.record(
-        '[pair] 配对成功 device=${_shortId(identity.deviceId)}',
-        category: DiagnosticCategory.pairing,
-      );
-      _startStatusPolling();
-      await _checkStatus();
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _statusMessage = '配对失败：$error');
-      DiagnosticLog.instance.record(
-        '[pair] 配对失败：$error',
-        category: DiagnosticCategory.pairing,
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _refresh() async {
-    final identity = _identity;
-    if (identity == null) {
-      setState(() => _statusMessage = '请先扫描 Mac 端配对二维码');
-      return;
-    }
-    if (identity.terminalState != RelayTerminalState.active) {
-      setState(() {
-        _statusMessage = terminalStateMessage(
-          identity.terminalState,
-          online: false,
-        );
-      });
-      return;
-    }
-    if (_isFetching) return;
-    _isFetching = true;
-    if (!_loading) setState(() {}); // 刷新已有列表时不触发全屏转圈，保留内容可见。
-    try {
-      // 内容抓取前先复检注册状态：设备若已被删除则清本地回到扫码。
-      await _checkRegistration(identity);
-      final current = _identity;
-      if (current == null) return;
-
-      // 4 次退避重试（首次立即 + 2/4/8/16s），总等待 30s。
-      // 仅对 503（Mac 连接已断开）/504（Mac 响应超时）重试；其它异常直接抛出。
-      const backoffs = [
-        Duration.zero,
-        Duration(seconds: 2),
-        Duration(seconds: 4),
-        Duration(seconds: 8),
-        Duration(seconds: 16),
-      ];
-      Object? lastError;
-      for (final wait in backoffs) {
-        if (wait > Duration.zero) await Future.delayed(wait);
-        try {
-          final response = await _client.query(current);
-          if (!mounted) return;
-          setState(() {
-            _snapshots = response.snapshots;
-            _sections = response.sections;
-            _pcOnline = true;
-            _statusMessage = response.snapshots.isEmpty
-                ? 'Mac 未返回可用 Provider 数据'
-                : null;
-          });
-          await _sectionCache.save(current.deviceId, response);
-          if (response.snapshots.isEmpty) {
-            DiagnosticLog.instance.record(
-              '[query] 刷新成功但 snapshots 为空',
-              category: DiagnosticCategory.query,
-            );
-          }
-          _startStatusPolling();
-          return; // 成功，退出重试循环。
-        } on RelayClientException catch (e) {
-          lastError = e;
-          final msg = e.message;
-          final retriable = const {
-            'PC_DISCONNECTED',
-            'PC_OFFLINE',
-            'PC_SEND_FAILED',
-            'SERVER_SHUTDOWN',
-            'PC_RESPONSE_TIMEOUT',
-          }.contains(e.code);
-          if (!retriable) rethrow; // 401/429/400 等不重试。
-          DiagnosticLog.instance.record(
-            '[query] 重试中($wait)：$msg',
-            category: DiagnosticCategory.query,
-          );
-        }
-      }
-      // 4 次都失败。
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = '查询失败：$lastError';
-      });
-      DiagnosticLog.instance.record(
-        '[query] 4 次重试后仍失败：$lastError',
-        category: DiagnosticCategory.query,
-      );
-      await _checkStatus();
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = '查询失败：$error';
-      });
-      DiagnosticLog.instance.record(
-        '[query] 查询失败：$error',
-        category: DiagnosticCategory.query,
-      );
-      await _checkStatus();
-    } finally {
-      _isFetching = false;
-      if (mounted) setState(() {});
-    }
-  }
-
-  void _openDiagnostic() {
-    if (!kDebugMode) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => DiagnosticView(relayEndpoint: widget.relayEndpoint),
-      ),
-    );
-  }
-
-  Future<void> _forgetDevice() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('撤销并忘记当前手机？'),
-        content: const Text('将只撤销当前手机终端并清除本机保存的 App Token 和端到端密钥；Mac 注册会保留。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('撤销终端'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    final identity = _identity;
-    if (identity != null) {
-      try {
-        await _client.revoke(identity);
-      } on RelayClientException catch (error) {
-        final alreadyInactive = const {
-          'TERMINAL_EXPIRED',
-          'TERMINAL_REVOKED',
-          'TERMINAL_NOT_ACTIVE',
-        }.contains(error.code);
-        if (!alreadyInactive) {
-          if (mounted) {
-            setState(() {
-              _statusMessage = '撤销失败，已保留本地凭据以便重试：$error';
-            });
-          }
-          return;
-        }
-      } catch (error) {
-        if (mounted) {
-          setState(() {
-            _statusMessage = '撤销失败，已保留本地凭据以便重试：$error';
-          });
-        }
-        return;
-      }
-    }
-    await _store.delete();
-    await _sectionCache.delete();
-    DiagnosticLog.instance.record(
-      '[forget] 已忘记设备并清除本地配对',
-      category: DiagnosticCategory.device,
-    );
-    if (!mounted) return;
-    setState(() {
-      _identity = null;
-      _snapshots = const [];
-      _sections = const {};
-      _pcOnline = false;
-      _statusMessage = '请扫描 Mac 端生成的安全配对二维码';
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('余额监控'),
-        actions: [
-          _ConnectionBadge(
-            online: _pcOnline,
-            paired: _identity != null,
-            checking: _checkingStatus,
-            onTap: _checkStatus,
-          ),
-          IconButton(
-            onPressed: _scanAndPair,
-            icon: const Icon(Icons.qr_code_scanner),
-            tooltip: '扫描配对',
-          ),
-          IconButton(
-            onPressed: _isFetching ? null : _refresh,
-            icon: const Icon(Icons.refresh),
-            tooltip: '刷新余额',
-          ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'forget') _forgetDevice();
-              if (value == 'diagnostic') _openDiagnostic();
-            },
-            itemBuilder: (_) => [
-              if (kDebugMode)
-                const PopupMenuItem(value: 'diagnostic', child: Text('开发者诊断')),
-              const PopupMenuItem(value: 'forget', child: Text('撤销并忘记手机')),
-            ],
-          ),
-        ],
-      ),
-      body: _buildBody(),
-      floatingActionButton: _identity == null
-          ? FloatingActionButton.extended(
-              onPressed: _scanAndPair,
-              icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('扫描配对'),
-            )
-          : null,
-    );
-  }
-
-  Widget _buildBody() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_snapshots.isNotEmpty || _sections.isNotEmpty) {
-      return RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView.builder(
-          itemCount: _snapshots.length + (_sections.isEmpty ? 0 : 1),
-          itemBuilder: (_, index) {
-            if (_sections.isNotEmpty && index == 0) {
-              return _RelayAnalyticsSummary(sections: _sections);
-            }
-            final snapshotIndex = index - (_sections.isEmpty ? 0 : 1);
-            return BalanceCard(snapshot: _snapshots[snapshotIndex]);
-          },
-        ),
-      );
+    final settings = _settings;
+    if (settings == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _identity == null
-                  ? Icons.shield_outlined
-                  : Icons.computer_outlined,
-              size: 54,
-            ),
-            const SizedBox(height: 18),
-            Text(_statusMessage ?? '没有可显示的数据', textAlign: TextAlign.center),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RelayAnalyticsSummary extends StatelessWidget {
-  final Map<String, dynamic> sections;
-
-  const _RelayAnalyticsSummary({required this.sections});
-
-  @override
-  Widget build(BuildContext context) {
-    final overview = sections['overview'] as Map<String, dynamic>?;
-    final cache = sections['cache'] as Map<String, dynamic>?;
-    String number(Object? value) =>
-        value is num ? value.toStringAsFixed(0) : '—';
-    String money(Object? value) =>
-        value is num ? '\$${value.toStringAsFixed(2)}' : '—';
-    return Card(
-      margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '使用分析',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 18,
-              runSpacing: 10,
-              children: [
-                _metric('总 Token', number(overview?['totalTokens'])),
-                _metric('实际 Token', number(overview?['totalActualTokens'])),
-                _metric('总成本', money(overview?['totalCostUSD'])),
-                _metric('活跃天数', number(overview?['activeDays'])),
-                _metric(
-                  '缓存命中率',
-                  cache?['hitRate'] is num
-                      ? '${((cache!['hitRate'] as num) * 100).toStringAsFixed(1)}%'
-                      : '—',
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              sections.keys.join(' · '),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  static Widget _metric(String label, String value) => SizedBox(
-    width: 120,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 12)),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-        ),
-      ],
-    ),
-  );
-}
-
-class _ConnectionBadge extends StatelessWidget {
-  final bool online;
-  final bool paired;
-  final bool checking;
-  final VoidCallback onTap;
-
-  const _ConnectionBadge({
-    required this.online,
-    required this.paired,
-    this.checking = false,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = online
-        ? Colors.green
-        : (paired ? Colors.orange : Colors.grey);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Tooltip(
-          message: '点击刷新连接状态',
-          child: checking
-              ? const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Icon(Icons.circle, size: 10, color: color),
-        ),
-      ),
-    );
+    return HomeShell(dashboard: _dashboard, settings: settings);
   }
 }

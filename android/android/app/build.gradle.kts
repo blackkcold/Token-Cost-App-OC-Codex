@@ -6,14 +6,20 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Load release signing credentials from key.properties (kept out of git).
+// Load release signing credentials from the local cache directory
+// (~/.config/token-cost/android-release/, 0700/0600). This is the single
+// on-disk store seeded once from 1Password by script/bootstrap_android_release.sh;
+// builds read it directly with zero 1Password / keychain / popup access.
+val signCacheDir = System.getProperty("user.home") + "/.config/token-cost/android-release"
+val secretsFile = File(signCacheDir, "secrets.properties")
+val jksFile = File(signCacheDir, "balance-monitor-release.jks")
 val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("key.properties")
 val releaseBuildRequested = gradle.startParameter.taskNames.any {
     it.contains("release", ignoreCase = true)
 }
-if (keystorePropertiesFile.exists()) {
-    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+if (secretsFile.exists() && jksFile.exists()) {
+    secretsFile.inputStream().use { keystoreProperties.load(it) }
+    keystoreProperties["storeFile"] = jksFile.absolutePath
 }
 
 android {
@@ -38,7 +44,7 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
+        if (secretsFile.exists() && jksFile.exists()) {
             create("release") {
                 storeFile = file(keystoreProperties["storeFile"] as String)
                 storePassword = keystoreProperties["storePassword"] as String
@@ -50,7 +56,7 @@ android {
 
     buildTypes {
         release {
-            if (keystorePropertiesFile.exists()) {
+            if (secretsFile.exists() && jksFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             } else if (releaseBuildRequested) {
                 throw GradleException("Release signing configuration is required")

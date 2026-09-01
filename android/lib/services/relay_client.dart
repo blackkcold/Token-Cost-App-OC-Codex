@@ -37,6 +37,11 @@ class RelayClient {
     http.Client? httpClient,
   }) : httpClient = httpClient ?? http.Client();
 
+  void dispose() {
+    cancelQuery();
+    httpClient.close();
+  }
+
   Future<RelayIdentity> claimPairing(RelayPairingPayload payload) async {
     final stopwatch = Stopwatch()..start();
     try {

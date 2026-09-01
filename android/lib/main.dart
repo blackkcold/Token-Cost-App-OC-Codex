@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'services/background_monitor.dart';
 import 'services/relay_endpoint.dart';
 import 'views/dashboard_view.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await BackgroundMonitorCoordinator.initialize();
   runApp(BalanceMonitorApp(relayEndpoint: RelayEndpoint.requireConfigured()));
 }
 

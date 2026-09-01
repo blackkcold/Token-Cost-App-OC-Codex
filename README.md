@@ -1,6 +1,6 @@
 # Token Cost App — OC Codex
 
-[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.4.0)
+[![Latest Release](https://img.shields.io/github/v/release/blackkcold/Token-Cost-App-OC-Codex?label=latest)](https://github.com/blackkcold/Token-Cost-App-OC-Codex/releases/tag/v1.4.1)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014.0+-lightgrey)]()
 [![Swift](https://img.shields.io/badge/Swift-6.0-FA7343?logo=swift)]()
@@ -92,7 +92,7 @@ export RELAY_BASE_URL="${RELAY_BASE_URL:?Set the protected HTTPS Relay endpoint}
 bash script/build_android_release.sh release
 ```
 
-> **打包策略**：不打包 QA 或 Debug 版。归档到 `App-Builds/` 的产物均为带签名正式版（`release` 模式），供正式环境手动测试。Android 签名使用本地 `key.properties` + 被忽略的 `.jks`，不依赖 CI 注入；产物手动上传到 macOS 的 tag Release（`gh release upload <macOS-tag> App-Builds/vA.BCD.E-<UTC minute>/android/*`）。CI 仅在 `.github/workflows/ci.yml` 中运行 Android `flutter analyze` / `flutter test`，不构建或上传 Android 产物。
+> **打包策略**：不打包 QA 或 Debug 版。归档到 `App-Builds/` 的产物均为带签名正式版（`release` 模式），供正式环境手动测试。Android 签名使用本地缓存目录 `~/.config/token-cost/android-release/`（0700/0600，由 `script/bootstrap_android_release.sh` 从 1Password 播种一次，之后构建零 1Password、零钥匙串、零弹窗），不依赖 CI 注入；产物手动上传到 macOS 的 tag Release（`gh release upload <macOS-tag> App-Builds/vA.BCD.E-<UTC minute>/android/*`）。CI 仅在 `.github/workflows/ci.yml` 中运行 Android `flutter analyze` / `flutter test`，不构建或上传 Android 产物。
 
 See [android/README.md](android/README.md) for details.
 
@@ -234,7 +234,7 @@ export RELAY_BASE_URL="${RELAY_BASE_URL:?请先设置受保护的 HTTPS Relay En
 bash script/build_android_release.sh release
 ```
 
-> **打包策略**：不打包 QA 或 Debug 版。归档到 `App-Builds/` 的产物均为带签名正式版（`release` 模式），供正式环境手动测试。Android 签名使用本地 `key.properties` + 被忽略的 `.jks`，不依赖 CI 注入；产物手动上传到 macOS 的 tag Release（`gh release upload <macOS-tag> App-Builds/vA.BCD.E-<UTC 分钟>/android/*`）。CI 仅在 `.github/workflows/ci.yml` 中运行 Android `flutter analyze` / `flutter test`，不构建或上传 Android 产物。
+> **打包策略**：不打包 QA 或 Debug 版。归档到 `App-Builds/` 的产物均为带签名正式版（`release` 模式），供正式环境手动测试。Android 签名使用本地缓存目录 `~/.config/token-cost/android-release/`（0700/0600，由 `script/bootstrap_android_release.sh` 从 1Password 播种一次，之后构建零 1Password、零钥匙串、零弹窗），不依赖 CI 注入；产物手动上传到 macOS 的 tag Release（`gh release upload <macOS-tag> App-Builds/vA.BCD.E-<UTC 分钟>/android/*`）。CI 仅在 `.github/workflows/ci.yml` 中运行 Android `flutter analyze` / `flutter test`，不构建或上传 Android 产物。
 
 详见 [android/README.md](android/README.md)。
 

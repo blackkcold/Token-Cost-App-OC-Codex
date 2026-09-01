@@ -132,6 +132,45 @@ if [[ ! "${RELAY_BASE_URL:-}" =~ ^https://[^[:space:]?#]+(/[^[:space:]?#]*)?$ ]]
   exit 1
 fi
 
+# --- 签名材料准备（签名安全方案 v2）---
+# 优先读本地缓存 ~/.config/token-cost/android-release/（0700/0600，零 1Password、零弹窗）；
+# 缓存缺失/损坏时自动回退 bootstrap（首次播种需 1Password）。
+# Gradle 直接读取该缓存目录（见 android/android/app/build.gradle.kts），
+# 不写项目目录、不生成临时 key.properties。
+SIGN_CACHE_DIR="${SIGN_CACHE_DIR:-$HOME/.config/token-cost/android-release}"
+SIGN_JKS="$SIGN_CACHE_DIR/balance-monitor-release.jks"
+SIGN_SECRETS="$SIGN_CACHE_DIR/secrets.properties"
+SIGN_META="$SIGN_CACHE_DIR/cache.meta"
+
+sign_cache_valid() {
+  [[ -f "$SIGN_JKS" && -f "$SIGN_SECRETS" && -f "$SIGN_META" ]] || return 1
+  local dir_perm file_perm
+  dir_perm="$(stat -f '%Lp' "$SIGN_CACHE_DIR" 2>/dev/null || echo 0)"
+  file_perm="$(stat -f '%Lp' "$SIGN_JKS" 2>/dev/null || echo 0)"
+  [[ "$dir_perm" == "700" && "$file_perm" == "600" ]] || return 1
+  local meta_sha current_sha
+  meta_sha="$(grep '^keystoreSHA256=' "$SIGN_META" 2>/dev/null | cut -d= -f2)"
+  current_sha="$(shasum -a 256 "$SIGN_JKS" 2>/dev/null | awk '{print $1}')"
+  [[ -n "$meta_sha" && "$meta_sha" == "$current_sha" ]] || return 1
+  return 0
+}
+
+prepare_signing() {
+  local bootstrap_script="$ROOT_DIR/script/bootstrap_android_release.sh"
+  if ! sign_cache_valid; then
+    echo "==> 签名缓存缺失或无效，触发 bootstrap（首次需 1Password）"
+    if [[ -f "$bootstrap_script" ]]; then
+      CACHE_DIR="$SIGN_CACHE_DIR" bash "$bootstrap_script" bootstrap
+    else
+      echo "ERROR: 缺少 $bootstrap_script，无法播种签名材料。" >&2
+      exit 1
+    fi
+    sign_cache_valid || { echo "ERROR: 签名缓存仍无效。" >&2; exit 1; }
+  else
+    echo "==> 使用本地签名缓存（零 1Password、零弹窗）"
+  fi
+}
+
 # --- 时间戳 + PID（复用根脚本 build_and_run_codex.sh 的格式）---
 BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 stripped="${BUILD_TIMESTAMP//[-:TZ]/}"
@@ -245,6 +284,7 @@ stage_artifacts() {
 
 case "$MODE" in
   build|release)
+    prepare_signing
     ensure_flutter_deps
     build_apk
     build_aab

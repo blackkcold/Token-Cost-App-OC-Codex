@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:balance_monitor/services/diagnostic_log.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -50,6 +52,38 @@ void main() {
       final text = log.exportText();
       expect(text, contains('x'));
       expect(text.split('\n').length, greaterThanOrEqualTo(2));
+    });
+
+    test('日志自动脱敏 token、密钥和完整设备 ID', () {
+      log.record(
+        'appToken=secret-value e2eKey=another-secret device=1234567890abcdef',
+      );
+      final text = log.exportText();
+      expect(text, isNot(contains('secret-value')));
+      expect(text, isNot(contains('another-secret')));
+      expect(text, isNot(contains('1234567890abcdef')));
+      expect(text, contains('[REDACTED]'));
+      expect(text, contains('12345678…'));
+    });
+
+    test('落盘日志可等待写入并可同时清空', () async {
+      final directory = await Directory.systemTemp.createTemp('diagnostic-log-');
+      addTearDown(() async {
+        if (await directory.exists()) await directory.delete(recursive: true);
+      });
+      final persistentLog = DiagnosticLog(directoryOverride: directory);
+      await persistentLog.configurePersistence(true);
+      persistentLog.record('device=1234567890abcdef appToken=secret');
+      await persistentLog.flush();
+
+      final file = File('${directory.path}/diagnostics-v1.log');
+      final contents = await file.readAsString();
+      expect(contents, contains('12345678…'));
+      expect(contents, isNot(contains('secret')));
+
+      persistentLog.clear();
+      await persistentLog.flush();
+      expect(await file.readAsString(), isEmpty);
     });
   });
 }

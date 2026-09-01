@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// 诊断日志分类，用于按阶段分组定位中继/查询/配对问题。
 enum DiagnosticCategory {
@@ -9,12 +13,12 @@ enum DiagnosticCategory {
   device;
 
   String get label => switch (this) {
-        connection => '连接',
-        query => '查询',
-        pairing => '配对',
-        registration => '注册',
-        device => '设备',
-      };
+    connection => '连接',
+    query => '查询',
+    pairing => '配对',
+    registration => '注册',
+    device => '设备',
+  };
 }
 
 /// 单条诊断日志。
@@ -37,20 +41,37 @@ class DiagnosticEntry {
 /// 因此 [record] 等操作不会跨线程并发访问 [_entries]，无需加锁。
 class DiagnosticLog {
   static const int _maxEntries = 200;
+  static const int _maxFileBytes = 1024 * 1024;
+  static const String _fileName = 'diagnostics-v1.log';
 
   final List<DiagnosticEntry> _entries = [];
   final List<ValueChanged<DiagnosticEntry>> _listeners = [];
+  final Directory? directoryOverride;
+  bool _persistenceEnabled = false;
+  Future<void> _pendingWrite = Future<void>.value();
 
   static final DiagnosticLog instance = DiagnosticLog();
 
-  void record(String message, {DiagnosticCategory category = DiagnosticCategory.connection}) {
-    final entry = DiagnosticEntry(timestamp: DateTime.now(), message: message, category: category);
+  DiagnosticLog({this.directoryOverride});
+
+  void record(
+    String message, {
+    DiagnosticCategory category = DiagnosticCategory.connection,
+  }) {
+    final entry = DiagnosticEntry(
+      timestamp: DateTime.now(),
+      message: _sanitize(message),
+      category: category,
+    );
     _entries.add(entry);
     if (_entries.length > _maxEntries) {
       _entries.removeAt(0);
     }
     for (final listener in List.of(_listeners)) {
       listener(entry);
+    }
+    if (_persistenceEnabled) {
+      _pendingWrite = _pendingWrite.then((_) => _append(entry));
     }
   }
 
@@ -59,13 +80,37 @@ class DiagnosticLog {
 
   /// 按分类过滤，最新在前。
   List<DiagnosticEntry> byCategory(DiagnosticCategory category) =>
-      List.unmodifiable(_entries.where((e) => e.category == category).toList().reversed);
+      List.unmodifiable(
+        _entries.where((e) => e.category == category).toList().reversed,
+      );
 
   int get length => _entries.length;
 
   void clear() {
     _entries.clear();
+    if (_persistenceEnabled) {
+      _pendingWrite = _pendingWrite.then((_) => clearPersistent());
+    }
   }
+
+  Future<void> configurePersistence(bool enabled) async {
+    _persistenceEnabled = enabled;
+    if (!enabled) return;
+    final file = await _file();
+    await file.parent.create(recursive: true);
+  }
+
+  Future<String?> persistentPath() async {
+    if (!_persistenceEnabled) return null;
+    return (await _file()).path;
+  }
+
+  Future<void> clearPersistent() async {
+    final file = await _file();
+    if (await file.exists()) await file.writeAsString('', flush: true);
+  }
+
+  Future<void> flush() => _pendingWrite;
 
   /// 订阅新增日志（用于实时刷新诊断面板）。返回取消函数。
   VoidCallback listen(ValueChanged<DiagnosticEntry> listener) {
@@ -81,5 +126,47 @@ class DiagnosticLog {
       buffer.writeln('[$time][${entry.category.label}] ${entry.message}');
     }
     return buffer.toString();
+  }
+
+  Future<void> _append(DiagnosticEntry entry) async {
+    try {
+      final file = await _file();
+      await file.parent.create(recursive: true);
+      if (await file.exists() && await file.length() >= _maxFileBytes) {
+        await file.writeAsString('', flush: true);
+      }
+      final time = entry.timestamp.toUtc().toIso8601String();
+      await file.writeAsString(
+        '[$time][${entry.category.label}] ${entry.message}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {
+      // 诊断日志失败不得影响业务链路，也不能递归记录自身错误。
+    }
+  }
+
+  Future<File> _file() async {
+    final directory =
+        directoryOverride ?? await getApplicationSupportDirectory();
+    return File('${directory.path}/$_fileName');
+  }
+
+  static String _sanitize(String value) {
+    var sanitized = value.replaceAllMapped(
+      RegExp(
+        r'\b(appToken|e2eKey|pairCode|cookie)\s*[=:]\s*[^\s,;]+',
+        caseSensitive: false,
+      ),
+      (match) => '${match.group(1)}=[REDACTED]',
+    );
+    sanitized = sanitized.replaceAllMapped(
+      RegExp(
+        r'\bdevice(?:Id)?\s*[=:]\s*([A-Za-z0-9_-]{9,})',
+        caseSensitive: false,
+      ),
+      (match) => 'device=${match.group(1)!.substring(0, 8)}…',
+    );
+    return sanitized;
   }
 }
