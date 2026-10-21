@@ -1,7 +1,9 @@
-# Provider 计费定价速查（2026年6月）
+# Provider 计费定价速查（内置快照）
 
-> 来源：各 Provider 官方定价页 / 第三方定价聚合（2026-06-04 核实）
+> 来源：各 Provider 官方定价页 / 第三方定价聚合。本文同时记录代码内置快照的适用边界；不承诺等同实时账单。
 > 单位：USD / 1M tokens
+>
+> **运行时已不再以本表计费**：模型排行价格来自 models.dev 目录（见 `docs/模型价格目录与排名口径.md`），本表仅作人工参考与离线兜底快照。Provider 级订阅/兜底成本仍按旧口径计算，不随本表更新跳变。
 
 ---
 
@@ -32,24 +34,26 @@
 
 ---
 
-## DeepSeek
+## DeepSeek（历史静态近似）
 
 | 层级 | 模型 | Cache Miss Input | Cache Hit Input | Output | 缓存写 |
 |---|---|---|---|---|---|
 | Flash | V4-Flash | $0.14 | **$0.0028** | $0.28 | **不存在** |
 | Pro | V4-Pro | $0.435 | **$0.003625** | $0.87 | **不存在** |
 
-> 缓存写**无额外费用**。自动 KV 缓存，首次按 miss 价收费，后续命中自动 98% 折扣。无 TTL 声明，缓存自动维护。
+> 上表是 App 为兼容既有数据保留的历史静态近似，不是实时官方报价。当前官方价格包含时段差异，而本项目只有日聚合数据，无法精确还原请求发生时刻；因此代码不会把该表宣称为精确账单。
 
 ### Ollama Cloud 下 DeepSeek V4 缓存读缺失估算
 
 Ollama Cloud 代理的 DeepSeek 模型在 token 报告中**不返回 cacheRead**（始终为 0），无法直接衡量缓存命中率。App 自动对 `ollama-cloud` Provider 的 `deepseek-v4-flash` 和 `deepseek-v4-pro` 两个标准化模型启用缓存读估算，无需开发者模式。触发条件如下：
 
-- **数据来源**：2026 年 7 月观测快照（真实 DeepSeek 官方 API 缓存命中率）
+- **数据来源**：当前分析 payload 内非 Ollama 同模型原始行的 `ΣcacheRead/Σ(input+cacheRead)`；至少 3 条有效聚合行且 gross ≥1,000，不足或溢出时回退 2026-07 快照。过滤规则与偏差说明见《Token统计口径定义》§4。
 - **命中率快照**：deepseek-v4-flash `rate ≈ 553686784 ÷ 600792157 ≈ 0.9216`；deepseek-v4-pro `rate ≈ 1476491904 ÷ 1550614127 ≈ 0.9523`
-- **估算公式**：`estimatedCacheRead = input × (rate / (1 − rate))` 即 `input × snapshot_cacheRead / snapshot_input`
-- **触发条件**：仅当 `provider == ollama-cloud`、`model` 为标准名称（deepseek-v4-flash/pro）、`cacheRead == 0` 且 `input > 0` 时
-- **安全边界**：估算值只影响展示口径（缓存总量、命中率），不写入源数据，不影响计费口径的 actualTokens、成本计算、cacheSavedCost 和排行
+- **估算公式**：Ollama input 已含隐藏缓存，`estimatedCacheRead = input × rate`，`displayInput = input − estimatedCacheRead`；快照分母是含缓存 gross input。
+- **触发条件**：仅当 `provider == ollama-cloud`、`model` 为标准名称（deepseek-v4-flash/pro）、`cacheRead == 0`、`input > 0`，**且该 `(归一化模型, 日期)` 在报告范围内没有任何 `cacheRead > 0` 的 Ollama 桶**时
+- **净成本口径**：API 等值成本以 `displayInput` 计 input、以 `realCacheRead + estimatedCacheRead` 计 cache read；gross `actualTokens` 和源数据不变，`cacheSavedCost` 仍只基于真实 cacheRead
+- **Provider profile**：`deepseek`/`deepseek-api-cn` 使用 DeepSeek 历史近似；`opencode`/`opencode-go`/`ollama-cloud` 使用 OpenCode Zen 快照，其中 Ollama 仅作 Zen 等值比较；未知 Provider 不默认继承 Zen 定价
+- **未建模项**：DeepSeek 峰谷时段无法从日聚合行恢复。若未来需要精确直连账单，必须引入请求级时间戳或 Provider 实账，而不是继续扩展单一静态表
 
 ---
 
@@ -148,8 +152,8 @@ MiMo Credit 消耗规则：
 > 以下公式基于 OpenCode SQLite 数据库中 `$.tokens` 的字段含义（与源码 `getUsage()` 一致）：
 
 ```
-// 各 token 类型独立计费，各自乘以对应单价
-费用 = input × inputPrice + output × outputPrice + reasoning × reasoningPrice + cacheRead × cacheReadPrice + cacheWrite × cacheWritePrice
+// 各 token 类型独立计费，各自乘以显式 Provider profile 的对应单价
+费用 = netInput × inputPrice + output × outputPrice + reasoning × reasoningPrice + billableCacheRead × cacheReadPrice + cacheWrite × cacheWritePrice
 
 // 总成本 = 已启用固定订阅费用 + 未订阅部分 API 估算成本
 // 若所有 Provider 订阅均关闭，总成本全部按 API 定价估算（各 Provider 独立判断）
@@ -172,8 +176,8 @@ actualTokens = input + output + reasoning
 totalTokens = actualTokens + cacheRead + cacheWrite
 // 聚合命中率：分母 = 实际输入 + 展示缓存读（不含 output，避免高输出稀释命中率）
 // displayedCacheRead = 真实 cacheRead + Ollama 估算 cacheRead（含估算时）
-// 与 DashboardAnalytics.cacheHitRate（displayedCacheRead / (totalInputTokens + displayedCacheRead)）一致
-cacheHitRate = cacheRead / (totalInputTokens + cacheRead)
+// Ollama gross input 先扣除估算部分，再计入展示缓存读
+cacheHitRate = displayedCacheRead / (displayInputTotal + displayedCacheRead)
 
 ### 缓存节省费用（cacheSavedCost）
 
@@ -190,11 +194,11 @@ cacheSavedCost = cacheRead × (inputPrice − cacheReadPrice) / 1 000 000
 当 `ollama-cloud` Provider 下 `cacheRead == 0` 且 `input > 0` 时，对 `deepseek-v4-flash` 和 `deepseek-v4-pro` 启用估算：
 
 ```
-rate = snapshot_cacheRead / (snapshot_input + snapshot_cacheRead)  // 2026-07 观测快照
-multiplier = rate / (1 − rate) = snapshot_cacheRead / snapshot_input
-estimatedCacheRead = input × multiplier
+rate = runtimeRate ?? snapshot_cacheRead / snapshot_grossInput
+estimatedCacheRead = ollamaGrossInput × rate
+displayInput = input − estimatedCacheRead
 displayedCacheRead = realCacheRead + estimatedCacheRead
-displayedCacheHitRate = displayedCacheRead / (actualTokens + displayedCacheRead)
+displayedCacheHitRate = displayedCacheRead / (displayInput + displayedCacheRead)
 ```
 
-估算值**仅影响**展示口径——缓存区卡片标题、Provider 缓存行数值和标签、趋势图 tooltip 额外行。估算值**不影响** actualTokens（计费口径）、providerRankRows（真实实际 token）、modelComparisonRows、cost 计算和 cacheSavedCost。UI 中所有含估算的元素均被显式标记（`estimated` 标签、独立色行）。
+估算值影响缓存展示、净实际 Token、Provider/模型 API 等值成本、tokens/$ 排行和 Relay `cost`；不写入源数据，不改变 gross `actualTokens`、订阅覆盖、raw db cost 或 `cacheSavedCost`。模型比较按 `(provider, model)` 拆分，同名模型不会跨 Provider 混价。

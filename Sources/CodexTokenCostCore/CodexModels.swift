@@ -35,7 +35,7 @@ public struct CodexModelUsage: Codable, Hashable, Sendable {
     }
 
     public var actualTokens: Double {
-        actualInputTokens + outputTokens + reasoningOutputTokens
+        actualInputTokens + outputTokens
     }
 }
 
@@ -73,7 +73,9 @@ public struct CodexTokenUsage: Codable, Hashable, Sendable {
     }
 
     public var actualTokens: Double {
-        actualInputTokens + outputTokens + reasoningOutputTokens
+        // `reasoning_output_tokens` is a subset of `output_tokens` in the Codex
+        // usage protocol. Adding it again double-counts reasoning.
+        actualInputTokens + outputTokens
     }
 }
 
@@ -242,7 +244,8 @@ public struct CodexDashboardPayload: Codable, Hashable, Sendable {
         }
 
         public var totalActualTokens: Double {
-            totalActualInputTokens + totalOutputTokens + totalReasoningOutputTokens
+            // Reasoning is already included in totalOutputTokens.
+            totalActualInputTokens + totalOutputTokens
         }
     }
 

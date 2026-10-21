@@ -51,30 +51,178 @@ public enum TokenCostSortDirection: String, CaseIterable, Identifiable, Codable,
 
 /// Public access points for Ollama Cloud cache-read estimation utilities.
 public enum OllamaCloudCacheEstimation {
+    public struct Context: Sendable {
+        public enum Source: Sendable { case runtime, snapshot }
+        public struct Reference: Sendable {
+            public let rate: Double
+            public let source: Source
+            public let sampleCount: Int
+            public let grossTokens: Double
+        }
+        private var references: [String: Reference] = [:]
+        /// Honesty gate (D8). Keys are "\(normalizedModel)|\(date)" for every
+        /// ollama-cloud reporting bucket that already carries a real
+        /// cacheRead > 0. Provider-scoped on purpose: a non-Ollama provider
+        /// reporting cache for the same model and date proves nothing about
+        /// whether Ollama Cloud itself was reporting cache that day.
+        private var ollamaReportedCacheKeys: Set<String> = []
+
+        /// Rows are aggregated reporting-period buckets, not individual requests.
+        public init(rows: [DashboardPayload.RawRow] = []) {
+            for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+                var count = 0
+                var gross = 0.0
+                var cache = 0.0
+                var overflow = false
+                for row in rows {
+                    guard row.provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "ollama-cloud",
+                          normalizedModelName(row.model) == model,
+                          row.input.isFinite, row.cacheRead.isFinite,
+                          row.input >= 100, row.cacheRead >= 0 else { continue }
+                    let denominator = row.input + row.cacheRead
+                    guard denominator.isFinite, denominator > 0 else { continue }
+                    let rate = row.cacheRead / denominator
+                    guard rate > 0.01, rate < 0.99 else { continue }
+                    count += 1
+                    gross += denominator
+                    cache += row.cacheRead
+                    if !gross.isFinite || !cache.isFinite { overflow = true; break }
+                }
+                let rate = gross > 0 ? cache / gross : 0
+                let valid = !overflow && count >= 3 && gross >= 1_000 && rate.isFinite && rate > 0 && rate < 1
+                references[model] = Reference(
+                    rate: valid ? rate : cacheReadRate(for: model),
+                    source: valid ? .runtime : .snapshot,
+                    sampleCount: count,
+                    grossTokens: overflow ? 0 : gross
+                )
+            }
+
+            for row in rows {
+                guard row.provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ollama-cloud",
+                      row.cacheRead > 0 else { continue }
+                ollamaReportedCacheKeys.insert(Self.gateKey(model: row.model, date: row.date))
+            }
+        }
+
+        private static func gateKey(model: String, date: String) -> String {
+            "\(normalizedModelName(model))|\(date)"
+        }
+
+        /// D8 honesty gate: a cacheRead == 0 bucket is only treated as
+        /// "unreported" when Ollama Cloud reported no cache at all for this
+        /// normalized model on this date. Once any bucket on that (model, date)
+        /// carries real cache, the remaining cacheRead == 0 buckets are
+        /// genuine no-cache requests and must not be estimated.
+        public func allowsEstimate(model: String, date: String) -> Bool {
+            !ollamaReportedCacheKeys.contains(Self.gateKey(model: model, date: date))
+        }
+
+        public func reference(for model: String) -> Reference? {
+            references[normalizedModelName(model)]
+        }
+    }
+
+    public static func cacheReadRate(for model: String) -> Double {
+        TokenCostPricingCatalog.ollamaCacheReadRate(for: normalizedModelName(model))
+    }
     public static func normalizedModelName(_ model: String) -> String {
         TokenCostPricingCatalog.normalizeModelName(model)
     }
 
-    /// multiplier = rate / (1 − rate). Returns 0 for unknown models.
+    /// Legacy miss-input multiplier, retained for source compatibility only.
+    /// Ollama gross input estimation uses cacheReadRate, never this multiplier.
     public static func cacheReadMultiplier(for model: String) -> Double {
         TokenCostPricingCatalog.ollamaCacheReadEstimationMultiplier(for: model)
     }
 
-    /// Injects estimation for ollama-cloud when cacheRead == 0; returns real cacheRead otherwise.
-    public static func effectiveCacheRead(provider: String, model: String, cacheRead: Double, input: Double) -> Double {
-        guard provider == "ollama-cloud",
+    /// Pure eligibility predicate — no value computation. Single entry point for
+    /// every estimation call site (dashboard loop, effectiveCacheRead, views,
+    /// task classification). Provider key is normalized (trim + lowercase) the
+    /// same way as TokenCostDashboardAnalytics.normalizeProviderKey, so
+    /// "Ollama-Cloud" / " ollama-cloud " variants are all covered.
+    public static func isEligibleOllamaEstimate(provider: String, model: String, cacheRead: Double, input: Double) -> Bool {
+        let providerKey = provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard providerKey == "ollama-cloud",
               cacheRead == 0,
               input > 0,
               input.isFinite else {
-            return cacheRead
+            return false
         }
         let normalized = TokenCostPricingCatalog.normalizeModelName(model)
-        guard normalized == "deepseek-v4-flash" || normalized == "deepseek-v4-pro" else {
+        return normalized == "deepseek-v4-flash" || normalized == "deepseek-v4-pro"
+    }
+
+    /// Injects estimation for ollama-cloud when cacheRead == 0; returns real cacheRead otherwise.
+    public static func effectiveCacheRead(provider: String, model: String, cacheRead: Double, input: Double, context: Context = Context(), date: String? = nil) -> Double {
+        guard isEligibleOllamaEstimate(provider: provider, model: model, cacheRead: cacheRead, input: input) else {
             return cacheRead
         }
-        let multiplier = TokenCostPricingCatalog.ollamaCacheReadEstimationMultiplier(for: normalized)
-        let estimated = input * multiplier
-        return (estimated.isFinite && estimated > 0) ? estimated : cacheRead
+        if let date, !context.allowsEstimate(model: model, date: date) {
+            return cacheRead
+        }
+        // Context accepts only non-Ollama raw observations; estimates never feed back.
+        let rate = context.reference(for: model)?.rate ?? 0
+        guard rate.isFinite, rate > 0, rate < 1 else { return cacheRead }
+        let estimated = input * rate
+        let remainder = input - estimated
+        return (estimated.isFinite && estimated > 0 && remainder.isFinite && remainder > 0) ? estimated : cacheRead
+    }
+
+    /// Single split entry point for the Ollama gross-input deduction, so the
+    /// dashboard loop, provider cache rows, trend points and task classification
+    /// can never disagree about how much was deducted. Only genuine
+    /// unreported-cache rows produce a non-zero `estimatedCacheRead`; every other
+    /// row passes through with raw values and a deduction of 0.
+    public struct Split: Sendable {
+        public let estimatedCacheRead: Double
+        public let displayInput: Double
+        public let displayActual: Double
+        public let displayUsage: Double
+    }
+
+    public static func split(
+        provider: String,
+        model: String,
+        input: Double,
+        output: Double,
+        reasoning: Double,
+        cacheRead: Double,
+        cacheWrite: Double,
+        date: String?,
+        context: Context
+    ) -> Split {
+        let actual = input + output + reasoning
+        let passthrough = Split(
+            estimatedCacheRead: 0,
+            displayInput: input,
+            displayActual: actual,
+            displayUsage: actual + cacheRead + cacheWrite
+        )
+        let eligible = isEligibleOllamaEstimate(
+            provider: provider,
+            model: model,
+            cacheRead: cacheRead,
+            input: input
+        ) && (date.map { context.allowsEstimate(model: model, date: $0) } ?? true)
+        guard eligible else { return passthrough }
+
+        let estimated = effectiveCacheRead(
+            provider: provider,
+            model: model,
+            cacheRead: cacheRead,
+            input: input,
+            context: context,
+            date: date
+        )
+        guard estimated.isFinite, estimated > 0, estimated < input else { return passthrough }
+
+        return Split(
+            estimatedCacheRead: estimated,
+            displayInput: input - estimated,
+            displayActual: actual - estimated,
+            displayUsage: actual + cacheRead + cacheWrite
+        )
     }
 }
 
@@ -91,6 +239,15 @@ public struct TokenCostDashboardAnalytics: Sendable {
         public var dateRangeStart: String?
         public var dateRangeEnd: String?
         public var updatedAt: String
+        public var totalEstimatedCacheReadTokens: Double
+
+        /// Display-only net figure. `totalActualTokens` keeps its original
+        /// reported/gross definition; this subtracts the Ollama gross-input
+        /// deduction so "how much did I really burn" is answerable without
+        /// redefining the compatibility metric that billing and cross-page
+        /// summaries depend on.
+        public var netActualTokens: Double { totalActualTokens - totalEstimatedCacheReadTokens }
+        public var hasEstimatedCacheRead: Bool { totalEstimatedCacheReadTokens > 0 }
     }
 
     public struct CacheSummary: Sendable {
@@ -118,6 +275,10 @@ public struct TokenCostDashboardAnalytics: Sendable {
         public var inputTokens: Double
         public var estimatedCacheReadTokens: Double
         public var hasEstimates: Bool
+
+        public var displayInputTokens: Double { inputTokens - estimatedCacheReadTokens }
+        public var displayActualTokens: Double { actualTokens - estimatedCacheReadTokens }
+        public var displayedUsageTokens: Double { usageTokens }
     }
 
     public struct ProviderRankRow: Identifiable, Sendable {
@@ -125,6 +286,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
         public var providerKey: String
         public var displayName: String
         public var actualTokens: Double
+        public var netActualTokens: Double
         public var cacheReadTokens: Double
         public var cacheWriteTokens: Double
         public var messages: Int
@@ -138,16 +300,38 @@ public struct TokenCostDashboardAnalytics: Sendable {
         public var colorKey: String
     }
 
+    public enum ModelPricingStatus: String, Sendable {
+        /// Price read verbatim from the catalog for this exact model id.
+        case exact
+        /// Price borrowed from a related key (build tag stripped, base model, prefix).
+        case inherited
+        /// Known free (catalog price is zero, or the id says free and no price exists).
+        case free
+        /// No price anywhere. Kept visible on purpose instead of being hidden or shown as $0.
+        case unknown
+    }
+
     public struct ModelComparisonRow: Identifiable, Sendable {
-        public var id: String { modelKey }
+        public var id: String { "\(providerKey)|\(modelKey)" }
 
         public var modelKey: String
         public var displayName: String
+        public var providerKey: String
         public var provider: String
         public var actualTokens: Double
+        public var netActualTokens: Double
         public var allocatedCost: Double
         public var tokensPerDollar: Double
         public var colorKey: String
+        public var pricingStatus: ModelPricingStatus
+        /// The catalog key the price came from, when it differs from `modelKey`.
+        public var priceReference: String?
+        /// How many raw model ids (build tags, editions) were merged into this row.
+        public var variantCount: Int
+        /// Merged variants that carry no price at all.
+        public var unpricedVariantCount: Int
+        public var hasPrice: Bool
+        public var isFree: Bool
     }
 
     public struct DistributionSlice: Identifiable, Sendable {
@@ -168,6 +352,8 @@ public struct TokenCostDashboardAnalytics: Sendable {
         public var cacheReadTokens: Double
         public var cacheWriteTokens: Double
         public var estimatedCacheReadTokens: Double
+
+        public var displayActualTokens: Double { actualTokens - estimatedCacheReadTokens }
     }
 
     public struct StackedSeries: Identifiable, Sendable {
@@ -188,18 +374,41 @@ public struct TokenCostDashboardAnalytics: Sendable {
     public let providerSlices: [DistributionSlice]
     public let trendPoints: [TrendPoint]
     public let stackedSeries: [StackedSeries]
+    public let cacheEstimationContext: OllamaCloudCacheEstimation.Context
+    /// Provenance of the price directory used for model ranking.
+    public let pricingMetadata: ModelPricingCatalog.Metadata
 
     private let rawRows: [DashboardPayload.RawRow]
+    private let pricing: ModelPricingCatalog
+
+    /// Canonical (variant-merged) key for a raw model id, using the same catalog
+    /// that priced the dashboard. Charts must call this instead of grouping by
+    /// the raw id, or `:1017`-style variants split into separate series.
+    public func canonicalModelKey(provider: String, model: String) -> String {
+        pricing.canonicalKey(provider: provider, model: model)
+    }
+
+    /// Rows whose merged family has no price at all, kept visible on purpose.
+    public var unpricedModelCount: Int {
+        modelComparisonRows.filter { !$0.hasPrice }.count
+    }
 
     public init(
         payload: DashboardPayload,
         showZeroUsageXiaomiProvider: Bool = false,
-        billingOverridesByProviderKey: [String: Double] = [:]
+        billingOverridesByProviderKey: [String: Double] = [:],
+        pricing: ModelPricingCatalog = .bundledSnapshot
     ) {
         self.rawRows = payload.rawData
+        self.pricingMetadata = pricing.metadata
+        self.pricing = pricing
+        let estimationContext = OllamaCloudCacheEstimation.Context(rows: payload.rawData)
+        self.cacheEstimationContext = estimationContext
+
 
         var providerAccumulators: [String: ProviderAccumulator] = [:]
         var modelAccumulators: [String: ModelAccumulator] = [:]
+        var modelComparisonAccumulators: [String: ModelAccumulator] = [:]
         var dailyActual: [String: Double] = [:]
         var dailyCacheRead: [String: Double] = [:]
         var dailyCacheWrite: [String: Double] = [:]
@@ -215,7 +424,11 @@ public struct TokenCostDashboardAnalytics: Sendable {
         for row in payload.rawData {
             let providerKey = Self.normalizeProviderKey(row.provider)
             let providerDisplayName = Self.displayProviderName(row.provider)
-            let modelKey = TokenCostPricingCatalog.normalizeModelName(row.model)
+            // Grouping and pricing both come from the auto-discovered catalog:
+            // build/edition variants merge onto one family, and the price is
+            // scoped to the provider that produced the row.
+            let resolution = pricing.resolve(provider: row.provider, model: row.model)
+            let modelKey = resolution.canonicalKey
             let actualTokens = row.input + row.output + row.reasoning
 
             dateKeys.insert(row.date)
@@ -249,31 +462,38 @@ public struct TokenCostDashboardAnalytics: Sendable {
             providerAccumulators[providerKey]?.models.insert(modelKey)
             providerAccumulators[providerKey]?.rows.append(row)
 
-            let rowCacheSavedCost = TokenCostPricingCatalog.cacheSavedCost(model: row.model, cacheRead: row.cacheRead)
+            let rowCacheSavedCost = Self.cacheSavedCost(
+                price: resolution.price,
+                cacheRead: row.cacheRead
+            )
             if rowCacheSavedCost.isFinite, rowCacheSavedCost > 0 {
                 totalCacheSavedCost += rowCacheSavedCost
             }
 
-            if providerKey == "ollama-cloud",
-               row.cacheRead == 0,
-               row.input > 0,
-               row.input.isFinite,
-               modelKey == "deepseek-v4-flash" || modelKey == "deepseek-v4-pro"
-            {
-                let multiplier = TokenCostPricingCatalog.ollamaCacheReadEstimationMultiplier(for: modelKey)
-                let estimated = row.input * multiplier
-                if estimated.isFinite, estimated > 0 {
-                    providerAccumulators[providerKey]?.estimatedCacheRead += estimated
-                    dailyEstimatedCacheRead[row.date, default: 0] += estimated
-                }
-            }
-
-            let apiCost = TokenCostPricingCatalog.apiCost(
+            let split = OllamaCloudCacheEstimation.split(
+                provider: row.provider,
                 model: row.model,
                 input: row.input,
                 output: row.output,
                 reasoning: row.reasoning,
                 cacheRead: row.cacheRead,
+                cacheWrite: row.cacheWrite,
+                date: row.date,
+                context: estimationContext
+            )
+            if split.estimatedCacheRead.isFinite, split.estimatedCacheRead > 0 {
+                providerAccumulators[providerKey]?.estimatedCacheRead += split.estimatedCacheRead
+                dailyEstimatedCacheRead[row.date, default: 0] += split.estimatedCacheRead
+            }
+            providerAccumulators[providerKey]?.netActualTokens += split.displayActual
+
+            let apiCost = TokenCostPricingCatalog.apiCost(
+                provider: row.provider,
+                model: row.model,
+                input: split.displayInput,
+                output: row.output,
+                reasoning: row.reasoning,
+                cacheRead: row.cacheRead + split.estimatedCacheRead,
                 cacheWrite: row.cacheWrite
             )
             if apiCost > 0 {
@@ -292,6 +512,42 @@ public struct TokenCostDashboardAnalytics: Sendable {
             if modelAccumulators[modelKey]?.primaryProvider == nil {
                 modelAccumulators[modelKey]?.primaryProvider = providerDisplayName
             }
+
+            let comparisonKey = "\(providerKey)|\(modelKey)"
+            if modelComparisonAccumulators[comparisonKey] == nil {
+                modelComparisonAccumulators[comparisonKey] = ModelAccumulator(
+                    displayName: modelKey,
+                    providerKey: providerKey,
+                    primaryProvider: providerDisplayName
+                )
+            }
+            let modelCost = resolution.price?.cost(
+                input: split.displayInput,
+                output: row.output,
+                reasoning: row.reasoning,
+                cacheRead: row.cacheRead + split.estimatedCacheRead,
+                cacheWrite: row.cacheWrite
+            ) ?? 0
+            if modelCost.isFinite, modelCost > 0 {
+                modelComparisonAccumulators[comparisonKey]?.allocatedCost += modelCost
+            }
+            modelComparisonAccumulators[comparisonKey]?.variants.insert(resolution.rawKey)
+            if let price = resolution.price, !price.isFree {
+                modelComparisonAccumulators[comparisonKey]?.pricedVariants.insert(resolution.rawKey)
+            } else if resolution.isFree {
+                modelComparisonAccumulators[comparisonKey]?.freeVariants.insert(resolution.rawKey)
+            } else {
+                modelComparisonAccumulators[comparisonKey]?.unknownVariants.insert(resolution.rawKey)
+            }
+            if resolution.isInherited, let matched = resolution.matchedKey {
+                modelComparisonAccumulators[comparisonKey]?.inheritedKeys.insert(matched)
+            }
+            modelComparisonAccumulators[comparisonKey]?.total += row.total
+            modelComparisonAccumulators[comparisonKey]?.actualTokens += actualTokens
+            modelComparisonAccumulators[comparisonKey]?.netActualTokens += split.displayActual
+            modelComparisonAccumulators[comparisonKey]?.cacheRead += row.cacheRead + split.estimatedCacheRead
+            modelComparisonAccumulators[comparisonKey]?.cacheWrite += row.cacheWrite
+            modelComparisonAccumulators[comparisonKey]?.messages += row.msgCount
         }
 
         let filteredProviderAccumulators = Self.filteredProviderAccumulators(
@@ -299,6 +555,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
             showZeroUsageXiaomiProvider: showZeroUsageXiaomiProvider
         )
         let filteredModelAccumulators = Self.filteredModelAccumulators(from: modelAccumulators)
+        let filteredModelComparisonAccumulators = Self.filteredModelAccumulators(from: modelComparisonAccumulators)
         let sortedDateKeys = dateKeys.sorted()
         let providerEffectiveCosts = Self.providerEffectiveCosts(
             from: providerAccumulators,
@@ -314,7 +571,9 @@ public struct TokenCostDashboardAnalytics: Sendable {
         let totalEstimatedCacheRead = dailyEstimatedCacheRead.values.reduce(0, +)
         let displayedCacheRead = cacheReadTokens + totalEstimatedCacheRead
         let totalCacheTokens = displayedCacheRead + cacheWriteTokens
-        let cacheHitRate = (totalInputTokens + displayedCacheRead) > 0 ? displayedCacheRead / (totalInputTokens + displayedCacheRead) : 0
+        // Subtract the hidden cache split before adding displayed cache back.
+        let cacheDenominator = totalInputTokens + cacheReadTokens
+        let cacheHitRate = cacheDenominator > 0 ? displayedCacheRead / cacheDenominator : 0
 
         self.overview = Overview(
             totalTokens: totalTokensFromRows,
@@ -327,7 +586,8 @@ public struct TokenCostDashboardAnalytics: Sendable {
             activeDays: activeDays,
             dateRangeStart: sortedDateKeys.first,
             dateRangeEnd: sortedDateKeys.last,
-            updatedAt: payload.summary.updatedAt
+            updatedAt: payload.summary.updatedAt,
+            totalEstimatedCacheReadTokens: totalEstimatedCacheRead
         )
 
         self.cache = CacheSummary(
@@ -346,7 +606,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
                 let displayedCacheRead = accumulator.cacheRead + accumulator.estimatedCacheRead
                 let cacheRate: Double
                 if key == "ollama-cloud", accumulator.estimatedCacheRead > 0 {
-                    let denom = accumulator.input + accumulator.cacheRead + accumulator.estimatedCacheRead
+                    let denom = accumulator.input + accumulator.cacheRead
                     cacheRate = denom > 0 ? displayedCacheRead / denom : 0
                 } else {
                     let denom = accumulator.input + accumulator.cacheRead
@@ -383,9 +643,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
             effectiveCosts: providerEffectiveCosts
         )
         self.modelComparisonRows = Self.buildModelComparisonRows(
-            from: filteredModelAccumulators,
-            providerAccumulators: filteredProviderAccumulators,
-            providerEffectiveCosts: providerEffectiveCosts
+            from: filteredModelComparisonAccumulators
         )
         self.modelSlices = Self.buildDistributionSlices(
             valuesByKey: filteredModelAccumulators.mapValues { $0.total },
@@ -413,11 +671,30 @@ public struct TokenCostDashboardAnalytics: Sendable {
         )
     }
 
+    /// Per-row deduction for the detail table, reusing the analytics-owned
+    /// context so a row's displayed figure matches the aggregate figures above
+    /// it. Returns `nil` when the row carries no deduction.
+    public func displayDeduction(for row: DashboardPayload.RawRow) -> OllamaCloudCacheEstimation.Split? {
+        guard row.provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ollama-cloud",
+              row.cacheRead == 0 else { return nil }
+        let split = OllamaCloudCacheEstimation.split(
+            provider: row.provider,
+            model: row.model,
+            input: row.input,
+            output: row.output,
+            reasoning: row.reasoning,
+            cacheRead: row.cacheRead,
+            cacheWrite: row.cacheWrite,
+            date: row.date,
+            context: cacheEstimationContext
+        )
+        return split.estimatedCacheRead > 0 ? split : nil
+    }
+
     public func sortedDetailRows(
         sortField: TokenCostDetailSortField,
         direction: TokenCostSortDirection
-    ) -> [DashboardPayload.RawRow] {
-        let rows = rawRows.sorted { lhs, rhs in
+    ) -> [DashboardPayload.RawRow] {        let rows = rawRows.sorted { lhs, rhs in
             compare(lhs, rhs, field: sortField)
         }
 
@@ -431,16 +708,29 @@ public struct TokenCostDashboardAnalytics: Sendable {
     /// without billing overrides or legacy fallback subscription interference.
     public static func providerUsageCosts(payload: DashboardPayload) -> [String: (raw: Double, synthetic: Double)] {
         var result: [String: (raw: Double, synthetic: Double)] = [:]
+        let estimationContext = OllamaCloudCacheEstimation.Context(rows: payload.rawData)
         for row in payload.rawData {
             let key = Self.normalizeProviderKey(row.provider)
             var entry = result[key] ?? (0, 0)
             entry.raw += row.cost
-            entry.synthetic += TokenCostPricingCatalog.apiCost(
+            let split = OllamaCloudCacheEstimation.split(
+                provider: row.provider,
                 model: row.model,
                 input: row.input,
                 output: row.output,
                 reasoning: row.reasoning,
                 cacheRead: row.cacheRead,
+                cacheWrite: row.cacheWrite,
+                date: row.date,
+                context: estimationContext
+            )
+            entry.synthetic += TokenCostPricingCatalog.apiCost(
+                provider: row.provider,
+                model: row.model,
+                input: split.displayInput,
+                output: row.output,
+                reasoning: row.reasoning,
+                cacheRead: row.cacheRead + split.estimatedCacheRead,
                 cacheWrite: row.cacheWrite
             )
             result[key] = entry
@@ -533,12 +823,13 @@ public struct TokenCostDashboardAnalytics: Sendable {
                     providerKey: providerKey,
                     displayName: displayName,
                     actualTokens: accumulator.actualTokens,
-                    cacheReadTokens: accumulator.cacheRead,
+                    netActualTokens: accumulator.netActualTokens,
+                    cacheReadTokens: accumulator.cacheRead + accumulator.estimatedCacheRead,
                     cacheWriteTokens: accumulator.cacheWrite,
                     messages: accumulator.messages,
                     rawCost: accumulator.rawCost,
                     effectiveCost: hasPricing ? effectiveCost : nil,
-                    tokensPerDollar: hasPricing ? accumulator.actualTokens / effectiveCost : 0,
+                    tokensPerDollar: hasPricing ? accumulator.netActualTokens / effectiveCost : 0,
                     modelCount: accumulator.models.count,
                     isSubscription: TokenCostPricingCatalog.subscriptionMonthlyCost(for: providerKey) != nil,
                     isSynthetic: false,
@@ -555,12 +846,13 @@ public struct TokenCostDashboardAnalytics: Sendable {
                         providerKey: "opencode-go-api",
                         displayName: AppLocalization.text("provider.openCodeGo.api"),
                         actualTokens: accumulator.actualTokens,
-                        cacheReadTokens: accumulator.cacheRead,
+                        netActualTokens: accumulator.netActualTokens,
+                        cacheReadTokens: accumulator.cacheRead + accumulator.estimatedCacheRead,
                         cacheWriteTokens: accumulator.cacheWrite,
                         messages: accumulator.messages,
                         rawCost: accumulator.rawCost,
                         effectiveCost: apiCost > 0 ? apiCost : nil,
-                        tokensPerDollar: apiCost > 0 ? accumulator.actualTokens / apiCost : 0,
+                        tokensPerDollar: apiCost > 0 ? accumulator.netActualTokens / apiCost : 0,
                         modelCount: accumulator.models.count,
                         isSubscription: false,
                         isSynthetic: true,
@@ -576,63 +868,89 @@ public struct TokenCostDashboardAnalytics: Sendable {
                 if lhs.hasPricing != rhs.hasPricing {
                     return lhs.hasPricing && !rhs.hasPricing
                 }
-                if lhs.actualTokens == rhs.actualTokens {
+                if lhs.netActualTokens == rhs.netActualTokens {
                     return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
                 }
-                return lhs.actualTokens > rhs.actualTokens
+                return lhs.netActualTokens > rhs.netActualTokens
             }
             return lhs.tokensPerDollar > rhs.tokensPerDollar
         }
     }
 
     private static func buildModelComparisonRows(
-        from modelAccumulators: [String: ModelAccumulator],
-        providerAccumulators: [String: ProviderAccumulator],
-        providerEffectiveCosts: [String: Double]
+        from modelAccumulators: [String: ModelAccumulator]
     ) -> [ModelComparisonRow] {
-        var modelRows: [String: ModelAccumulator] = modelAccumulators
-
-        for row in providerAccumulators.values.flatMap({ $0.rows }) {
-            let modelKey = TokenCostPricingCatalog.normalizeModelName(row.model)
-
-            let apiModelCost = TokenCostPricingCatalog.apiCost(
-                model: row.model,
-                input: row.input,
-                output: row.output,
-                reasoning: row.reasoning,
-                cacheRead: row.cacheRead,
-                cacheWrite: row.cacheWrite
-            )
-
-            if modelRows[modelKey] == nil {
-                modelRows[modelKey] = ModelAccumulator(displayName: modelKey)
-            }
-            modelRows[modelKey]?.allocatedCost += apiModelCost
-        }
-
-        return modelRows
+        modelAccumulators
             .filter { $0.value.total > 0 }
             .map { key, accumulator in
-                let ratio = accumulator.allocatedCost > 0 ? accumulator.actualTokens / accumulator.allocatedCost : 0
+                let isFree = accumulator.pricedVariants.isEmpty
+                    && !accumulator.freeVariants.isEmpty
+                    && accumulator.unknownVariants.isEmpty
+                let hasPrice = !accumulator.pricedVariants.isEmpty || isFree
+                let status: ModelPricingStatus
+                if isFree {
+                    status = .free
+                } else if hasPrice {
+                    status = accumulator.inheritedKeys.isEmpty ? .exact : .inherited
+                } else {
+                    status = .unknown
+                }
+                let ratio: Double
+                if hasPrice, accumulator.allocatedCost > 0 {
+                    ratio = accumulator.netActualTokens / accumulator.allocatedCost
+                } else {
+                    ratio = 0
+                }
                 return ModelComparisonRow(
-                    modelKey: key,
+                    modelKey: accumulator.displayName,
                     displayName: accumulator.displayName,
+                    providerKey: accumulator.providerKey ?? "unknown",
                     provider: accumulator.primaryProvider ?? AppLocalization.text("common.unspecified"),
                     actualTokens: accumulator.actualTokens,
+                    netActualTokens: accumulator.netActualTokens,
                     allocatedCost: accumulator.allocatedCost,
                     tokensPerDollar: ratio,
-                    colorKey: key
+                    colorKey: "\(accumulator.providerKey ?? "unknown")|\(accumulator.displayName)",
+                    pricingStatus: status,
+                    priceReference: accumulator.inheritedKeys.sorted().first,
+                    variantCount: max(accumulator.variants.count, 1),
+                    unpricedVariantCount: accumulator.unknownVariants.count,
+                    hasPrice: hasPrice,
+                    isFree: isFree
                 )
             }
             .sorted { lhs, rhs in
-                if lhs.tokensPerDollar == rhs.tokensPerDollar {
-                    if lhs.actualTokens == rhs.actualTokens {
-                        return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-                    }
-                    return lhs.actualTokens > rhs.actualTokens
+                let lhsBucket = pricingSortBucket(lhs)
+                let rhsBucket = pricingSortBucket(rhs)
+                if lhsBucket != rhsBucket {
+                    return lhsBucket < rhsBucket
                 }
-                return lhs.tokensPerDollar > rhs.tokensPerDollar
+                switch lhsBucket {
+                case 0: // free models are the best value; order them by volume
+                    if lhs.netActualTokens != rhs.netActualTokens {
+                        return lhs.netActualTokens > rhs.netActualTokens
+                    }
+                case 1: // priced: tokens per dollar, descending
+                    if lhs.tokensPerDollar != rhs.tokensPerDollar {
+                        return lhs.tokensPerDollar > rhs.tokensPerDollar
+                    }
+                default: // unpriced stay visible, ordered by volume
+                    if lhs.netActualTokens != rhs.netActualTokens {
+                        return lhs.netActualTokens > rhs.netActualTokens
+                    }
+                }
+                if lhs.displayName == rhs.displayName {
+                    return lhs.provider.localizedCaseInsensitiveCompare(rhs.provider) == .orderedAscending
+                }
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
+    }
+
+    /// 0 = free, 1 = priced, 2 = unpriced. Unpriced rows are never dropped: they
+    /// sort last but still appear in the list and in the relay payload.
+    private static func pricingSortBucket(_ row: ModelComparisonRow) -> Int {
+        if row.isFree { return 0 }
+        return row.hasPrice ? 1 : 2
     }
 
     private static func buildDistributionSlices(
@@ -813,6 +1131,17 @@ public struct TokenCostDashboardAnalytics: Sendable {
         modelAccumulators.filter { $0.value.total > 0 }
     }
 
+    /// Cache-read savings at the resolved price. Zero when the model is unpriced
+    /// or the cached rate is not cheaper than fresh input.
+    private static func cacheSavedCost(price: ModelPrice?, cacheRead: Double) -> Double {
+        guard let price,
+              price.input > price.cacheRead,
+              cacheRead.isFinite, cacheRead > 0 else {
+            return 0
+        }
+        return cacheRead * (price.input - price.cacheRead) / 1_000_000
+    }
+
     private static func shouldIncludeZeroUsageXiaomiProvider(_ providerKey: String) -> Bool {
         providerKey.localizedCaseInsensitiveContains("xiaomi")
     }
@@ -835,6 +1164,7 @@ public struct TokenCostDashboardAnalytics: Sendable {
         var cacheWriteReportedCount: Int = 0
         var total: Double = 0
         var actualTokens: Double = 0
+        var netActualTokens: Double = 0
         var rawCost: Double = 0
         var messages: Int = 0
         var models: Set<String> = []
@@ -844,17 +1174,24 @@ public struct TokenCostDashboardAnalytics: Sendable {
 
     private struct ModelAccumulator {
         var displayName: String
+        var providerKey: String?
         var total: Double = 0
         var actualTokens: Double = 0
+        var netActualTokens: Double = 0
         var cacheRead: Double = 0
         var cacheWrite: Double = 0
         var messages: Int = 0
         var allocatedCost: Double = 0
         var primaryProvider: String?
+        var variants: Set<String> = []
+        var pricedVariants: Set<String> = []
+        var freeVariants: Set<String> = []
+        var unknownVariants: Set<String> = []
+        var inheritedKeys: Set<String> = []
     }
 }
 
-private enum TokenCostPricingCatalog {
+enum TokenCostPricingCatalog {
     /// Legacy fallback subscription costs — used ONLY when billingOverridesByProviderKey
     /// does not provide a value for a given provider key. User billing plan selections
     /// (via AppPreferences.billingOverridesByProviderKey()) always take precedence.
@@ -866,13 +1203,19 @@ private enum TokenCostPricingCatalog {
     // Ollama Cloud reports significant infra changes. See
     // docs/Token统计口径定义.md §4.2 for update procedure.
 
-    /// Snapshot cache-read rates for Ollama Cloud DeepSeek models.
-    /// rate = cacheRead / (input + cacheRead), observed Jul 2026.
+    /// Fallback snapshot rates, observed Jul 2026.
+    /// rate = snapshot cacheRead / snapshot gross input (denominator includes cache).
     /// Used to estimate missing cache reads when provider reports input>0 but cacheRead==0.
     private static let ollamaDeepSeekCacheReadSnapshotRates: [String: Double] = [
         "deepseek-v4-flash": 553_686_784.0 / 600_792_157.0,
         "deepseek-v4-pro": 1_476_491_904.0 / 1_550_614_127.0
     ]
+
+    static func ollamaCacheReadRate(for model: String) -> Double {
+        guard let rate = ollamaDeepSeekCacheReadSnapshotRates[model],
+              rate.isFinite, rate > 0, rate < 1 else { return 0 }
+        return rate
+    }
 
     /// Returns the estimated cache-read multiplier for an Ollama Cloud DeepSeek model.
     /// multiplier = rate / (1 − rate) = snapshot_cacheRead / snapshot_input.
@@ -890,9 +1233,9 @@ private enum TokenCostPricingCatalog {
     /// instead of computing them as input tokens, using the model's marginal price difference.
     /// Formula: cacheRead × (inputPrice − cacheReadPrice) / 1 000 000.
     /// Returns 0 when either price is missing or inputPrice ≤ cacheReadPrice.
-    static func cacheSavedCost(model: String, cacheRead: Double) -> Double {
+    static func cacheSavedCost(provider: String, model: String, cacheRead: Double) -> Double {
         let key = normalizeModelName(model)
-        guard let pricing = zenPricing[key],
+        guard let pricing = pricing(for: provider, modelKey: key),
               let inputPrice = pricing["input"],
               let cacheReadPrice = pricing["cacheRead"],
               inputPrice > cacheReadPrice,
@@ -910,7 +1253,7 @@ private enum TokenCostPricingCatalog {
         "openai": 20.00
     ]
 
-    private static let modelAliases: [String: String] = [
+    static let modelAliases: [String: String] = [
         "minimax-m2.7-highspeed": "minimax-m2.7",
         "deepseek-chat": "deepseek-v4-flash",
         "deepseek-reasoner": "deepseek-v4-pro"
@@ -966,7 +1309,7 @@ private enum TokenCostPricingCatalog {
         "gpt-5.4-nano": ["input": 0.20, "output": 1.25, "cacheRead": 0.02],
         "gpt-5": ["input": 1.07, "output": 8.50, "cacheRead": 0.107],
         "gpt-5.4-pro": ["input": 30.00, "output": 180.00, "cacheRead": 30.00],
-        "deepseek-v4-pro": ["input": 0.435, "output": 0.87, "cacheRead": 0.003625],  // 官方当前定价（2026/06）
+        "deepseek-v4-pro": ["input": 0.435, "output": 0.87, "cacheRead": 0.003625],  // OpenCode Zen snapshot
         "deepseek-v4-flash": ["input": 0.14, "output": 0.28, "cacheRead": 0.0028],
         "big-pickle": ["input": 0, "output": 0, "cacheRead": 0],
         "mimo-v2-omni": ["input": 0.30, "output": 1.20, "cacheRead": 0.06, "cacheWrite": 0.375],
@@ -974,6 +1317,39 @@ private enum TokenCostPricingCatalog {
         "mimo-v2.5": ["input": 0.30, "output": 1.20, "cacheRead": 0.06, "cacheWrite": 0.375],
         "mimo-v2.5-pro": ["input": 0.30, "output": 1.20, "cacheRead": 0.06, "cacheWrite": 0.375]
     ]
+
+    /// Historical static approximation retained for direct DeepSeek rows.
+    /// The source data is aggregated by day, so it cannot reproduce time-of-day
+    /// peak/off-peak billing. Do not present this table as real-time official pricing.
+    private static let deepSeekLegacyPricing: [String: [String: Double]] = [
+        "deepseek-v4-pro": ["input": 0.435, "output": 0.87, "cacheRead": 0.003625],
+        "deepseek-v4-flash": ["input": 0.14, "output": 0.28, "cacheRead": 0.0028]
+    ]
+
+    /// Provider-scoped view of the legacy snapshot, used as the bundled fallback
+    /// for `ModelPricingCatalog` so existing figures stay reproducible offline.
+    static var bundledProviderTables: [String: [String: ModelPrice]] {
+        var tables: [String: [String: ModelPrice]] = [:]
+        for provider in ["opencode", "opencode-go", "ollama-cloud"] {
+            tables[provider] = zenPricing.mapValues(ModelPrice.init(legacy:))
+        }
+        for provider in ["deepseek", "deepseek-api-cn"] {
+            tables[provider] = deepSeekLegacyPricing.mapValues(ModelPrice.init(legacy:))
+        }
+        return tables
+    }
+
+    private static func pricing(for provider: String, modelKey: String) -> [String: Double]? {
+        let providerKey = provider.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        switch providerKey {
+        case "deepseek", "deepseek-api-cn":
+            return deepSeekLegacyPricing[modelKey]
+        case "opencode", "opencode-go", "ollama-cloud":
+            return zenPricing[modelKey]
+        default:
+            return nil
+        }
+    }
 
     static func normalizeModelName(_ model: String) -> String {
         guard !model.isEmpty else {
@@ -1015,16 +1391,19 @@ private enum TokenCostPricingCatalog {
         return rawCost > 0 ? rawCost : nil
     }
 
-    static func apiCost(model: String, input: Double, output: Double, reasoning: Double, cacheRead: Double, cacheWrite: Double) -> Double {
+    static func apiCost(provider: String, model: String, input: Double, output: Double, reasoning: Double, cacheRead: Double, cacheWrite: Double) -> Double {
         let key = normalizeModelName(model)
-        guard let pricing = zenPricing[key] else {
+        guard let pricing = pricing(for: provider, modelKey: key) else {
             return 0
         }
-        let inputCost = (input / 1_000_000) * (pricing["input"] ?? 0)
-        let outputCost = (output / 1_000_000) * (pricing["output"] ?? 0)
-        let reasoningCost = (reasoning / 1_000_000) * (pricing["reasoning"] ?? pricing["output"] ?? 0)
-        let cacheReadCost = (cacheRead / 1_000_000) * (pricing["cacheRead"] ?? 0)
-        let cacheWriteCost = (cacheWrite / 1_000_000) * (pricing["cacheWrite"] ?? 0)
+        func validTokens(_ value: Double) -> Double {
+            value.isFinite && value > 0 ? value : 0
+        }
+        let inputCost = (validTokens(input) / 1_000_000) * (pricing["input"] ?? 0)
+        let outputCost = (validTokens(output) / 1_000_000) * (pricing["output"] ?? 0)
+        let reasoningCost = (validTokens(reasoning) / 1_000_000) * (pricing["reasoning"] ?? pricing["output"] ?? 0)
+        let cacheReadCost = (validTokens(cacheRead) / 1_000_000) * (pricing["cacheRead"] ?? 0)
+        let cacheWriteCost = (validTokens(cacheWrite) / 1_000_000) * (pricing["cacheWrite"] ?? 0)
         return inputCost + outputCost + reasoningCost + cacheReadCost + cacheWriteCost
     }
 }

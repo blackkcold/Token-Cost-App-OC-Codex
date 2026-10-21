@@ -38,15 +38,20 @@ public final class TokenDatabaseClient {
             let db = try openReadOnlyDatabase(url: url)
             defer { sqlite3_close(db) }
 
-            guard try tableExists(named: "message", in: db) else {
-                return .unsupported
-            }
-            guard try messageTableHasRequiredColumns(in: db) else {
+            let legacyAvailable = try tableExists(named: "message", in: db)
+                && messageTableHasRequiredColumns(in: db)
+            // V2 stores usage in `session_message` with the same JSON `data`
+            // payload shape but a nested model object. Treat either schema as a
+            // usable source; the reader decides which one is authoritative.
+            let v2Available = try tableExists(named: "session_message", in: db)
+                && sessionMessageTableHasRequiredColumns(in: db)
+            guard legacyAvailable || v2Available else {
                 return .unsupported
             }
 
+            let probeTable = v2Available ? "session_message" : "message"
             _ = try executeSingleString(
-                sql: "SELECT json_extract(data, '$.tokens.total') FROM message WHERE data IS NOT NULL LIMIT 1;",
+                sql: "SELECT json_extract(data, '$.tokens.total') FROM \(probeTable) WHERE data IS NOT NULL LIMIT 1;",
                 in: db
             )
             return .available
@@ -94,8 +99,50 @@ public final class TokenDatabaseClient {
         return present.contains("time_created") && present.contains("data")
     }
 
+    private func sessionMessageTableHasRequiredColumns(in db: OpaquePointer) throws -> Bool {
+        let sql = "PRAGMA table_info(session_message);"
+        let columns = try executeStatement(sql: sql, in: db) { statement -> String? in
+            columnText(statement, 1)
+        }
+        let present = Set(columns)
+        return present.contains("session_id") && present.contains("time_created") && present.contains("data")
+    }
+
+    private func sessionMessageHasUsage(in db: OpaquePointer) throws -> Bool {
+        try executeBoolean(
+            sql: "SELECT 1 FROM session_message WHERE json_extract(data, '$.tokens') IS NOT NULL LIMIT 1;",
+            in: db
+        )
+    }
+
     private func fetchUsageRows(in db: OpaquePointer) throws -> [UsageAggregateRow] {
-        let sql = buildUsageQuery(includeDate: true, dateFiltered: false, groupBy: "usage_date, model_id, provider_id", orderBy: "usage_date ASC, total_tokens DESC", includeCacheWriteStatus: true)
+        // V2 is authoritative whenever its schema exists. Legacy rows are only
+        // merged for sessions that never migrated, so a row deleted from V2 is
+        // not resurrected from the old table. If the V2 query fails, the error
+        // propagates instead of silently falling back to stale data.
+        let includeV2 = try tableExists(named: "session_message", in: db)
+            && sessionMessageTableHasRequiredColumns(in: db)
+        let hasLegacy = try tableExists(named: "message", in: db)
+            && messageTableHasRequiredColumns(in: db)
+        // An empty V2 table is still authoritative: falling back to the legacy
+        // table would resurrect usage the user deleted from V2. Legacy is only
+        // merged when V2 already holds usage, and only for sessions that were
+        // never migrated.
+        let includeLegacy: Bool
+        if hasLegacy, includeV2 {
+            includeLegacy = try sessionMessageHasUsage(in: db)
+        } else {
+            includeLegacy = hasLegacy
+        }
+        let sql = buildUsageQuery(
+            includeDate: true,
+            dateFiltered: false,
+            groupBy: "usage_date, model_id, provider_id, cache_read_bucket",
+            orderBy: "usage_date ASC, total_tokens DESC",
+            includeCacheWriteStatus: true,
+            includeV2: includeV2,
+            includeLegacy: includeLegacy
+        )
         return try executeStatement(sql: sql, in: db) { statement -> UsageAggregateRow? in
             guard let date = columnText(statement, 0) else {
                 return nil
@@ -214,7 +261,7 @@ public final class TokenDatabaseClient {
     private let allowedSqlIdentifiers: Set<String> = [
         "usage_date", "model_id", "provider_id", "input_tokens", "output_tokens",
         "reasoning_tokens", "cache_read", "cache_write", "total_tokens",
-        "cache_write_missing_count", "cache_write_reported_count"
+        "cache_write_missing_count", "cache_write_reported_count", "cache_read_bucket"
     ]
 
     private func isValidSqlIdentifierList(_ value: String) -> Bool {
@@ -239,22 +286,85 @@ public final class TokenDatabaseClient {
         return true
     }
 
-    private func buildUsageQuery(includeDate: Bool, dateFiltered: Bool, groupBy: String, orderBy: String, includeCacheWriteStatus: Bool) -> String {
+    private func buildUsageQuery(
+        includeDate: Bool,
+        dateFiltered: Bool,
+        groupBy: String,
+        orderBy: String,
+        includeCacheWriteStatus: Bool,
+        includeV2: Bool,
+        includeLegacy: Bool
+    ) -> String {
         let select = buildUsageSelect(includeDate: includeDate, includeCacheWriteStatus: includeCacheWriteStatus)
         guard isValidSqlIdentifierList(groupBy), isValidSqlIdentifierList(orderBy) else {
             assertionFailure("Invalid SQL identifiers — groupBy: \"\(groupBy)\", orderBy: \"\(orderBy)\"")
-            return "SELECT \(select) FROM message WHERE \(tokenRowFilter) AND 1=0"
+            return "SELECT \(select) FROM (SELECT 1 AS time_created WHERE 0) WHERE 1=0"
         }
+
+        let v2Source = """
+        SELECT
+            time_created,
+            COALESCE(json_extract(data, '$.model.id'), json_extract(data, '$.modelID')) AS raw_model,
+            COALESCE(json_extract(data, '$.model.providerID'), json_extract(data, '$.providerID')) AS raw_provider,
+            json_extract(data, '$.tokens.input') AS input_tokens,
+            json_extract(data, '$.tokens.output') AS output_tokens,
+            json_extract(data, '$.tokens.reasoning') AS reasoning_tokens,
+            json_extract(data, '$.tokens.cache.read') AS cache_read,
+            json_extract(data, '$.tokens.cache.write') AS cache_write,
+            json_type(data, '$.tokens.cache.write') AS cache_write_type,
+            json_extract(data, '$.tokens.total') AS total_tokens,
+            json_extract(data, '$.cost') AS row_cost
+        FROM session_message
+        WHERE json_extract(data, '$.tokens') IS NOT NULL
+        """
+
+        let legacySource = """
+        SELECT
+            m.time_created,
+            json_extract(m.data, '$.modelID') AS raw_model,
+            json_extract(m.data, '$.providerID') AS raw_provider,
+            json_extract(m.data, '$.tokens.input') AS input_tokens,
+            json_extract(m.data, '$.tokens.output') AS output_tokens,
+            json_extract(m.data, '$.tokens.reasoning') AS reasoning_tokens,
+            json_extract(m.data, '$.tokens.cache.read') AS cache_read,
+            json_extract(m.data, '$.tokens.cache.write') AS cache_write,
+            json_type(m.data, '$.tokens.cache.write') AS cache_write_type,
+            json_extract(m.data, '$.tokens.total') AS total_tokens,
+            json_extract(m.data, '$.cost') AS row_cost
+        FROM message m
+        WHERE \(legacyTokenRowFilter(tableAlias: "m"))
+        """
+
+        // A migrated session is fully owned by V2. Only sessions that never
+        // appear in `session_message` are read from the legacy table, so rows
+        // intentionally deleted from V2 are not resurrected.
+        var sources: [String] = []
+        if includeV2 {
+            sources.append(v2Source)
+        }
+        if includeLegacy {
+            let legacyWithOwnership = includeV2
+                ? "\(legacySource)\n        AND NOT EXISTS (SELECT 1 FROM session_message s WHERE s.session_id = m.session_id)"
+                : legacySource
+            sources.append(legacyWithOwnership)
+        }
+        if sources.isEmpty {
+            return "SELECT \(select) FROM (SELECT 1 AS time_created, NULL AS raw_model, NULL AS raw_provider, NULL AS input_tokens, NULL AS output_tokens, NULL AS reasoning_tokens, NULL AS cache_read, NULL AS cache_write, NULL AS cache_write_type, NULL AS total_tokens, NULL AS row_cost WHERE 0) WHERE 1=0"
+        }
+        let source = sources.joined(separator: "\n        UNION ALL\n        ")
+
         var query = """
+        WITH combined AS (
+            \(source)
+        )
         SELECT
             \(select)
-        FROM message
-        WHERE \(tokenRowFilter)
+        FROM combined
         """
         if dateFiltered {
             query += """
 
-            AND datetime(time_created/1000, 'unixepoch', 'localtime') >= ?
+            WHERE datetime(time_created/1000, 'unixepoch', 'localtime') >= ?
             AND datetime(time_created/1000, 'unixepoch', 'localtime') < ?
             """
         }
@@ -272,35 +382,40 @@ public final class TokenDatabaseClient {
             columns.append("date(time_created/1000, 'unixepoch', 'localtime') as usage_date")
         }
         columns.append(contentsOf: [
-            "LOWER(TRIM(json_extract(data, '$.modelID'))) as model_id",
-            "json_extract(data, '$.providerID') as provider_id",
-            "SUM(COALESCE(CAST(json_extract(data, '$.tokens.input') AS INTEGER), 0)) as input_tokens",
-            "SUM(COALESCE(CAST(json_extract(data, '$.tokens.output') AS INTEGER), 0)) as output_tokens",
-            "SUM(COALESCE(CAST(json_extract(data, '$.tokens.reasoning') AS INTEGER), 0)) as reasoning_tokens",
-            "SUM(COALESCE(CAST(json_extract(data, '$.tokens.cache.read') AS INTEGER), 0)) as cache_read",
-            "SUM(COALESCE(CAST(json_extract(data, '$.tokens.cache.write') AS INTEGER), 0)) as cache_write"
+            "LOWER(TRIM(raw_model)) as model_id",
+            "raw_provider as provider_id",
+            "SUM(COALESCE(CAST(input_tokens AS INTEGER), 0)) as input_tokens",
+            "SUM(COALESCE(CAST(output_tokens AS INTEGER), 0)) as output_tokens",
+            "SUM(COALESCE(CAST(reasoning_tokens AS INTEGER), 0)) as reasoning_tokens",
+            "SUM(COALESCE(CAST(cache_read AS INTEGER), 0)) as cache_read",
+            "SUM(COALESCE(CAST(cache_write AS INTEGER), 0)) as cache_write"
         ])
         if includeCacheWriteStatus {
-            columns.append("SUM(CASE WHEN json_type(data, '$.tokens.cache.write') IS NULL THEN 1 ELSE 0 END) as cache_write_missing_count")
-            columns.append("SUM(CASE WHEN json_type(data, '$.tokens.cache.write') IS NOT NULL THEN 1 ELSE 0 END) as cache_write_reported_count")
+            columns.append("SUM(CASE WHEN cache_write_type IS NULL THEN 1 ELSE 0 END) as cache_write_missing_count")
+            columns.append("SUM(CASE WHEN cache_write_type IS NOT NULL THEN 1 ELSE 0 END) as cache_write_reported_count")
         }
         columns.append(contentsOf: [
-            "SUM(COALESCE(CAST(json_extract(data, '$.tokens.total') AS REAL), COALESCE(CAST(json_extract(data, '$.tokens.input') AS REAL), 0) + COALESCE(CAST(json_extract(data, '$.tokens.output') AS REAL), 0) + COALESCE(CAST(json_extract(data, '$.tokens.reasoning') AS REAL), 0) + COALESCE(CAST(json_extract(data, '$.tokens.cache.read') AS REAL), 0) + COALESCE(CAST(json_extract(data, '$.tokens.cache.write') AS REAL), 0))) as total_tokens",
-            "SUM(COALESCE(CAST(json_extract(data, '$.cost') AS REAL), 0)) as cost",
-            "COUNT(*) as message_count"
+            "SUM(COALESCE(CAST(total_tokens AS REAL), COALESCE(CAST(input_tokens AS REAL), 0) + COALESCE(CAST(output_tokens AS REAL), 0) + COALESCE(CAST(reasoning_tokens AS REAL), 0) + COALESCE(CAST(cache_read AS REAL), 0) + COALESCE(CAST(cache_write AS REAL), 0))) as total_tokens",
+            "SUM(COALESCE(CAST(row_cost AS REAL), 0)) as cost",
+            "COUNT(*) as message_count",
+            // R1 cache-read bucket: splits each (date, model, provider) group into
+            // bucket 0 (no real cache read → estimation eligible) and bucket 1
+            // (real cache read present → estimation never triggers). Values are
+            // 0/1 only; used solely as a GROUP BY key, never read downstream.
+            "CASE WHEN LOWER(TRIM(raw_provider)) = 'ollama-cloud' AND COALESCE(CAST(cache_read AS INTEGER), 0) = 0 THEN 0 ELSE 1 END as cache_read_bucket"
         ])
         return columns.joined(separator: ",\n        ")
     }
 
-    private var tokenRowFilter: String {
+    private func legacyTokenRowFilter(tableAlias: String) -> String {
         """
         (
-            json_extract(data, '$.tokens.input') IS NOT NULL OR
-            json_extract(data, '$.tokens.output') IS NOT NULL OR
-            json_extract(data, '$.tokens.reasoning') IS NOT NULL OR
-            json_extract(data, '$.tokens.cache.read') IS NOT NULL OR
-            json_extract(data, '$.tokens.cache.write') IS NOT NULL OR
-            json_extract(data, '$.tokens.total') IS NOT NULL
+            json_extract(\(tableAlias).data, '$.tokens.input') IS NOT NULL OR
+            json_extract(\(tableAlias).data, '$.tokens.output') IS NOT NULL OR
+            json_extract(\(tableAlias).data, '$.tokens.reasoning') IS NOT NULL OR
+            json_extract(\(tableAlias).data, '$.tokens.cache.read') IS NOT NULL OR
+            json_extract(\(tableAlias).data, '$.tokens.cache.write') IS NOT NULL OR
+            json_extract(\(tableAlias).data, '$.tokens.total') IS NOT NULL
         )
         """
     }

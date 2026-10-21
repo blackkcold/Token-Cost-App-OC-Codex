@@ -296,7 +296,17 @@ public final class CodexSessionCollector {
                         accumulator.planType = planType(from: rawPayload)
                     }
                 } else {
-                    processGenericSessionMeta(rawPayload, accumulator: &accumulator, fallbackPath: fallbackPath)
+                    // Response items and other content records carry their own
+                    // `id`; only session-like payloads may set the session id.
+                    let isContentRecord = rawPayload["role"] != nil
+                        || rawPayload["content"] != nil
+                        || payloadType != nil
+                    processGenericSessionMeta(
+                        rawPayload,
+                        accumulator: &accumulator,
+                        fallbackPath: fallbackPath,
+                        allowSessionIdentifier: !isContentRecord
+                    )
                 }
             }
         }
@@ -305,9 +315,12 @@ public final class CodexSessionCollector {
     private func processGenericSessionMeta(
         _ payload: [String: Any],
         accumulator: inout SessionAccumulator,
-        fallbackPath: URL
+        fallbackPath: URL,
+        allowSessionIdentifier: Bool = true
     ) {
-        let sessionID = stringValue(payload["id"])
+        // A `response_item.id` identifies a message/tool item, not the thread.
+        // Letting it through would replace the session id with an item id.
+        let sessionID = allowSessionIdentifier ? stringValue(payload["id"]) : nil
         let nickname = stringValue(payload["agentNickname"])
         let timestamp = stringValue(payload["timestamp"])
         let provider = stringValue(payload["modelProvider"])
@@ -326,17 +339,31 @@ public final class CodexSessionCollector {
     }
 
     private func extractLastTokenUsage(from object: Any?) -> CodexTokenUsage? {
-        guard let dict = dictionaryValue(object),
-              let lastUsage = dictionaryValue(dict["last_token_usage"] ?? dict["lastTokenUsage"]) else {
+        guard let dict = dictionaryValue(object) else {
             return nil
         }
-        return CodexTokenUsage(
-            inputTokens: doubleValue(lastUsage["input_tokens"] ?? lastUsage["inputTokens"]) ?? 0,
-            cachedInputTokens: doubleValue(lastUsage["cached_input_tokens"] ?? lastUsage["cachedInputTokens"]) ?? 0,
-            outputTokens: doubleValue(lastUsage["output_tokens"] ?? lastUsage["outputTokens"]) ?? 0,
-            reasoningOutputTokens: doubleValue(lastUsage["reasoning_output_tokens"] ?? lastUsage["reasoningOutputTokens"]) ?? 0,
-            totalTokens: doubleValue(lastUsage["total_tokens"] ?? lastUsage["totalTokens"]) ?? 0
-        )
+        // `event_msg` token_count events nest per-turn usage under
+        // payload.info.last_token_usage, not directly under payload.
+        let containers = [
+            dict,
+            dictionaryValue(dict["info"]),
+            dictionaryValue(dict["payload"]),
+            dictionaryValue(dict["data"])
+        ].compactMap { $0 }
+
+        for container in containers {
+            guard let lastUsage = dictionaryValue(container["last_token_usage"] ?? container["lastTokenUsage"]) else {
+                continue
+            }
+            return CodexTokenUsage(
+                inputTokens: doubleValue(lastUsage["input_tokens"] ?? lastUsage["inputTokens"]) ?? 0,
+                cachedInputTokens: doubleValue(lastUsage["cached_input_tokens"] ?? lastUsage["cachedInputTokens"]) ?? 0,
+                outputTokens: doubleValue(lastUsage["output_tokens"] ?? lastUsage["outputTokens"]) ?? 0,
+                reasoningOutputTokens: doubleValue(lastUsage["reasoning_output_tokens"] ?? lastUsage["reasoningOutputTokens"]) ?? 0,
+                totalTokens: doubleValue(lastUsage["total_tokens"] ?? lastUsage["totalTokens"]) ?? 0
+            )
+        }
+        return nil
     }
 
     private func extractAbsoluteUsage(from object: Any?, depth: Int) -> CodexTokenUsage? {

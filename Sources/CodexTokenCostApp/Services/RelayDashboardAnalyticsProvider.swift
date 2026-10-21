@@ -37,7 +37,8 @@ final class RelayDashboardAnalyticsProvider: RelayAnalyticsProviding {
             TokenCostDashboardAnalytics(
                 payload: effectivePayload,
                 showZeroUsageXiaomiProvider: showZero,
-                billingOverridesByProviderKey: overrides
+                billingOverridesByProviderKey: overrides,
+                pricing: ModelPricingCatalog.shared
             )
         }.value
     }

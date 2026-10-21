@@ -6,10 +6,10 @@ final class TaskClassificationTests: XCTestCase {
         input: Double = 100, output: Double = 50, reasoning: Double = 0,
         cacheRead: Double = 0, cacheWrite: Double = 0,
         total: Double = 150, cost: Double = 0.1, msgCount: Int = 5,
-        model: String = "test", date: String = "2026-01-01"
+        model: String = "test", provider: String = "test", date: String = "2026-01-01"
     ) -> DashboardPayload.RawRow {
         DashboardPayload.RawRow(
-            date: date, model: model, provider: "test",
+            date: date, model: model, provider: provider,
             input: input, output: output, reasoning: reasoning,
             cacheRead: cacheRead, cacheWrite: cacheWrite,
             cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
@@ -28,6 +28,21 @@ final class TaskClassificationTests: XCTestCase {
         let row = makeRow(input: 50, output: 10, cacheRead: 30, cacheWrite: 20, total: 110)
         let result = TaskClassificationEngine.classify(row)
         XCTAssertEqual(result.rule, .cacheHeavy)
+    }
+
+    func testOllamaEstimatedCacheRateExcludesOutputFromDenominator() {
+        let row = makeRow(
+            input: 1_000,
+            output: 10_000,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 11_000,
+            model: "deepseek-chat",
+            provider: "ollama-cloud"
+        )
+        let context = OllamaCloudCacheEstimation.Context(rows: [row])
+
+        XCTAssertEqual(TaskClassificationEngine.classify(row, context: context).rule, .cacheHeavy)
     }
 
     func testLongOutputRule() {
@@ -69,5 +84,13 @@ final class TaskClassificationTests: XCTestCase {
         ]
         let results = TaskClassificationEngine.classify(rows: rows)
         XCTAssertEqual(results.count, 2)
+    }
+
+    func testClassifyRowsKeepsBothCacheBucketsForSameGroup() {
+        let cached = makeRow(cacheRead: 40, cacheWrite: 20, total: 250)
+        let uncached = makeRow(cacheRead: 0, cacheWrite: 0, total: 150)
+        let results = TaskClassificationEngine.classify(rows: [cached, uncached])
+
+        XCTAssertEqual(results.count, 2, "same (date, model, provider) rows in different cache buckets must not overwrite each other")
     }
 }
