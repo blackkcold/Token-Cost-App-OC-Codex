@@ -63,7 +63,7 @@
 "detail.cache.savedCost" = "Saved cost";
 "detail.cache.savedCostSubtitle" = "Estimated using model marginal price difference";
 "detail.cache.subtitle" = "Hits, writes, and savings";
-"detail.cache.subtitleEstimated" = "Hits, writes, and savings · %@ estimated reads";
+"detail.cache.subtitleEstimated" = "Unreported Ollama Cloud cache reads are estimated (%@); reported reads are unchanged, and estimates do not affect costs";
 "detail.cache.title" = "Cache analysis";
 "detail.cache.titleEstimated" = "Cache analysis (estimated)";
 "detail.cache.estimatedSuffix" = "estimated";
@@ -84,9 +84,18 @@
 "detail.emptyState.title" = "No source selected";
 "detail.loading.subtitle" = "The helper process is reading SQLite";
 "detail.loading.title" = "Refreshing";
-"detail.modelComparison.subtitleCollapsed" = "tokens/$ after effective-cost allocation · default Top %d";
-"detail.modelComparison.subtitleFull" = "tokens/$ after effective-cost allocation · all %d models";
+"detail.modelComparison.subtitleCollapsed" = "Provider/model API-equivalent tokens/$ · default Top %d";
+"detail.modelComparison.subtitleFull" = "Provider/model API-equivalent tokens/$ · all %d rows";
 "detail.modelComparison.title" = "Model price comparison";
+"detail.modelComparison.price.free" = "Free";
+"detail.modelComparison.price.inherited" = "via %@";
+"detail.modelComparison.value.unknown" = "—";
+"detail.modelComparison.variants" = "%d variants";
+"detail.modelComparison.notice.hidden" = "%d more models hidden — expand to see them";
+"detail.modelComparison.catalog.notice" = "Price catalog: %@ · as of %@";
+"detail.modelComparison.catalog.noticeUnpriced" = "Price catalog: %@ · as of %@ · %d models unpriced";
+"detail.modelComparison.catalog.bundled" = "bundled snapshot";
+"detail.modelComparison.catalog.unknownDate" = "unknown date";
 "detail.overview.activeDays" = "Active for %d days";
 "detail.overview.actualTokens" = "Actual Token";
 "detail.overview.actualTokensSubtitle" = "Excluding cache · %d requests";
@@ -95,13 +104,16 @@
 "detail.overview.dailyAverage" = "Daily average";
 "detail.overview.monthlyEstimate" = "Estimated monthly consumption";
 "detail.overview.monthlyEstimateSubtitle" = "Estimated over 30 days";
+"detail.overview.netActualTokens" = "Net actual tokens";
+"detail.overview.netActualTokensSubtitle" = "Ollama estimated cache %@ deducted · display only, not billing";
 "detail.overview.subtitle" = "Aligned with the legacy dashboard's main cards";
 "detail.overview.title" = "Overview";
 "detail.overview.totalCost" = "Total cost";
 "detail.overview.totalCostSubtitle" = "Effective-cost basis";
+"detail.table.unreportedCacheHint" = "Ollama Cloud did not report cache reads; %@ estimated from same-model reference rate. Raw values and billing are unchanged.";
 "detail.providerRank.apiPricing" = "%@ API billing";
 "detail.providerRank.noPricing" = "No pricing configured";
-"detail.providerRank.suffix" = "%@ actual · %@";
+"detail.providerRank.suffix" = "%@ net actual · %@";
 "detail.providerRank.subscriptionPricing" = "%@/month";
 "detail.providerRank.subtitle" = "Sorted by tokens/$";
 "detail.providerRank.title" = "Provider efficiency ranking";
@@ -116,11 +128,13 @@
 "detail.stacked.subtitle" = "Based on %d filtered days · default 20 days per page";
 "detail.stacked.title" = "Daily model stack";
 "detail.tooltip.actualTokens" = "Actual Token";
+"detail.tooltip.displayActualTokens" = "Display actual tokens (Ollama estimated cache deducted)";
 "detail.tooltip.cacheHit" = "Cache hits";
 "detail.tooltip.cacheHitWithEstimates" = "Cache hits (includes estimates)";
 "detail.tooltip.cacheEstimated" = "Estimated cache reads";
 "detail.tooltip.cacheWrite" = "Cache writes";
 "detail.trend.subtitle" = "Smoothed curve + hover tooltip";
+"detail.trend.subtitleEstimated" = "Display actual excludes estimated Ollama cache; overview and billing retain reported values";
 "detail.trend.title" = "Daily token trend";
 
 "dialog.action.addDirectory" = "Add directory";
@@ -658,7 +672,7 @@
 "developerMode.governance.fileSummary" = "%d files, %d KB total";
 "developerMode.governance.skillCount" = "%d skill directories";
 "developerMode.governance.sessionSummary" = "%d sessions, %d MB total";
-"developerMode.modelCompare.disclaimer" = "* Estimated cost allocated by provider effective cost proportional to token usage";
+"developerMode.modelCompare.disclaimer" = "* API-equivalent estimate from explicit provider pricing profiles; unknown providers never inherit Zen pricing";
 
 /* Developer Mode - Phase 4 (AI Analysis - disabled in v1) */
 "developerMode.aiAnalysis.disabled" = "AI analysis is not yet available";
@@ -681,7 +695,7 @@
 "developerMode.doc.taskClassificationDesc" = "Classifies token usage data into categories: high reasoning, cache heavy, output dominant, high frequency, and high cost. Displayed in the model comparison section of the OpenCode detail page.";
 "developerMode.doc.optimizeDesc" = "Scans for 5 types of issues: stale snapshots, excess backups, large session directories, config fragmentation, and stale latest snapshots. Results are shown in the local governance panel.";
 "developerMode.doc.localGovernanceDesc" = "Displays file counts and access status for OpenCode config directory, Skills directory, and Session directory. Helps understand runtime configuration overview.";
-"developerMode.doc.modelCompareDesc" = "Shows a cost allocation disclaimer at the bottom of the model comparison section in the OpenCode detail page, indicating how estimated values are calculated.";
+"developerMode.doc.modelCompareDesc" = "Shows an API-equivalent pricing disclaimer below model comparison and keeps same-named models separate by provider.";
 "developerMode.doc.multiCurrencyDesc" = "Enables CNY/USD currency toggle in settings. All price displays switch dynamically with the selected currency.";
 "developerMode.doc.aiAnalysisDesc" = "Sends anonymized data to an AI endpoint for optimization suggestions. Not yet available in this version.";
 "developerMode.doc.comingSoon" = "Coming Soon";

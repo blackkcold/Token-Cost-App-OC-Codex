@@ -443,15 +443,19 @@ struct TotalView: View {
 }
 
 func hasEligibleOllamaCloudEstimate(rows: [DashboardPayload.RawRow]) -> Bool {
-    rows.contains { row in
-        guard row.provider == "ollama-cloud",
-              row.cacheRead == 0,
-              row.input > 0,
-              row.input.isFinite else {
-            return false
-        }
-
-        let normalizedModel = OllamaCloudCacheEstimation.normalizedModelName(row.model)
-        return normalizedModel == "deepseek-v4-flash" || normalizedModel == "deepseek-v4-pro"
+    let context = OllamaCloudCacheEstimation.Context(rows: rows)
+    return rows.contains { row in
+        let split = OllamaCloudCacheEstimation.split(
+            provider: row.provider,
+            model: row.model,
+            input: row.input,
+            output: row.output,
+            reasoning: row.reasoning,
+            cacheRead: row.cacheRead,
+            cacheWrite: row.cacheWrite,
+            date: row.date,
+            context: context
+        )
+        return split.estimatedCacheRead > 0
     }
 }

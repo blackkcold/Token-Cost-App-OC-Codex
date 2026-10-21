@@ -10,4 +10,6 @@ This directory is the Public App's vendored, offline test snapshot of the Client
 
 The canonical Public Contract will live in the separate `Token-Cost-Relay-Contract` repository. Public App builds must not fetch the Private Relay or Contract repository at build time. Update this snapshot only together with Swift, Dart and Node compatibility tests.
 
+Analytics numeric semantics are intentionally distinct while the JSON shape remains stable: `cost.providers/models[].tokens` is the net token value paired with `costUSD`; `usage.providers/models[].tokens` remains the gross source-reported actual-token value. Ollama cache-read estimates are an in-memory split and never mutate source records.
+
 The deterministic key and nonce in the vector are test data only and must never be used in production.

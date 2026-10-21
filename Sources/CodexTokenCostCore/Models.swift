@@ -327,7 +327,7 @@ public struct DashboardPayload: Codable, Hashable, Sendable {
 
     public struct RawRow: Codable, Hashable, Identifiable, Sendable {
         public var id: String {
-            "\(date)|\(model)|\(provider)"
+            "\(date)|\(model)|\(provider)|\(cacheRead > 0 ? 1 : 0)"
         }
 
         public var date: String

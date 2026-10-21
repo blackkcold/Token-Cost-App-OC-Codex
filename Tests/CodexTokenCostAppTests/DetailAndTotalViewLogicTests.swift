@@ -94,6 +94,25 @@ final class DetailAndTotalViewLogicTests: XCTestCase {
         XCTAssertFalse(hasEligibleOllamaCloudEstimate(rows: [otherProvider]))
     }
 
+    func testOllamaEstimateNoticeHonorsReportedCacheGate() {
+        let reported = DashboardPayload.RawRow(
+            date: "2026-01-01", model: "deepseek-chat", provider: "ollama-cloud",
+            input: 1_000, output: 0, reasoning: 0,
+            cacheRead: 500, cacheWrite: 0,
+            cacheWriteMissingCount: 0, cacheWriteReportedCount: 1,
+            total: 1_500, cost: 0, msgCount: 1
+        )
+        let uncachedBucket = DashboardPayload.RawRow(
+            date: "2026-01-01", model: "deepseek-chat", provider: "ollama-cloud",
+            input: 1_000, output: 0, reasoning: 0,
+            cacheRead: 0, cacheWrite: 0,
+            cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+            total: 1_000, cost: 0, msgCount: 1
+        )
+
+        XCTAssertFalse(hasEligibleOllamaCloudEstimate(rows: [reported, uncachedBucket]))
+    }
+
     func testDetailReportingTotalCostKeepsValidZeroCostBreakdown() throws {
         let payload = DashboardPayload.empty()
         let reportingStart = try XCTUnwrap(Self.dateFormatter.date(from: "2026-06-01"))
@@ -172,6 +191,8 @@ final class DetailAndTotalViewLogicTests: XCTestCase {
         XCTAssertEqual(nonOllamaRow.inputTokens + nonOllamaRow.cacheReadTokens, 444)
         XCTAssertNotEqual(nonOllamaRow.actualTokens + nonOllamaRow.cacheReadTokens, 444)
         XCTAssertEqual(ollamaEstimatedRow.inputTokens + ollamaEstimatedRow.cacheReadTokens, 260)
+        XCTAssertEqual(detailCacheDistributionTotal(for: nonOllamaRow), 444)
+        XCTAssertEqual(detailCacheDistributionTotal(for: ollamaEstimatedRow), 200)
     }
 
     private func makeAnalytics(rows: [DashboardPayload.RawRow]) -> TokenCostDashboardAnalytics {

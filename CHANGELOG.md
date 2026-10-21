@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.4.2] - 2026-10-21
+
+### Added
+
+- **模型价格目录自动发现**（`ModelPricingCatalog`）：模型 ID 与每 token 价格改由 models.dev 目录驱动（`~/.cache/opencode/models.json` → 本机 24h 索引 → 内置快照），不再需要在 `zenPricing` 里手写新模型。新增 `model-prices.json` 手动覆盖（无需改代码），支持离线回退与刷新后自动重建分析。
+- **版本变体归并进排行**：`deepseek-v4.1-flash:1017`、`deepseek-v4-flash:0731-cloud`、`glm-5.3-flash:cloud` 等构建/发行后缀合并到家族键；`v4` 与 `v4.1`、`-free`、`-exp` 明确不合并，避免错价。堆叠图与饼图改用同一套 canonical key。
+- 模型排行新增 `pricingStatus`（exact / inherited / free / unknown）与来源徽标；免费模型置顶但不显示性价比数值（无有限比值），未定价模型保留在列表末尾并显示「未定价」，Top 10 折叠时提示「另有 N 个模型未显示」。
+- 新增 `script/model_pricing_delta.py` 核查脚本（旧常量表 vs 目录口径），与 `docs/模型价格目录与排名口径.md`。
+- 新增诚实性门控（D8）：`OllamaCloudCacheEstimation.Context` 预扫描报告范围内 `ollama-cloud` 且 `cacheRead > 0` 的桶，构建 `(归一化模型, 日期)` 集合；同键的 `cacheRead == 0` 桶视为真实无缓存请求，不再估算。门控按 Provider 限定，非 Ollama Provider 的上报不参与判定。
+- DetailView 总览新增「净实际 Token」卡片（`Overview.netActualTokens` = `totalActualTokens − totalEstimatedCacheReadTokens`），仅在当前报告范围产生 Ollama 估算时出现；毛值字段保持兼容，排行与模型 API 等值成本使用净值。明细表对参与估算的行追加青色提示图标。
+
+### Fixed
+
+- 模型级计价不再因「未登记价格」被压到排行榜末尾：真实库最近 30 天里，未定价从 13 个 `(provider, model)` / 18,746 行降至 1 个 / 499 行。
+- 修正最长前缀误命中导致的计价错误：`glm-5.3-flash` 之前被当成 `glm-5`（1.00/3.20）计费，现按 0.15/0.50 计。
+- `cacheSavedCost` 改用解析后的目录价，未定价模型不再产生虚假节省。
+- 估算拆分收敛为单一入口 `OllamaCloudCacheEstimation.split(...)`，非目标行原值透传、`estimatedCacheRead = 0`；新增守恒回归（`netActual + displayedCacheRead + cacheWrite == 原始字段合计`）。
+- Provider-aware 定价使用显式 allowlist；未知 Provider 不再静默继承 Zen。模型比较按 `(provider, model)` 拆分，避免同名模型混价。
+- Ollama Cloud DeepSeek 缓存估算改为 gross input 内拆分（input × rate），优先采用报告范围内非 Ollama 同模型参考率，样本不足或无效时回退快照；展示字段与原始 actual 分离，API 等值成本使用净 input 与估算 cache read，Relay `cost` 使用净 Token、`usage` 保持毛值。
+- Ollama Cloud 缓存读估算口径修复：SQLite 聚合按 `cache_read_bucket` 分桶（同组混合缓存行拆分为无缓存/有缓存两行），估算只对无真实缓存读的聚合行触发；`RawRow.id` 追加缓存桶后缀保证 `ForEach` 身份唯一。
+- 估算资格统一收敛到 `OllamaCloudCacheEstimation.isEligibleOllamaEstimate` 纯谓词（provider key 归一化 trim + 小写，兼容大小写/空白变体），dashboard 主循环、`effectiveCacheRead`、TotalView、TaskClassification 四处调用点行为一致。
+- Relay `heatmap` section 修复估算缓存读重复计入：`tokens = actual + displayedCacheRead + cacheWrite`，估算只计一次（`trend` section 双字段结构不变）。
+- `TaskClassificationEngine.classify(rows:)` 字典 key 追加缓存桶后缀，分桶行不再互相覆盖（测试侧一致性）。
+- 补充估算上下文、样本门槛、跨层守恒及 Relay 原始 trend 语义回归测试；详情分类复用分析上下文，中英文文案说明展示扣减。
+
 ## [v1.4.0] - 2026-08-26
 
 > **功能版本**：Relay Contract 1.2 草案——版本绑定终端会话、两阶段激活、单活动终端原子替换、显式终端撤销与七天用户活动 TTL；新增 Web PWA 终端与共享 `relay_core` 包。
@@ -733,7 +758,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 构建/运行/调试脚本 `build_and_run_codex.sh`
 - 安全只读设计 + SafeFileStore 沙箱文件读写
 
-[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.4.2...HEAD
+[v1.4.2]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.4.0...v1.4.2
 [v1.4.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.3.0...v1.4.0
 [v1.3.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.2.0...v1.3.0
 [v1.2.0]: https://github.com/blackkcold/Token-Cost-App-OC-Codex/compare/v1.1.3...v1.2.0

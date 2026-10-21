@@ -31,16 +31,20 @@ public enum RelaySectionBuilder {
                 ))
             case "cost":
                 data = try encode(RelayCostSection(
-                    providers: analytics.providerRankRows.map {
+                    // Synthetic rows (e.g. opencode-go-api) mirror another
+                    // provider's usage for comparison. Exporting them would
+                    // count the same tokens twice.
+                    providers: analytics.providerRankRows.filter { !$0.isSynthetic }.map {
                         RelayProviderMetric(provider: $0.providerKey, tokens: $0.actualTokens, costUSD: $0.effectiveCost)
                     },
                     models: analytics.modelComparisonRows.map {
-                        RelayModelMetric(model: $0.modelKey, provider: $0.provider, tokens: $0.actualTokens, costUSD: $0.allocatedCost)
+                        // An unpriced model must not look like a known $0 cost.
+                        RelayModelMetric(model: $0.modelKey, provider: $0.provider, tokens: $0.actualTokens, costUSD: $0.allocatedCost > 0 ? $0.allocatedCost : nil)
                     }
                 ))
             case "usage":
                 data = try encode(RelayUsageSection(
-                    providers: analytics.providerRankRows.map {
+                    providers: analytics.providerRankRows.filter { !$0.isSynthetic }.map {
                         RelayProviderMetric(provider: $0.providerKey, tokens: $0.actualTokens, costUSD: nil)
                     },
                     models: analytics.modelComparisonRows.map {
@@ -58,7 +62,7 @@ public enum RelaySectionBuilder {
                 ))
             case "trend":
                 let days = params?.trend?.days ?? 30
-                let points = analytics.trendPoints.suffix(days).map {
+                let points = windowedTrendPoints(analytics.trendPoints, days: days).map {
                     RelayTrendPoint(
                         date: $0.dateString,
                         actualTokens: $0.actualTokens,
@@ -70,10 +74,10 @@ public enum RelaySectionBuilder {
                 data = try encode(RelayTrendSection(timeZoneIdentifier: timeZoneIdentifier, days: days, points: points))
             case "heatmap":
                 let weeks = params?.heatmap?.weeks ?? 52
-                let days = analytics.trendPoints.suffix(weeks * 7).map {
+                let days = windowedTrendPoints(analytics.trendPoints, days: weeks * 7).map {
                     RelayHeatmapDay(
                         date: $0.dateString,
-                        tokens: $0.actualTokens + $0.cacheReadTokens + $0.cacheWriteTokens + $0.estimatedCacheReadTokens
+                        tokens: $0.displayActualTokens + $0.cacheReadTokens + $0.cacheWriteTokens
                     )
                 }
                 data = try encode(RelayHeatmapSection(timeZoneIdentifier: timeZoneIdentifier, weeks: weeks, days: days))
@@ -88,6 +92,22 @@ public enum RelaySectionBuilder {
             )
         }
         return result
+    }
+
+    /// Selects the most recent `days` calendar days ending at the newest data
+    /// point. Using `suffix(days)` would shrink the window whenever data has
+    /// gaps (e.g. a week without usage), silently changing the reported range.
+    private static func windowedTrendPoints(
+        _ points: [TokenCostDashboardAnalytics.TrendPoint],
+        days: Int
+    ) -> [TokenCostDashboardAnalytics.TrendPoint] {
+        guard days > 0, let last = points.last else { return [] }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        guard let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: last.date) else {
+            return points
+        }
+        return points.filter { $0.date >= cutoff }
     }
 
     private static func encode<T: Encodable>(_ value: T) throws -> Data {

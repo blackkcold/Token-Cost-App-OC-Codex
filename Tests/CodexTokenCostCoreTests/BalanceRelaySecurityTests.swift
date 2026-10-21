@@ -225,6 +225,201 @@ final class BalanceRelaySecurityTests: XCTestCase {
         }
     }
 
+    func testRelayHeatmapCountsEstimatedCacheReadExactlyOnce() throws {
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 1_100, totalActualTokens: 1_100,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-07-01", end: "2026-07-01"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: ["2026-07-01": 1_100],
+            modelTotals: [:],
+            providerCosts: [:],
+            providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-07-01", model: "deepseek-chat", provider: "ollama-cloud",
+                    input: 1_000, output: 100, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_100, cost: 0, msgCount: 1
+                )
+            ]
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+        XCTAssertTrue(analytics.cache.hasEstimates)
+        let estimated = analytics.cache.estimatedCacheReadTokens
+        XCTAssertGreaterThan(estimated, 0)
+
+        let point = try XCTUnwrap(analytics.trendPoints.first)
+        let expectedTokens = 1_100.0
+        XCTAssertEqual(point.actualTokens, 1_100, accuracy: 0.01)
+
+        let sections = try RelaySectionBuilder.build(
+            requestedSections: ["heatmap"],
+            params: .init(trend: .init(days: 1), heatmap: .init(weeks: 52)),
+            analytics: analytics,
+            timeZoneIdentifier: "UTC"
+        )
+        let section = try XCTUnwrap(sections["heatmap"])
+        let plaintext = try RelayCompression.zlibDecompress(
+            try XCTUnwrap(Data(base64Encoded: section.data))
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: plaintext) as? [String: Any])
+        let days = try XCTUnwrap(object["days"] as? [[String: Any]])
+        let day = try XCTUnwrap(days.first)
+        let tokens = try XCTUnwrap(day["tokens"] as? Double)
+
+        XCTAssertEqual(tokens, expectedTokens, accuracy: 0.01,
+                       "heatmap tokens must include the estimate exactly once")
+        XCTAssertLessThan(tokens, expectedTokens + estimated,
+                          "double-counting the estimate would exceed expected tokens")
+    }
+
+    func testRelayCostAndUsageExportTheSameObservedTokens() throws {
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 1_000_000, totalActualTokens: 1_000_000,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-07-01", end: "2026-07-01"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: ["2026-07-01": 1_000_000],
+            modelTotals: ["deepseek-chat": 1_000_000],
+            providerCosts: [:],
+            providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-07-01", model: "deepseek-chat", provider: "ollama-cloud",
+                    input: 1_000_000, output: 0, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_000_000, cost: 0, msgCount: 1
+                )
+            ]
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+        let sections = try RelaySectionBuilder.build(
+            requestedSections: ["cost", "usage"],
+            params: nil,
+            analytics: analytics,
+            timeZoneIdentifier: "UTC"
+        )
+
+        func providerTokens(in sectionName: String) throws -> Double {
+            let section = try XCTUnwrap(sections[sectionName])
+            let compressed = try XCTUnwrap(Data(base64Encoded: section.data))
+            let plaintext = try RelayCompression.zlibDecompress(compressed)
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: plaintext) as? [String: Any])
+            let providers = try XCTUnwrap(object["providers"] as? [[String: Any]])
+            let ollama = try XCTUnwrap(providers.first { $0["provider"] as? String == "ollama-cloud" })
+            return try XCTUnwrap(ollama["tokens"] as? Double)
+        }
+
+        let estimated = analytics.cache.estimatedCacheReadTokens
+        XCTAssertGreaterThan(estimated, 0)
+        XCTAssertEqual(try providerTokens(in: "cost"), 1_000_000, accuracy: 0.5,
+                       "cost section must export observed tokens, not the estimate-adjusted net")
+        XCTAssertEqual(try providerTokens(in: "usage"), 1_000_000, accuracy: 0.5)
+    }
+
+    func testRelayExcludesSyntheticProviderRows() throws {
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 1_000_000, totalActualTokens: 1_000_000,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 1, activeDays: 1,
+                dateRange: .init(start: "2026-07-01", end: "2026-07-01"),
+                updatedAt: "2026-07-01T12:00:00Z"
+            ),
+            dailyTotals: ["2026-07-01": 1_000_000],
+            modelTotals: ["deepseek-v4-flash": 1_000_000],
+            providerCosts: [:],
+            providerTotals: [:],
+            rawData: [
+                DashboardPayload.RawRow(
+                    date: "2026-07-01", model: "deepseek-v4-flash", provider: "opencode-go",
+                    input: 1_000_000, output: 0, reasoning: 0,
+                    cacheRead: 0, cacheWrite: 0,
+                    cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                    total: 1_000_000, cost: 0, msgCount: 1
+                )
+            ]
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+        XCTAssertTrue(analytics.providerRankRows.contains { $0.isSynthetic })
+
+        let sections = try RelaySectionBuilder.build(
+            requestedSections: ["cost", "usage"],
+            params: nil,
+            analytics: analytics,
+            timeZoneIdentifier: "UTC"
+        )
+
+        func providerKeys(in sectionName: String) throws -> [String] {
+            let section = try XCTUnwrap(sections[sectionName])
+            let compressed = try XCTUnwrap(Data(base64Encoded: section.data))
+            let plaintext = try RelayCompression.zlibDecompress(compressed)
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: plaintext) as? [String: Any])
+            let providers = try XCTUnwrap(object["providers"] as? [[String: Any]])
+            return providers.compactMap { $0["provider"] as? String }
+        }
+
+        for section in ["cost", "usage"] {
+            let keys = try providerKeys(in: section)
+            XCTAssertFalse(keys.contains("opencode-go-api"), "\(section) must not export synthetic rows")
+            XCTAssertEqual(keys, ["opencode-go"])
+        }
+    }
+
+    func testRelayTrendUsesCalendarWindowNotLastPointCount() throws {
+        let rows: [DashboardPayload.RawRow] = [
+            DashboardPayload.RawRow(
+                date: "2026-01-01", model: "deepseek-v4-flash", provider: "opencode",
+                input: 100, output: 0, reasoning: 0,
+                cacheRead: 0, cacheWrite: 0,
+                cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                total: 100, cost: 0, msgCount: 1
+            ),
+            DashboardPayload.RawRow(
+                date: "2026-03-01", model: "deepseek-v4-flash", provider: "opencode",
+                input: 200, output: 0, reasoning: 0,
+                cacheRead: 0, cacheWrite: 0,
+                cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                total: 200, cost: 0, msgCount: 1
+            )
+        ]
+        let payload = DashboardPayload(
+            summary: DashboardPayload.Summary(
+                totalTokens: 300, totalActualTokens: 300,
+                totalCacheReadTokens: 0, totalCacheWriteTokens: 0, totalCacheTokens: 0,
+                totalCost: 0, totalMessages: 2, activeDays: 2,
+                dateRange: .init(start: "2026-01-01", end: "2026-03-01"),
+                updatedAt: "2026-03-01T12:00:00Z"
+            ),
+            dailyTotals: ["2026-01-01": 100, "2026-03-01": 200],
+            modelTotals: [:], providerCosts: [:], providerTotals: [:],
+            rawData: rows
+        )
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+        let sections = try RelaySectionBuilder.build(
+            requestedSections: ["trend"],
+            params: .init(trend: .init(days: 7), heatmap: .init(weeks: 1)),
+            analytics: analytics,
+            timeZoneIdentifier: "UTC"
+        )
+        let section = try XCTUnwrap(sections["trend"])
+        let compressed = try XCTUnwrap(Data(base64Encoded: section.data))
+        let plaintext = try RelayCompression.zlibDecompress(compressed)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: plaintext) as? [String: Any])
+        let points = try XCTUnwrap(object["points"] as? [[String: Any]])
+        let dates = points.compactMap { $0["date"] as? String }
+        XCTAssertEqual(dates, ["2026-03-01"], "a 7-day window must not reach back to January")
+    }
+
     func testContractPairingFieldsExcludeServerOverride() throws {
         let data = try Data(contentsOf: contractFixtureRoot.appendingPathComponent("contract.json"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])

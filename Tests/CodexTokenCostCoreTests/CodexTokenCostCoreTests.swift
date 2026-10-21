@@ -16,7 +16,21 @@ final class CodexTokenCostCoreTests: XCTestCase {
         )
 
         XCTAssertEqual(usage.actualInputTokens, 75)
-        XCTAssertEqual(usage.actualTokens, 85)
+        // Reasoning is a subset of output: 75 + 7 = 82, not 85.
+        XCTAssertEqual(usage.actualTokens, 82)
+    }
+
+    func testOfficialCodexUsageDoesNotAddReasoningTwice() {
+        // Upstream Codex protocol sample: input 75, output 1186 (contains
+        // reasoning 1024), total 1261. Adding reasoning again would yield 2285.
+        let usage = CodexTokenUsage(
+            inputTokens: 75,
+            cachedInputTokens: 0,
+            outputTokens: 1186,
+            reasoningOutputTokens: 1024,
+            totalTokens: 1261
+        )
+        XCTAssertEqual(usage.actualTokens, 1261)
     }
 
     func testDashboardPayloadTotalActualInputTokens() {
@@ -122,11 +136,12 @@ final class CodexTokenCostCoreTests: XCTestCase {
         let sessionActualTotal = payload.sessions.reduce(0) { $0 + $1.actualTokens }
 
         XCTAssertEqual(payload.summary.totalActualInputTokens, 115)
-        XCTAssertEqual(payload.summary.totalActualTokens, 126)
-        XCTAssertEqual(sessionActualTotal, 126)
+        // Reasoning (3) is inside output (8), so 115 + 8 = 123, not 126.
+        XCTAssertEqual(payload.summary.totalActualTokens, 123)
+        XCTAssertEqual(sessionActualTotal, 123)
         XCTAssertEqual(trendPoints.count, 1)
         XCTAssertEqual(trendPoints.first?.sessionCount, 2)
-        XCTAssertEqual(trendPoints.first?.actualTokens, 126)
+        XCTAssertEqual(trendPoints.first?.actualTokens, 123)
     }
 
     func testSortSessionsUsesUnifiedActualTokenMath() {
@@ -3724,6 +3739,77 @@ final class CodexTokenCostCoreTests: XCTestCase {
                        "cacheSavedCost must use only real cacheRead")
     }
 
+    // MARK: - R1 SQL bucketing / R6 RawRow.id / Q4 provider normalization
+
+    func testDatabaseClientBucketsMixedCacheRowsAndEstimatesOnlyUncachedBucket() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("opencode_bucket_test_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbURL = tempDir.appendingPathComponent("opencode.db")
+        var db: OpaquePointer?
+        guard sqlite3_open(dbURL.path, &db) == SQLITE_OK, let db else {
+            XCTFail("cannot open db")
+            return
+        }
+        // Two rows on the same local calendar day, same model/provider, one with
+        // real cache read (bucket 1), one without (bucket 0 → estimation eligible).
+        // 1750000000000 = 2025-06-15T15:06:40Z — both timestamps stay on one
+        // local day in every timezone (they are 100s apart and >45min from UTC midnight).
+        let cachedJSON = #"{"providerID":"ollama-cloud","modelID":"deepseek-chat","tokens":{"input":500000,"output":0,"cache":{"read":250000}},"cost":0}"#
+        let uncachedJSON = #"{"providerID":"ollama-cloud","modelID":"deepseek-chat","tokens":{"input":1000000,"output":0},"cost":0}"#
+        sqlite3_exec(db, "CREATE TABLE message (time_created INTEGER, data TEXT)", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO message VALUES (1750000000000, '\(cachedJSON)')", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO message VALUES (1750000100000, '\(uncachedJSON)')", nil, nil, nil)
+        sqlite3_close(db)
+
+        let payload = try TokenDatabaseClient().loadPayload(from: dbURL)
+        XCTAssertEqual(payload.rawData.count, 2, "same (date, model, provider) with mixed cache reads must split into 2 bucket rows")
+
+        let cachedRow = try XCTUnwrap(payload.rawData.first { $0.cacheRead > 0 })
+        let uncachedRow = try XCTUnwrap(payload.rawData.first { $0.cacheRead == 0 })
+        XCTAssertNotEqual(cachedRow.id, uncachedRow.id, "R6: bucket rows must have distinct ForEach identities")
+        XCTAssertEqual(cachedRow.cacheRead, 250_000, accuracy: 0.5)
+
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+        // D8 gate: the cached bucket proves Ollama was reporting cache for this
+        // (model, date), so the uncached bucket is not estimated.
+        XCTAssertEqual(analytics.cache.estimatedCacheReadTokens, 0, accuracy: 1.0,
+                       "gate must suppress estimation when the same (model, date) reported real cache")
+        XCTAssertEqual(analytics.cache.cacheReadTokens, 250_000.0, accuracy: 1.0,
+                       "displayed cacheRead stays at the real reported value")
+    }
+
+    func testRawRowIDUniqueAcrossCacheBuckets() {
+        func row(cacheRead: Double) -> DashboardPayload.RawRow {
+            DashboardPayload.RawRow(
+                date: "2026-06-04", model: "deepseek-chat", provider: "ollama-cloud",
+                input: 1_000, output: 0, reasoning: 0,
+                cacheRead: cacheRead, cacheWrite: 0,
+                cacheWriteMissingCount: 0, cacheWriteReportedCount: 0,
+                total: 1_000 + cacheRead, cost: 0, msgCount: 1
+            )
+        }
+        XCTAssertNotEqual(row(cacheRead: 0).id, row(cacheRead: 100).id)
+        XCTAssertEqual(row(cacheRead: 0).id, row(cacheRead: 0).id, "same bucket keeps stable identity")
+    }
+
+    func testOllamaEstimateTriggersOnCasedOrSpacedProviderKeys() {
+        for provider in ["Ollama-Cloud", " ollama-cloud ", "OLLAMA-CLOUD"] {
+            let payload = makeSingleModelPayload(model: "deepseek-chat", provider: provider, input: 1_000_000)
+            let analytics = TokenCostDashboardAnalytics(payload: payload)
+
+            XCTAssertTrue(analytics.cache.hasEstimates, "provider '\(provider)' must trigger estimation via normalized key")
+            XCTAssertGreaterThan(analytics.cache.estimatedCacheReadTokens, 0)
+
+            guard let ollamaRow = analytics.providerCacheRows.first(where: { $0.key == "ollama-cloud" }) else {
+                XCTFail("provider '\(provider)' must normalize into the ollama-cloud accumulator"); return
+            }
+            XCTAssertTrue(ollamaRow.hasEstimates)
+        }
+    }
+
     // MARK: - Unknown model/provider rows are retained
 
     func testDashboardPayloadRetainsUnknownModelAndProvider() {
@@ -3845,7 +3931,8 @@ final class CodexTokenCostCoreTests: XCTestCase {
         input: Double,
         output: Double = 0,
         cacheRead: Double = 0,
-        cacheWrite: Double = 0
+        cacheWrite: Double = 0,
+        rawCost: Double = 0
     ) -> DashboardPayload {
         DashboardPayload(
             summary: DashboardPayload.Summary(
@@ -3854,7 +3941,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
                 totalCacheReadTokens: cacheRead,
                 totalCacheWriteTokens: cacheWrite,
                 totalCacheTokens: cacheRead + cacheWrite,
-                totalCost: 0,
+                totalCost: rawCost,
                 totalMessages: 1,
                 activeDays: 1,
                 dateRange: .init(start: "2026-06-04", end: "2026-06-04"),
@@ -3877,7 +3964,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
                     cacheWriteMissingCount: 0,
                     cacheWriteReportedCount: 1,
                     total: input + output + cacheRead + cacheWrite,
-                    cost: 0,
+                    cost: rawCost,
                     msgCount: 1
                 )
             ]
@@ -3901,9 +3988,8 @@ final class CodexTokenCostCoreTests: XCTestCase {
 
         XCTAssertTrue(analytics.cache.hasEstimates)
         XCTAssertGreaterThan(analytics.cache.estimatedCacheReadTokens, 0)
-        // multiplier = rate/(1-rate), rate = 553686784/600792157
-        // expected = 1_000_000 * 553686784 / (600792157 - 553686784)
-        let expectedMultiplier = 553_686_784.0 / (600_792_157.0 - 553_686_784.0)
+        // Gross Ollama input is split, not augmented: estimate = input * rate.
+        let expectedMultiplier = 553_686_784.0 / 600_792_157.0
         let expectedEstimated = 1_000_000.0 * expectedMultiplier
         XCTAssertEqual(analytics.cache.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
         // displayed cacheRead = real(0) + estimated
@@ -3923,7 +4009,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
 
         XCTAssertTrue(analytics.cache.hasEstimates)
         // multiplier for pro: rate = 1476491904/1550614127
-        let expectedMultiplier = 1_476_491_904.0 / (1_550_614_127.0 - 1_476_491_904.0)
+        let expectedMultiplier = 1_476_491_904.0 / 1_550_614_127.0
         let expectedEstimated = 500_000.0 * expectedMultiplier
         XCTAssertEqual(analytics.cache.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
 
@@ -4018,7 +4104,7 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertTrue(ollamaRow.hasEstimates)
         // Ollama rate = (real+estimated) / (input+real+estimated)
         // real = cacheRead = 0
-        let expectedRate = ollamaRow.estimatedCacheReadTokens / (ollamaRow.inputTokens + ollamaRow.estimatedCacheReadTokens)
+        let expectedRate = ollamaRow.estimatedCacheReadTokens / (ollamaRow.displayInputTokens + ollamaRow.estimatedCacheReadTokens)
         XCTAssertEqual(ollamaRow.cacheRate, expectedRate, accuracy: 0.0001)
         // The rate should equal the snapshot rate (since real cacheRead==0)
         let flashRate = 553_686_784.0 / 600_792_157.0
@@ -4049,24 +4135,62 @@ final class CodexTokenCostCoreTests: XCTestCase {
         XCTAssertEqual(analytics.trendPoints.count, 1)
         guard let point = analytics.trendPoints.first else { XCTFail("Expected trend point"); return }
 
-        let expectedMultiplier = 553_686_784.0 / (600_792_157.0 - 553_686_784.0)
+        let expectedMultiplier = 553_686_784.0 / 600_792_157.0
         let expectedEstimated = 1_000_000.0 * expectedMultiplier
         XCTAssertEqual(point.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
         // displayed cacheRead = real(0) + estimated
         XCTAssertEqual(point.cacheReadTokens, expectedEstimated, accuracy: 1.0)
     }
 
-    func testProviderRankRowRealOnlyNoEstimates() {
-        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 1000)
+    func testProviderRankUsesNetTokensAndNetApiCostForOllamaEstimate() {
+        let payload = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 1_000_000)
         let analytics = TokenCostDashboardAnalytics(payload: payload)
 
         guard let ollamaRank = analytics.providerRankRows.first(where: { $0.providerKey == "ollama-cloud" }) else {
             XCTFail("Expected ollama-cloud rank row"); return
         }
-        // cacheReadTokens on rank row stays real-only (0)
-        XCTAssertEqual(ollamaRank.cacheReadTokens, 0)
-        // actualTokens stays real-only
-        XCTAssertEqual(ollamaRank.actualTokens, 1000, accuracy: 0.5)
+        let estimated = analytics.cache.estimatedCacheReadTokens
+        let expectedNetTokens = 1_000_000 - estimated
+        let expectedNetCost = (expectedNetTokens * 0.14 + estimated * 0.0028) / 1_000_000
+
+        XCTAssertEqual(ollamaRank.actualTokens, 1_000_000, accuracy: 0.5,
+                       "gross tokens remain available for usage compatibility")
+        XCTAssertEqual(ollamaRank.netActualTokens, expectedNetTokens, accuracy: 0.5)
+        XCTAssertEqual(ollamaRank.cacheReadTokens, estimated, accuracy: 0.5)
+        XCTAssertEqual(ollamaRank.effectiveCost ?? -1, expectedNetCost, accuracy: 0.000_001)
+        XCTAssertEqual(ollamaRank.tokensPerDollar, expectedNetTokens / expectedNetCost, accuracy: 0.01)
+    }
+
+    func testModelComparisonSeparatesSameModelAcrossProviders() {
+        let ollama = makeOllamaDeepSeekPayload(model: "deepseek-chat", input: 1_000_000)
+        let direct = makeSingleModelPayload(
+            model: "deepseek-chat", provider: "deepseek", input: 500_000
+        )
+
+        let analytics = TokenCostDashboardAnalytics(payload: mergePayloads(ollama, direct))
+        let rows = analytics.modelComparisonRows.filter { $0.modelKey == "deepseek-v4-flash" }
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(Set(rows.map(\.providerKey)), ["ollama-cloud", "deepseek"])
+        XCTAssertEqual(Set(rows.map(\.id)).count, 2)
+        XCTAssertEqual(rows.first(where: { $0.providerKey == "deepseek" })?.netActualTokens, 500_000)
+        XCTAssertLessThan(
+            rows.first(where: { $0.providerKey == "ollama-cloud" })?.netActualTokens ?? .infinity,
+            1_000_000
+        )
+    }
+
+    func testUnknownProviderDoesNotSilentlyUseZenPricing() {
+        let payload = makeSingleModelPayload(
+            model: "gpt-5.4", provider: "third-party", input: 1_000_000, rawCost: 7
+        )
+
+        let usageCosts = TokenCostDashboardAnalytics.providerUsageCosts(payload: payload)
+        XCTAssertEqual(usageCosts["third-party"]?.synthetic, 0)
+
+        let analytics = TokenCostDashboardAnalytics(payload: payload)
+        let rank = analytics.providerRankRows.first { $0.providerKey == "third-party" }
+        XCTAssertEqual(rank?.effectiveCost, 7)
     }
 
     func testProviderCacheRowSortingRealOnly() {
@@ -4213,27 +4337,22 @@ final class CodexTokenCostCoreTests: XCTestCase {
         )
         let analytics = TokenCostDashboardAnalytics(payload: payload)
 
-        XCTAssertTrue(analytics.cache.hasEstimates)
+        // D8 gate: Ollama reported real cache on this (model, date), so the
+        // remaining cacheRead == 0 bucket is a genuine no-cache request and must
+        // not be estimated. Real values pass through untouched.
+        XCTAssertFalse(analytics.cache.hasEstimates)
         guard let row = analytics.providerCacheRows.first(where: { $0.key == "ollama-cloud" }) else {
             XCTFail("Expected ollama-cloud row"); return
         }
 
-        let expectedMultiplier = 553_686_784.0 / (600_792_157.0 - 553_686_784.0)
-        let expectedEstimated = 1_000_000.0 * expectedMultiplier
+        XCTAssertEqual(row.estimatedCacheReadTokens, 0, accuracy: 1.0)
+        XCTAssertEqual(row.cacheReadTokens, 500_000, accuracy: 1.0)
+        XCTAssertFalse(row.hasEstimates)
 
-        // estimatedCacheReadTokens = just the estimate from row with cacheRead==0
-        XCTAssertEqual(row.estimatedCacheReadTokens, expectedEstimated, accuracy: 1.0)
-        // cacheReadTokens (displayed) = real(500k) + estimated
-        let expectedDisplayed = 500_000.0 + expectedEstimated
-        XCTAssertEqual(row.cacheReadTokens, expectedDisplayed, accuracy: 1.0)
-        // hasEstimates = true because at least one row was estimated
-        XCTAssertTrue(row.hasEstimates)
-
-        // Ollama rate = (real+estimated) / (input+real+estimated)
+        // Ollama rate = real / (input + real) with no estimate involved.
         let totalInput = 2_000_000.0
         let totalReal = 500_000.0
-        let totalEstimated = expectedEstimated
-        let expectedRate = (totalReal + totalEstimated) / (totalInput + totalReal + totalEstimated)
+        let expectedRate = totalReal / (totalInput + totalReal)
         XCTAssertEqual(row.cacheRate, expectedRate, accuracy: 0.0001)
 
         // usageTokens = real-only (actualTokens + real cacheRead + real cacheWrite)

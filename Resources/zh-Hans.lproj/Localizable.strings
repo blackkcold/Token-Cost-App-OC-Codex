@@ -63,7 +63,7 @@
 "detail.cache.savedCost" = "节省成本";
 "detail.cache.savedCostSubtitle" = "按模型边际价差估算";
 "detail.cache.subtitle" = "命中、写入、节省成本";
-"detail.cache.subtitleEstimated" = "命中、写入、节省成本 · %@ 预估读取";
+"detail.cache.subtitleEstimated" = "Ollama Cloud 未上报缓存读的部分为预估（%@）；已上报缓存读保持原值，费用不使用预估值";
 "detail.cache.title" = "缓存分析";
 "detail.cache.titleEstimated" = "缓存分析（含预估）";
 "detail.cache.estimatedSuffix" = "预估";
@@ -84,9 +84,18 @@
 "detail.emptyState.title" = "尚未选择来源";
 "detail.loading.subtitle" = "helper 进程正在读取 SQLite";
 "detail.loading.title" = "正在刷新";
-"detail.modelComparison.subtitleCollapsed" = "按有效成本分摊后的 tokens/$ · 默认 Top %d";
-"detail.modelComparison.subtitleFull" = "按有效成本分摊后的 tokens/$ · 全量 %d 个模型";
+"detail.modelComparison.subtitleCollapsed" = "Provider/模型 API 等值 tokens/$ · 默认 Top %d";
+"detail.modelComparison.subtitleFull" = "Provider/模型 API 等值 tokens/$ · 全量 %d 行";
 "detail.modelComparison.title" = "模型价格对比";
+"detail.modelComparison.price.free" = "免费";
+"detail.modelComparison.price.inherited" = "沿用 %@";
+"detail.modelComparison.value.unknown" = "—";
+"detail.modelComparison.variants" = "%d 个变体";
+"detail.modelComparison.notice.hidden" = "另有 %d 个模型未显示，展开可见";
+"detail.modelComparison.catalog.notice" = "价格目录：%@ · 截至 %@";
+"detail.modelComparison.catalog.noticeUnpriced" = "价格目录：%@ · 截至 %@ · %d 个模型未定价";
+"detail.modelComparison.catalog.bundled" = "内置快照";
+"detail.modelComparison.catalog.unknownDate" = "未知日期";
 "detail.overview.activeDays" = "活跃 %d 天";
 "detail.overview.actualTokens" = "实际 Token";
 "detail.overview.actualTokensSubtitle" = "不含缓存 · %d 次请求";
@@ -95,13 +104,16 @@
 "detail.overview.dailyAverage" = "日均消耗";
 "detail.overview.monthlyEstimate" = "预估月消耗";
 "detail.overview.monthlyEstimateSubtitle" = "按 30 天估算";
+"detail.overview.netActualTokens" = "净实际 Token";
+"detail.overview.netActualTokensSubtitle" = "已扣 Ollama 估算缓存 %@ · 展示口径，非计费";
 "detail.overview.subtitle" = "与 legacy dashboard 的主卡片对齐";
 "detail.overview.title" = "总览";
 "detail.overview.totalCost" = "总成本";
 "detail.overview.totalCostSubtitle" = "有效成本口径";
+"detail.table.unreportedCacheHint" = "Ollama Cloud 未上报缓存读，已按同模型参考率估算 %@；原始值与计费不变";
 "detail.providerRank.apiPricing" = "%@ API计费";
 "detail.providerRank.noPricing" = "未配置定价";
-"detail.providerRank.suffix" = "%@ 实际 · %@";
+"detail.providerRank.suffix" = "%@ 净实际 · %@";
 "detail.providerRank.subscriptionPricing" = "%@/月";
 "detail.providerRank.subtitle" = "按 tokens/$ 排序";
 "detail.providerRank.title" = "Provider 性价比排行";
@@ -116,11 +128,13 @@
 "detail.stacked.subtitle" = "基于 %d 个筛选日期 · 默认 20 天/页";
 "detail.stacked.title" = "每日模型堆叠";
 "detail.tooltip.actualTokens" = "实际 Token";
+"detail.tooltip.displayActualTokens" = "展示实际 Token（已扣 Ollama 预估缓存）";
 "detail.tooltip.cacheHit" = "缓存命中";
 "detail.tooltip.cacheHitWithEstimates" = "缓存命中（包含预估）";
 "detail.tooltip.cacheEstimated" = "预估缓存读取";
 "detail.tooltip.cacheWrite" = "缓存写入";
 "detail.trend.subtitle" = "平滑曲线 + hover 提示";
+"detail.trend.subtitleEstimated" = "展示实际量已扣除 Ollama 预估缓存；总览和计费口径保持原值";
 "detail.trend.title" = "每日 Token 趋势";
 
 "dialog.action.addDirectory" = "添加目录";
@@ -658,7 +672,7 @@
 "developerMode.governance.fileSummary" = "%d 个文件，共 %d KB";
 "developerMode.governance.skillCount" = "%d 个 skill 目录";
 "developerMode.governance.sessionSummary" = "%d 个 session，共 %d MB";
-"developerMode.modelCompare.disclaimer" = "* 按 provider 有效成本按 token 比例分摊的估算值";
+"developerMode.modelCompare.disclaimer" = "* 按显式 Provider 定价档案计算 API 等值成本；未知 Provider 不继承 Zen 定价";
 
 /* Developer Mode - Phase 4 (AI Analysis - disabled in v1) */
 "developerMode.aiAnalysis.disabled" = "AI 分析功能暂未开放";
@@ -681,7 +695,7 @@
 "developerMode.doc.taskClassificationDesc" = "对 token 使用数据进行分类：推理占比高、缓存重型、输出为主、高频短对话、高成本。在 OpenCode 详情页的模型对比区域展示。";
 "developerMode.doc.optimizeDesc" = "扫描 5 类问题：过期快照、过多备份、大 Session 目录、配置碎片化、过期最新快照。在本地治理面板中展示扫描结果。";
 "developerMode.doc.localGovernanceDesc" = "显示 OpenCode 配置目录、Skills 目录、Session 目录的文件数量和访问状态。帮助了解运行时配置概况。";
-"developerMode.doc.modelCompareDesc" = "在 OpenCode 详情页的模型对比区域底部显示成本分摊免责声明，提示估算值的计算方式。";
+"developerMode.doc.modelCompareDesc" = "在模型对比区域显示 API 等值定价说明，并按 Provider 拆分同名模型。";
 "developerMode.doc.multiCurrencyDesc" = "在设置页中启用人民币/美元切换功能。所有价格展示随币种动态切换。";
 "developerMode.doc.aiAnalysisDesc" = "发送匿名化数据到 AI 端点获取优化建议。当前版本暂未开放。";
 "developerMode.doc.comingSoon" = "即将推出";

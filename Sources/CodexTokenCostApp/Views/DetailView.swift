@@ -19,14 +19,17 @@ struct DetailView: View {
     @State private var cachedAnalytics: TokenCostDashboardAnalytics?
     @State private var cachedStackedWindow: RecentStackedWindow?
     @State private var analyticsRefreshGeneration = 0
+    /// Bumped when the price catalog refreshes, so `.task(id:)` rebuilds analytics.
+    @State private var pricingRevision = 0
 
     private let sectionPageSize = 20
     private let modelComparisonCollapsedLimit = 10
-    private var overviewColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: 140), spacing: 12), count: 5)
-    }
     private var cacheColumns: [GridItem] {
         Array(repeating: GridItem(.flexible(minimum: 150), spacing: 12), count: 5)
+    }
+
+    private func overviewColumns(hasEstimatedCacheRead: Bool) -> [GridItem] {
+        Array(repeating: GridItem(.flexible(minimum: 140), spacing: 12), count: hasEstimatedCacheRead ? 6 : 5)
     }
 
     var body: some View {
@@ -82,6 +85,15 @@ struct DetailView: View {
         }
         .task(id: analyticsRefreshID) {
             await refreshCachedAnalytics()
+            // Refresh the models.dev price directory at most once a day; a
+            // successful refresh posts a notification that rebuilds analytics.
+            await ModelPricingCatalogStore.shared.refreshIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ModelPricingCatalogStore.didUpdateNotification)) { _ in
+            cachedAnalytics = nil
+            cachedStackedWindow = nil
+            analyticsRefreshGeneration += 1
+            pricingRevision += 1
         }
         .onChange(of: model.selectedPayload?.summary.updatedAt ?? "") { _, _ in
             detailPageIndex = 0
@@ -100,7 +112,7 @@ struct DetailView: View {
             .map { $0.timeIntervalSince1970.description } ?? ""
         let customEnd = appPreferencesModel.preferences.reportingRangeCustomBounds.end
             .map { $0.timeIntervalSince1970.description } ?? ""
-        return "\(updatedAt)|\(showZero)|\(rangeMode)|\(customStart)|\(customEnd)"
+        return "\(updatedAt)|\(showZero)|\(rangeMode)|\(customStart)|\(customEnd)|\(pricingRevision)"
     }
 
     private var reportingTotalCost: Double? {
@@ -155,7 +167,8 @@ struct DetailView: View {
             TokenCostDashboardAnalytics(
                 payload: effectivePayload,
                 showZeroUsageXiaomiProvider: showZero,
-                billingOverridesByProviderKey: effectiveOverrides
+                billingOverridesByProviderKey: effectiveOverrides,
+                pricing: ModelPricingCatalog.shared
             )
         }.value
 
@@ -209,7 +222,7 @@ struct DetailView: View {
             trailing: nil,
             palette: palette
         ) {
-            LazyVGrid(columns: overviewColumns, spacing: 12) {
+            LazyVGrid(columns: overviewColumns(hasEstimatedCacheRead: analytics.overview.hasEstimatedCacheRead), spacing: 12) {
                 TokenMetricCard(
                     title: AppLocalization.text("detail.overview.actualTokens"),
                     value: TokenCostFormatters.tokens(analytics.overview.totalActualTokens),
@@ -218,6 +231,19 @@ struct DetailView: View {
                     palette: palette,
                     compact: true
                 )
+                if analytics.overview.hasEstimatedCacheRead {
+                    TokenMetricCard(
+                        title: AppLocalization.text("detail.overview.netActualTokens"),
+                        value: TokenCostFormatters.tokens(analytics.overview.netActualTokens),
+                        subtitle: AppLocalization.format(
+                            "detail.overview.netActualTokensSubtitle",
+                            TokenCostFormatters.tokens(analytics.overview.totalEstimatedCacheReadTokens)
+                        ),
+                        tint: .teal,
+                        palette: palette,
+                        compact: true
+                    )
+                }
                 TokenMetricCard(
                     title: AppLocalization.text("detail.overview.totalCost"),
                     value: TokenCostFormatters.currency(reportingTotalCost ?? analytics.overview.totalCost, displayCurrency: appPreferencesModel.preferences.displayCurrency),
@@ -258,7 +284,7 @@ struct DetailView: View {
         let points = Array(analytics.trendPoints.suffix(trendDayRange)).map(openCodeTrendPoint)
         return TokenSectionCard(
             title: AppLocalization.text("detail.trend.title"),
-            subtitle: "\(AppLocalization.text("detail.trend.subtitle")) · \(AppLocalization.format("trend.range.days", trendDayRange))",
+            subtitle: "\(AppLocalization.text(analytics.cache.hasEstimates ? "detail.trend.subtitleEstimated" : "detail.trend.subtitle")) · \(AppLocalization.format("trend.range.days", trendDayRange))",
             trailing: AnyView(TokenTrendRangePicker(selection: $trendDayRange, palette: palette)),
             palette: palette
         ) {
@@ -384,17 +410,33 @@ struct DetailView: View {
                     .foregroundStyle(palette.subtitle)
             } else {
                 VStack(spacing: 10) {
-                    let maxRatio = rows.map(\.tokensPerDollar).max() ?? 1
+                    let pricedRatios = rows.filter { $0.hasPrice && !$0.isFree }.map(\.tokensPerDollar)
+                    let maxRatio = max(pricedRatios.max() ?? 1, 1)
                     ForEach(rows) { row in
                         DistributionRow(
                             title: row.displayName,
-                            value: row.tokensPerDollar,
-                            total: max(maxRatio, 1),
+                            value: row.isFree ? 0 : row.tokensPerDollar,
+                            total: maxRatio,
                             tint: TokenCostSeriesPalette.color(for: row.colorKey, palette: palette),
                             palette: palette,
-                            suffix: "\(row.provider) · \(modelCostLabel(row))",
-                            valueLabel: TokenCostFormatters.millionRate(row.tokensPerDollar, displayCurrency: appPreferencesModel.preferences.displayCurrency)
+                            suffix: modelRowSuffix(row),
+                            valueLabel: modelRowValueLabel(row)
                         )
+                    }
+
+                    if analytics.modelComparisonRows.count > rows.count {
+                        Text(AppLocalization.format(
+                            "detail.modelComparison.notice.hidden",
+                            analytics.modelComparisonRows.count - rows.count
+                        ))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    }
+
+                    if let catalogNotice = modelComparisonCatalogNotice(for: analytics) {
+                        Text(catalogNotice)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
 
                     if appPreferencesModel.preferences.modelCompareEnabled {
@@ -601,12 +643,24 @@ struct DetailView: View {
     }
 
     private func detailRow(_ row: DashboardPayload.RawRow) -> some View {
-        let classification = TaskClassificationEngine.classify(row)
+        let classification = TaskClassificationEngine.classify(row, context: cachedAnalytics?.cacheEstimationContext ?? .init())
+        let deduction = cachedAnalytics?.displayDeduction(for: row)
         return HStack(spacing: 12) {
             Text(row.date).frame(width: 96, alignment: .leading)
             Text(row.model).frame(width: 150, alignment: .leading).lineLimit(1)
             Text(row.provider).frame(width: 132, alignment: .leading).lineLimit(1)
-            Text(TokenCostFormatters.tokens(row.input)).frame(width: 88, alignment: .trailing)
+            HStack(spacing: 4) {
+                Text(TokenCostFormatters.tokens(row.input))
+                if deduction != nil {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.teal)
+                }
+            }
+            .frame(width: 88, alignment: .trailing)
+            .help(deduction.map {
+                AppLocalization.format("detail.table.unreportedCacheHint", TokenCostFormatters.tokens($0.estimatedCacheRead))
+            } ?? "")
             Text(TokenCostFormatters.tokens(row.output)).frame(width: 88, alignment: .trailing)
             Text(TokenCostFormatters.tokens(row.cacheRead)).frame(width: 100, alignment: .trailing)
             Text(TokenCostFormatters.tokens(row.cacheWrite)).frame(width: 100, alignment: .trailing)
@@ -744,7 +798,7 @@ struct DetailView: View {
 
     private func providerRankSuffix(_ row: TokenCostDashboardAnalytics.ProviderRankRow) -> String {
         let costText = providerCostLabel(row)
-        let actualText = TokenCostFormatters.tokens(row.actualTokens)
+        let actualText = TokenCostFormatters.tokens(row.netActualTokens)
         return AppLocalization.format("detail.providerRank.suffix", actualText, costText)
     }
 
@@ -789,10 +843,56 @@ struct DetailView: View {
     }
 
     private func modelCostLabel(_ row: TokenCostDashboardAnalytics.ModelComparisonRow) -> String {
-        guard row.allocatedCost > 0 else {
+        switch row.pricingStatus {
+        case .free:
+            return AppLocalization.text("detail.modelComparison.price.free")
+        case .unknown:
             return AppLocalization.text("detail.providerRank.noPricing")
+        case .inherited:
+            let cost = TokenCostFormatters.currency(row.allocatedCost, displayCurrency: appPreferencesModel.preferences.displayCurrency)
+            guard let reference = row.priceReference else { return cost }
+            return "\(cost) · \(AppLocalization.format("detail.modelComparison.price.inherited", reference))"
+        case .exact:
+            return TokenCostFormatters.currency(row.allocatedCost, displayCurrency: appPreferencesModel.preferences.displayCurrency)
         }
-        return TokenCostFormatters.currency(row.allocatedCost, displayCurrency: appPreferencesModel.preferences.displayCurrency)
+    }
+
+    private func modelRowSuffix(_ row: TokenCostDashboardAnalytics.ModelComparisonRow) -> String {
+        var suffix = "\(row.provider) · \(modelCostLabel(row))"
+        if row.variantCount > 1 {
+            suffix += " · " + AppLocalization.format("detail.modelComparison.variants", row.variantCount)
+        }
+        return suffix
+    }
+
+    private func modelRowValueLabel(_ row: TokenCostDashboardAnalytics.ModelComparisonRow) -> String {
+        // A free model has no finite token-per-dollar ratio; showing "∞" or a
+        // full bar would present a number that cannot be compared. Leave it out.
+        if row.isFree {
+            return ""
+        }
+        guard row.hasPrice else {
+            return AppLocalization.text("detail.modelComparison.value.unknown")
+        }
+        return TokenCostFormatters.millionRate(row.tokensPerDollar, displayCurrency: appPreferencesModel.preferences.displayCurrency)
+    }
+
+    private func modelComparisonCatalogNotice(for analytics: TokenCostDashboardAnalytics) -> String? {
+        let metadata = analytics.pricingMetadata
+        let source: String
+        switch metadata.sourceLabel {
+        case "models.dev": source = "models.dev"
+        case "opencode-cache": source = "models.dev (OpenCode 缓存)"
+        case "bundled": source = AppLocalization.text("detail.modelComparison.catalog.bundled")
+        default: source = metadata.sourceLabel
+        }
+        let asOf = metadata.asOf.map {
+            TokenCostFormatters.localDateTime($0)
+        } ?? AppLocalization.text("detail.modelComparison.catalog.unknownDate")
+        if analytics.unpricedModelCount > 0 {
+            return AppLocalization.format("detail.modelComparison.catalog.noticeUnpriced", source, asOf, analytics.unpricedModelCount)
+        }
+        return AppLocalization.format("detail.modelComparison.catalog.notice", source, asOf)
     }
 
     private func openCodeTrendPoint(_ point: TokenCostDashboardAnalytics.TrendPoint) -> TokenTrendChartPoint {
@@ -811,12 +911,12 @@ struct DetailView: View {
         return TokenTrendChartPoint(
             date: point.date,
             dateString: point.dateString,
-            actualTokens: point.actualTokens,
+            actualTokens: point.displayActualTokens,
             tooltipLines: [
                 TokenTrendTooltipLine(
                     color: palette.accent,
-                    title: AppLocalization.text("detail.tooltip.actualTokens"),
-                    value: TokenCostFormatters.tokens(point.actualTokens)
+                    title: AppLocalization.text(estimatedTokens > 0 ? "detail.tooltip.displayActualTokens" : "detail.tooltip.actualTokens"),
+                    value: TokenCostFormatters.tokens(point.displayActualTokens)
                 ),
                 TokenTrendTooltipLine(
                     color: .green,
@@ -876,7 +976,7 @@ func stackedWindow(from analytics: TokenCostDashboardAnalytics) -> RecentStacked
 
     var totalByModel: [String: Double] = [:]
     for row in windowRows {
-        let key = stackedModelKey(row.model)
+        let key = analytics.canonicalModelKey(provider: row.provider, model: row.model)
         totalByModel[key, default: 0] += row.total
     }
 
@@ -895,7 +995,7 @@ func stackedWindow(from analytics: TokenCostDashboardAnalytics) -> RecentStacked
     var series: [DetailStackSeries] = topModelKeys.map { modelKey in
         let values = sortedDates.map { date in
             groupedByDate[date, default: []].reduce(0) { partialResult, row in
-                stackedModelKey(row.model) == modelKey ? partialResult + row.total : partialResult
+                analytics.canonicalModelKey(provider: row.provider, model: row.model) == modelKey ? partialResult + row.total : partialResult
             }
         }
         return DetailStackSeries(
@@ -909,7 +1009,7 @@ func stackedWindow(from analytics: TokenCostDashboardAnalytics) -> RecentStacked
 
     let otherValues = sortedDates.map { date in
         groupedByDate[date, default: []].reduce(0) { partialResult, row in
-            topModelSet.contains(stackedModelKey(row.model)) ? partialResult : partialResult + row.total
+            topModelSet.contains(analytics.canonicalModelKey(provider: row.provider, model: row.model)) ? partialResult : partialResult + row.total
         }
     }
 
@@ -952,12 +1052,16 @@ func detailReportingTotalCost(
 }
 
 func detailCacheDistributionTotal(for row: TokenCostDashboardAnalytics.ProviderCacheRow) -> Double {
-    row.inputTokens + row.cacheReadTokens
+    row.displayInputTokens + row.cacheReadTokens
 }
 
-func stackedModelKey(_ model: String) -> String {
+func stackedModelKey(_ model: String, provider: String = "") -> String {
     let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? "unknown" : trimmed
+    guard !trimmed.isEmpty else { return "unknown" }
+    if provider.isEmpty {
+        return ModelPricingCatalog.splitVariants(ModelPricingCatalog.normalizedModelKey(trimmed)).family
+    }
+    return ModelPricingCatalog.shared.canonicalKey(provider: provider, model: trimmed)
 }
 
 private extension DetailView {

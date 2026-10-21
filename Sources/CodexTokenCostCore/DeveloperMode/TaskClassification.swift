@@ -46,7 +46,7 @@ public struct TaskClassificationResult: Sendable {
 public enum TaskClassificationEngine: Sendable {
     /// Classify a single RawRow using the 6-rule heuristic.
     /// Rules are evaluated in priority order; first match wins.
-    public static func classify(_ row: DashboardPayload.RawRow) -> TaskClassificationResult {
+    public static func classify(_ row: DashboardPayload.RawRow, context: OllamaCloudCacheEstimation.Context = .init()) -> TaskClassificationResult {
         let actualTokens = row.input + row.output + row.reasoning
         
         // Rule 1: Reasoning-heavy — reasoning tokens > 20% of actual
@@ -55,15 +55,22 @@ public enum TaskClassificationEngine: Sendable {
         }
         
         // Rule 2: Cache-heavy — cache tokens > 30% of total
-        if row.total > 0 {
-            let effectiveCacheRead = OllamaCloudCacheEstimation.effectiveCacheRead(
+        if row.input > 0 || row.cacheRead > 0 || row.cacheWrite > 0 {
+            let split = OllamaCloudCacheEstimation.split(
                 provider: row.provider,
                 model: row.model,
-                cacheRead: Double(row.cacheRead),
-                input: Double(row.input)
+                input: row.input,
+                output: row.output,
+                reasoning: row.reasoning,
+                cacheRead: row.cacheRead,
+                cacheWrite: row.cacheWrite,
+                date: row.date,
+                context: context
             )
+            let effectiveCacheRead = row.cacheRead + split.estimatedCacheRead
             let cacheTotal = effectiveCacheRead + Double(row.cacheWrite)
-            if cacheTotal / Double(row.total) > 0.3 {
+            let cacheDenominator = split.displayInput + cacheTotal
+            if cacheDenominator > 0, cacheTotal / cacheDenominator > 0.3 {
                 return TaskClassificationResult(rule: .cacheHeavy)
             }
         }
@@ -88,11 +95,12 @@ public enum TaskClassificationEngine: Sendable {
     }
     
     /// Classify multiple rows and return a summary.
-    public static func classify(rows: [DashboardPayload.RawRow]) -> [String: TaskClassificationResult] {
+    public static func classify(rows: [DashboardPayload.RawRow], context: OllamaCloudCacheEstimation.Context? = nil) -> [String: TaskClassificationResult] {
+        let context = context ?? .init(rows: rows)
         var results: [String: TaskClassificationResult] = [:]
         for row in rows {
-            let key = "\(row.date)_\(row.model)_\(row.provider)"
-            results[key] = classify(row)
+            let key = "\(row.date)_\(row.model)_\(row.provider)|\(row.cacheRead > 0 ? 1 : 0)"
+            results[key] = classify(row, context: context)
         }
         return results
     }
